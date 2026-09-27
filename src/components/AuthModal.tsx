@@ -173,7 +173,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            Teacher Login
+            Faculty & Admin
           </button>
           <button
             type="button"
@@ -212,11 +212,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
           </div>
         )}
 
-        {/* TEACHER LOGIN FORM */}
+        {/* TEACHER / ADMIN LOGIN FORM */}
         {mode === 'teacher-login' && (
           <form onSubmit={handleTeacherLogin} className="space-y-4">
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">Teacher Email</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-medium text-slate-300">Email Address</label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmailOrId('victoralo1862@gmail.com');
+                    setPassword('Alo.13071996');
+                  }}
+                  className="text-[11px] text-amber-400 hover:text-amber-300 font-semibold underline decoration-dotted cursor-pointer"
+                >
+                  Quick Fill: Victor Alo (Super Admin)
+                </button>
+              </div>
               <div className="relative">
                 <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                 <input
@@ -224,7 +236,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
                   required
                   value={emailOrId}
                   onChange={(e) => setEmailOrId(e.target.value)}
-                  placeholder="teacher@school.edu"
+                  placeholder="victoralo1862@gmail.com"
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 transition"
                 />
               </div>
@@ -250,7 +262,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
               disabled={loading}
               className="w-full bg-emerald-700 hover:bg-emerald-600 text-white font-semibold py-2.5 rounded-xl text-sm transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/40 border border-emerald-600/60 disabled:opacity-60 cursor-pointer"
             >
-              {loading ? 'Authenticating...' : 'Sign In as Faculty Member'}
+              {loading ? 'Authenticating...' : 'Sign In as Faculty / Super Admin'}
               <ArrowRight className="w-4 h-4" />
             </button>
           </form>
@@ -260,7 +272,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
         {mode === 'student-login' && (
           <form onSubmit={handleStudentLogin} className="space-y-4">
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">Unique Student ID (Admission No)</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-medium text-slate-300">Unique Student ID (Admission No)</label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmailOrId('FEN-2026-000001');
+                    setPassword('student123');
+                  }}
+                  className="text-[11px] text-emerald-400 hover:text-emerald-300 font-semibold underline decoration-dotted cursor-pointer"
+                >
+                  Quick Fill: Demo Student
+                </button>
+              </div>
               <div className="relative">
                 <UserIcon className="w-4 h-4 text-emerald-400 absolute left-3 top-3" />
                 <input
@@ -268,7 +292,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
                   required
                   value={emailOrId}
                   onChange={(e) => setEmailOrId(e.target.value.toUpperCase())}
-                  placeholder="e.g. FIS-2026-000001"
+                  placeholder="e.g. FEN-2026-000001"
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white uppercase font-mono tracking-wider focus:outline-none focus:border-emerald-500 transition"
                 />
               </div>

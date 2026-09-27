@@ -59,26 +59,56 @@ export async function seedDatabase() {
       console.log('Seeded initial subjects');
     }
 
-    // 5. Seed Super Admin & Demo Teacher
-    const adminUser = await db.select().from(users).where(eq(users.role, 'super_admin')).limit(1);
+    // 5. Seed Super Admin (Victor Alo - Super Admin & Digital Technology Faculty)
+    const adminUser = await db.select().from(users).where(eq(users.email, 'victoralo1862@gmail.com')).limit(1);
+    let adminUserId: number;
+
+    const adminSalt = await bcrypt.genSalt(10);
+    const adminPassHash = await bcrypt.hash('Alo.13071996', adminSalt);
+
     if (adminUser.length === 0) {
-      const adminSalt = await bcrypt.genSalt(10);
-      const adminPassHash = await bcrypt.hash('admin123', adminSalt);
-      await db.insert(users).values({
-        uid: 'super-admin-001',
-        email: 'admin@school.edu',
+      const [newAdmin] = await db.insert(users).values({
+        uid: 'super-admin-victor-alo',
+        email: 'victoralo1862@gmail.com',
         passwordHash: adminPassHash,
-        firstName: 'System',
-        lastName: 'Administrator',
+        firstName: 'Victor',
+        lastName: 'Alo',
         role: 'super_admin',
         schoolId,
-      });
-      console.log('Seeded Super Admin: admin@school.edu / admin123');
+      }).returning();
+      adminUserId = newAdmin.id;
+      console.log('Seeded Super Admin: victoralo1862@gmail.com / Alo.13071996');
+    } else {
+      adminUserId = adminUser[0].id;
+      // Ensure password hash and names are up to date
+      await db.update(users).set({
+        passwordHash: adminPassHash,
+        firstName: 'Victor',
+        lastName: 'Alo',
+        role: 'super_admin',
+      }).where(eq(users.id, adminUserId));
     }
 
-    const teacherUsers = await db.select().from(users).where(eq(users.role, 'teacher')).limit(1);
+    // Ensure Victor Alo has an associated Teacher record as Digital Technology Teacher
+    const adminTeacherRecord = await db.select().from(teachers).where(eq(teachers.userId, adminUserId)).limit(1);
     let demoTeacherId = 1;
 
+    if (adminTeacherRecord.length === 0) {
+      const [newTeacher] = await db.insert(teachers).values({
+        userId: adminUserId,
+        teacherId: 'TCH-DGT-0001',
+        phone: '+2348012345678',
+        schoolName: 'Fenster International School',
+        schoolId,
+      }).returning();
+      demoTeacherId = newTeacher.id;
+      console.log('Linked Victor Alo as Digital Technology Faculty (TCH-DGT-0001)');
+    } else {
+      demoTeacherId = adminTeacherRecord[0].id;
+    }
+
+    // Also ensure a secondary demo teacher exists if needed
+    const teacherUsers = await db.select().from(users).where(eq(users.role, 'teacher')).limit(1);
     if (teacherUsers.length === 0) {
       const salt = await bcrypt.genSalt(10);
       const hashedPassword = await bcrypt.hash('teacher123', salt);
@@ -92,18 +122,13 @@ export async function seedDatabase() {
         schoolId,
       }).returning();
 
-      const [newTeacher] = await db.insert(teachers).values({
+      await db.insert(teachers).values({
         userId: demoUser.id,
-        teacherId: 'TCH-2026-0001',
+        teacherId: 'TCH-2026-0002',
         phone: '+2348012345678',
         schoolName: 'Fenster International School',
         schoolId,
-      }).returning();
-      demoTeacherId = newTeacher.id;
-      console.log('Seeded demo teacher: teacher@school.edu / teacher123');
-    } else {
-      const t = await db.select().from(teachers).limit(1);
-      if (t.length > 0) demoTeacherId = t[0].id;
+      });
     }
 
     // 6. Seed Sample Students with unique IDs (e.g. FEN-2026-000001, FEN-2026-000021)
