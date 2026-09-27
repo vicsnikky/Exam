@@ -17,7 +17,10 @@ import {
   Clock,
   Activity,
   Award,
-  Key
+  Key,
+  Database,
+  Table,
+  Server
 } from 'lucide-react';
 
 export const SuperAdminDashboard: React.FC = () => {
@@ -33,7 +36,9 @@ export const SuperAdminDashboard: React.FC = () => {
   const [teachersList, setTeachersList] = useState<any[]>([]);
   const [usersList, setUsersList] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
-  const [activeAdminTab, setActiveAdminTab] = useState<'teachers' | 'users' | 'audit'>('teachers');
+  const [dbTables, setDbTables] = useState<any[]>([]);
+  const [selectedDbTable, setSelectedDbTable] = useState<string>('students');
+  const [activeAdminTab, setActiveAdminTab] = useState<'teachers' | 'users' | 'audit' | 'database'>('teachers');
 
   // Form states for creating teacher
   const [firstName, setFirstName] = useState('');
@@ -48,20 +53,28 @@ export const SuperAdminDashboard: React.FC = () => {
 
   const fetchAdminData = async () => {
     try {
-      const [overRes, tchRes, usrRes] = await Promise.all([
+      const [overRes, tchRes, usrRes, dbRes] = await Promise.all([
         fetch('/api/admin/overview', { headers: { Authorization: `Bearer ${token}` } }),
         fetch('/api/admin/teachers', { headers: { Authorization: `Bearer ${token}` } }),
         fetch('/api/admin/users', { headers: { Authorization: `Bearer ${token}` } }),
+        fetch('/api/admin/database-explorer', { headers: { Authorization: `Bearer ${token}` } }),
       ]);
 
       const overData = await overRes.json();
       const tchData = await tchRes.json();
       const usrData = await usrRes.json();
+      const dbData = await dbRes.json();
 
       if (overData.overview) setOverview(overData.overview);
       if (overData.recentLogs) setAuditLogs(overData.recentLogs);
       if (tchData.teachers) setTeachersList(tchData.teachers);
       if (usrData.users) setUsersList(usrData.users);
+      if (dbData.tables) {
+        setDbTables(dbData.tables);
+        if (dbData.tables.length > 0 && !selectedDbTable) {
+          setSelectedDbTable(dbData.tables[0].name);
+        }
+      }
     } catch (err) {
       console.error('Failed to load Super Admin data:', err);
     }
@@ -321,7 +334,18 @@ export const SuperAdminDashboard: React.FC = () => {
               }`}
             >
               <Activity className="w-3.5 h-3.5" />
-              System Audit Logs
+              Audit Logs
+            </button>
+            <button
+              onClick={() => setActiveAdminTab('database')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                activeAdminTab === 'database'
+                  ? 'bg-purple-600 text-white shadow'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Database className="w-3.5 h-3.5 text-cyan-400" />
+              Database Explorer
             </button>
           </div>
 
@@ -420,6 +444,96 @@ export const SuperAdminDashboard: React.FC = () => {
                   </div>
                 ))
               )}
+            </div>
+          )}
+
+          {/* DATABASE EXPLORER (Direct Cloud SQL inspection) */}
+          {activeAdminTab === 'database' && (
+            <div className="flex-1 flex flex-col space-y-3 overflow-hidden">
+              <div className="flex flex-wrap items-center gap-1.5 pb-2 border-b border-slate-700/80">
+                {dbTables.map((t) => (
+                  <button
+                    key={t.name}
+                    onClick={() => setSelectedDbTable(t.name)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-mono font-medium flex items-center gap-1.5 transition cursor-pointer ${
+                      selectedDbTable === t.name
+                        ? 'bg-cyan-600 text-white shadow'
+                        : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-700'
+                    }`}
+                  >
+                    <Table className="w-3 h-3" />
+                    {t.name}
+                    <span className="px-1 py-0.2 text-[9px] rounded bg-slate-800 text-cyan-300">
+                      {t.rowCount}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              {(() => {
+                const currentTableObj = dbTables.find((t) => t.name === selectedDbTable) || dbTables[0];
+                if (!currentTableObj) {
+                  return (
+                    <div className="p-8 text-center text-slate-400 text-xs">
+                      Connecting to Cloud SQL instance...
+                    </div>
+                  );
+                }
+
+                const rows = currentTableObj.sampleRows || [];
+                const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
+
+                return (
+                  <div className="flex-1 overflow-auto max-h-[380px] bg-slate-900/90 rounded-xl border border-slate-700/80 p-3">
+                    <div className="flex items-center justify-between mb-2 text-xs">
+                      <span className="text-slate-300 font-mono font-bold flex items-center gap-1.5">
+                        <Server className="w-3.5 h-3.5 text-cyan-400" />
+                        Table: <span className="text-cyan-400">{currentTableObj.name}</span>
+                      </span>
+                      <span className="text-slate-400 text-[11px]">
+                        Total Rows: <strong className="text-white">{currentTableObj.rowCount}</strong> (Showing preview)
+                      </span>
+                    </div>
+
+                    {rows.length === 0 ? (
+                      <div className="p-6 text-center text-slate-500 text-xs">
+                        This table currently has 0 rows.
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-[11px] font-mono">
+                          <thead className="bg-slate-800 text-slate-400 uppercase tracking-wider border-b border-slate-700">
+                            <tr>
+                              {columns.map((c) => (
+                                <th key={c} className="py-2 px-2.5 whitespace-nowrap">
+                                  {c}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800 text-slate-300">
+                            {rows.map((row: any, i: number) => (
+                              <tr key={i} className="hover:bg-slate-800/40">
+                                {columns.map((c) => (
+                                  <td key={c} className="py-2 px-2.5 whitespace-nowrap max-w-xs truncate text-slate-200">
+                                    {row[c] === null ? (
+                                      <span className="text-slate-600 italic">null</span>
+                                    ) : typeof row[c] === 'object' ? (
+                                      JSON.stringify(row[c])
+                                    ) : (
+                                      String(row[c])
+                                    )}
+                                  </td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           )}
 

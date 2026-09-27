@@ -1291,6 +1291,44 @@ app.get('/api/admin/users', authenticate, async (req: AuthRequest, res) => {
   }
 });
 
+// Super Admin: Database Explorer (Inspect tables & row counts live)
+app.get('/api/admin/database-explorer', authenticate, async (req: AuthRequest, res) => {
+  try {
+    if (req.appUser?.role !== 'super_admin') {
+      return res.status(403).json({ error: 'Access denied: Super Admin authorization required' });
+    }
+
+    const tablesQuery = await db.execute(sql`
+      SELECT table_name 
+      FROM information_schema.tables 
+      WHERE table_schema = 'public' 
+      ORDER BY table_name;
+    `);
+
+    const tableNames = (tablesQuery.rows as any[]).map((r) => r.table_name);
+    const tableSummaries = [];
+
+    for (const tbl of tableNames) {
+      const countRes = await db.execute(sql.raw(`SELECT count(*)::int as count FROM "${tbl}";`));
+      const sampleRes = await db.execute(sql.raw(`SELECT * FROM "${tbl}" LIMIT 5;`));
+      tableSummaries.push({
+        name: tbl,
+        rowCount: (countRes.rows[0] as any)?.count || 0,
+        sampleRows: sampleRes.rows,
+      });
+    }
+
+    return res.json({
+      database: process.env.SQL_DB_NAME,
+      host: 'Google Cloud SQL (Unix Proxy Socket)',
+      tables: tableSummaries,
+    });
+  } catch (error: any) {
+    console.error('Database explorer error:', error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 // Super Admin: System Overview & Stats
 app.get('/api/admin/overview', authenticate, async (req: AuthRequest, res) => {
   try {
