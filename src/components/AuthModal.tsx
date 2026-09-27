@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext.tsx';
+import { FIS_LOGOS } from '../constants/branding.ts';
 import {
   GraduationCap,
   Sparkles,
@@ -158,30 +159,37 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
-      <div className="w-full max-w-lg bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl p-6 sm:p-8">
-        
-        {/* Header */}
-        <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-indigo-600 text-white mb-3 shadow-lg shadow-indigo-500/30">
-            <GraduationCap className="w-8 h-8" />
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 selection:bg-amber-400 selection:text-emerald-950">
+      <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 sm:p-8 fis-card-accent relative overflow-hidden">
+        {/* Subtle background glow */}
+        <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-600/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-0 left-0 w-64 h-64 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+
+        {/* Header with FIS Official Logo */}
+        <div className="text-center mb-6 relative z-10">
+          <div className="inline-flex items-center justify-center p-2 rounded-2xl bg-white/95 shadow-xl mb-3 border border-amber-400/40">
+            <img
+              src={FIS_LOGOS.full}
+              alt="Federal International School Logo"
+              className="h-16 w-auto object-contain max-w-[280px]"
+            />
           </div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">
-            School Assessment System
+          <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
+            Academic Assessment Portal
           </h1>
-          <p className="text-sm text-slate-400 mt-1">
-            Scalable Academic Quizzes, AI Question Bank & Performance Tracking
+          <p className="text-xs text-amber-300/90 font-medium mt-1">
+            Federal International School • {FIS_LOGOS.motto}
           </p>
         </div>
 
         {/* Mode Selector Tabs */}
-        <div className="flex bg-slate-900/80 p-1 rounded-xl mb-6 border border-slate-700">
+        <div className="flex bg-slate-950/90 p-1 rounded-xl mb-6 border border-slate-800 relative z-10">
           <button
             type="button"
             onClick={() => { setMode('teacher-login'); setError(null); }}
-            className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all ${
+            className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
               mode === 'teacher-login'
-                ? 'bg-indigo-600 text-white shadow'
+                ? 'bg-emerald-700 text-white shadow-md shadow-emerald-900/50 border border-emerald-600/50'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
@@ -190,9 +198,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
           <button
             type="button"
             onClick={() => { setMode('student-login'); setError(null); setEmailOrId('FIS-2026-000001'); setPassword('student123'); }}
-            className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all ${
+            className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
               mode === 'student-login'
-                ? 'bg-emerald-600 text-white shadow'
+                ? 'bg-amber-500 text-slate-950 font-bold shadow-md shadow-amber-600/40'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
@@ -201,9 +209,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
           <button
             type="button"
             onClick={() => { setMode('teacher-register'); setError(null); }}
-            className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all ${
+            className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
               mode === 'teacher-register'
-                ? 'bg-indigo-600 text-white shadow'
+                ? 'bg-emerald-700 text-white shadow-md shadow-emerald-900/50 border border-emerald-600/50'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
@@ -291,9 +299,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2.5 rounded-xl text-sm transition flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/30 disabled:opacity-60 cursor-pointer"
+              className="w-full bg-emerald-700 hover:bg-emerald-600 text-white font-semibold py-2.5 rounded-xl text-sm transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/40 border border-emerald-600/60 disabled:opacity-60 cursor-pointer"
             >
-              {loading ? 'Authenticating...' : 'Sign In as Teacher'}
+              {loading ? 'Authenticating...' : 'Sign In as Faculty Member'}
               <ArrowRight className="w-4 h-4" />
             </button>
           </form>
@@ -338,9 +346,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2.5 rounded-xl text-sm transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/30 disabled:opacity-60 cursor-pointer"
+              className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold py-2.5 rounded-xl text-sm transition flex items-center justify-center gap-2 shadow-lg shadow-amber-500/30 disabled:opacity-60 cursor-pointer"
             >
-              {loading ? 'Authenticating...' : 'Enter Student Portal'}
+              {loading ? 'Authenticating...' : 'Enter Student Exam Portal'}
               <ArrowRight className="w-4 h-4" />
             </button>
           </form>
@@ -442,9 +450,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2.5 rounded-xl text-sm transition flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/30 disabled:opacity-60 cursor-pointer"
+              className="w-full bg-emerald-700 hover:bg-emerald-600 text-white font-semibold py-2.5 rounded-xl text-sm transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/40 border border-emerald-600/60 disabled:opacity-60 cursor-pointer"
             >
-              {loading ? 'Creating Teacher Account...' : 'Complete Teacher Registration'}
+              {loading ? 'Creating Faculty Account...' : 'Complete Teacher Registration'}
               <ArrowRight className="w-4 h-4" />
             </button>
           </form>

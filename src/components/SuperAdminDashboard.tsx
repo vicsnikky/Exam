@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.tsx';
+import { FIS_LOGOS } from '../constants/branding.ts';
 import {
   ShieldAlert,
   UserPlus,
@@ -127,25 +128,35 @@ export const SuperAdminDashboard: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Super Admin Top Banner */}
-      <div className="bg-gradient-to-r from-purple-900/70 via-slate-800 to-indigo-950/60 border border-purple-500/40 p-6 sm:p-8 rounded-2xl shadow-2xl">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div>
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30 text-xs font-semibold uppercase tracking-wider mb-2">
-              <ShieldAlert className="w-3.5 h-3.5 text-purple-400" />
-              Super Admin Authority
+      <div className="bg-gradient-to-r from-emerald-950 via-slate-900 to-amber-950/40 border border-amber-500/40 p-6 sm:p-8 rounded-2xl shadow-2xl fis-card-accent relative overflow-hidden">
+        {/* Subtle Crest Watermark */}
+        <div className="absolute right-0 top-0 bottom-0 opacity-10 pointer-events-none flex items-center pr-6">
+          <img src={FIS_LOGOS.crest} alt="FIS Crest" className="h-56 w-auto" />
+        </div>
+
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
+          <div className="flex items-start sm:items-center gap-4">
+            <div className="w-14 h-14 bg-white p-1 rounded-2xl shadow-md border border-amber-400/40 shrink-0 hidden sm:flex items-center justify-center">
+              <img src={FIS_LOGOS.crest} alt="FIS Crest" className="h-full w-full object-contain" />
             </div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
-              System Control & Staff Governance
-            </h1>
-            <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-2xl">
-              As Super Admin, you manage all faculty members, approve teacher registrations, oversee student enrollments, inspect institutional audits, and monitor assessment performance.
-            </p>
+            <div>
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-semibold uppercase tracking-wider mb-1.5">
+                <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
+                Federal International School • Super Admin Authority
+              </div>
+              <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
+                System Control & Staff Governance
+              </h1>
+              <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-2xl">
+                As Super Admin, you manage all faculty members, approve teacher registrations, oversee student enrollments, inspect institutional audits, and monitor assessment performance.
+              </p>
+            </div>
           </div>
 
-          <div className="bg-slate-900/80 border border-purple-500/30 p-4 rounded-xl text-xs space-y-1">
+          <div className="bg-slate-950/80 border border-amber-500/30 p-4 rounded-xl text-xs space-y-1">
             <span className="text-slate-400 block">Logged In Super Admin:</span>
             <span className="text-white font-bold block">{user?.firstName} {user?.lastName}</span>
-            <span className="text-purple-400 font-mono text-[11px]">{user?.email}</span>
+            <span className="text-amber-400 font-mono text-[11px]">{user?.email}</span>
           </div>
         </div>
       </div>

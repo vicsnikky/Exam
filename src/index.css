@@ -1,1 +1,23 @@
 @import "tailwindcss";
+
+:root {
+  --fis-green-dark: #073b22;
+  --fis-green: #0b5c37;
+  --fis-green-light: #15803d;
+  --fis-gold: #f2a900;
+  --fis-gold-light: #fbbf24;
+  --fis-navy: #08162b;
+}
+
+/* Custom School Badge & Header Stylings */
+.fis-gold-gradient {
+  background: linear-gradient(135deg, #f2a900 0%, #fbbf24 50%, #d97706 100%);
+}
+
+.fis-green-gradient {
+  background: linear-gradient(135deg, #073b22 0%, #0b5c37 50%, #15803d 100%);
+}
+
+.fis-card-accent {
+  border-top: 3px solid #f2a900;
+}

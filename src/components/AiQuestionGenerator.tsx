@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.tsx';
+import { FIS_LOGOS } from '../constants/branding.ts';
 import {
   Sparkles,
   BookOpen,
@@ -183,19 +184,27 @@ export const AiQuestionGenerator: React.FC<AiQuestionGeneratorProps> = ({
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="bg-slate-800/80 border border-slate-700 p-6 rounded-2xl">
+      <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl fis-card-accent">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <h2 className="text-xl font-bold text-white flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-indigo-400" />
-              AI Curriculum Question Generator
-            </h2>
-            <p className="text-xs text-slate-400 mt-1">
-              Generates rigorous, syllabus-aligned multiple choice questions strictly based on your pasted educational text.
-            </p>
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-white p-1 rounded-xl shadow-md border border-amber-400/40 shrink-0 hidden sm:flex items-center justify-center">
+              <img src={FIS_LOGOS.crest} alt="FIS Crest" className="h-full w-full object-contain" />
+            </div>
+            <div>
+              <span className="text-[11px] uppercase font-bold text-amber-400 tracking-wider block">
+                Federal International School • Question Bank
+              </span>
+              <h2 className="text-xl font-bold text-white mt-0.5 flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-amber-400" />
+                AI Curriculum Question Generator
+              </h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Generates syllabus-aligned multiple choice examination questions with answer keys and explanations strictly grounded in curriculum text.
+              </p>
+            </div>
           </div>
-          <div className="bg-indigo-950/60 border border-indigo-500/30 px-3.5 py-1.5 rounded-xl text-xs text-indigo-300">
-            Powered by <strong>Gemini 3.8 Flash</strong>
+          <div className="bg-emerald-950/60 border border-emerald-500/40 px-3.5 py-2 rounded-xl text-xs text-emerald-300">
+            Engine: <strong className="text-amber-300">Gemini 3.8 Flash</strong>
           </div>
         </div>
       </div>
@@ -315,17 +324,17 @@ export const AiQuestionGenerator: React.FC<AiQuestionGeneratorProps> = ({
           <button
             type="submit"
             disabled={generating}
-            className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium rounded-xl transition shadow-lg shadow-indigo-600/30 flex items-center gap-2 cursor-pointer disabled:opacity-50"
+            className="px-6 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold rounded-xl transition shadow-lg shadow-amber-500/20 flex items-center gap-2 cursor-pointer disabled:opacity-50"
           >
             {generating ? (
               <>
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
                 Analyzing Material & Generating MCQs...
               </>
             ) : (
               <>
                 <Sparkles className="w-4 h-4" />
-                GENERATE QUESTIONS
+                GENERATE QUESTIONS WITH AI
               </>
             )}
           </button>

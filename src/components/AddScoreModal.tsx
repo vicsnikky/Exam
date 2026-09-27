@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.tsx';
+import { FIS_LOGOS } from '../constants/branding.ts';
 import {
   FileSpreadsheet,
   Search,
@@ -134,14 +135,24 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
-      <div className="bg-slate-800/80 border border-slate-700 p-6 rounded-2xl">
-        <h2 className="text-xl font-bold text-white flex items-center gap-2">
-          <FileSpreadsheet className="w-5 h-5 text-indigo-400" />
-          Add Student Score & Assessment Record
-        </h2>
-        <p className="text-xs text-slate-400 mt-1">
-          Record subject scores for existing students without ever re-registering them. Scores from all teachers link to the same permanent Student ID.
-        </p>
+      <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl fis-card-accent">
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 bg-white p-1 rounded-xl shadow-md border border-amber-400/40 shrink-0 hidden sm:flex items-center justify-center">
+            <img src={FIS_LOGOS.crest} alt="FIS Crest" className="h-full w-full object-contain" />
+          </div>
+          <div>
+            <span className="text-[11px] uppercase font-bold text-amber-400 tracking-wider block">
+              Federal International School • Continuous Assessment System
+            </span>
+            <h2 className="text-xl font-bold text-white mt-0.5 flex items-center gap-2">
+              <FileSpreadsheet className="w-5 h-5 text-emerald-400" />
+              Add Student Assessment Score
+            </h2>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Record verified CA, Mid-Term, or Final Exam scores for enrolled students. Automatically computes grade and writes directly to their academic transcript.
+            </p>
+          </div>
+        </div>
       </div>
 
       {saveSuccess && (
@@ -333,10 +344,10 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
             <button
               type="submit"
               disabled={saving}
-              className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold flex items-center gap-2 transition shadow-lg shadow-emerald-600/30 cursor-pointer disabled:opacity-50"
+              className="px-6 py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-semibold flex items-center gap-2 transition shadow-lg shadow-emerald-900/40 border border-emerald-600/50 cursor-pointer disabled:opacity-50"
             >
-              <Save className="w-4 h-4" />
-              {saving ? 'Saving...' : 'SAVE SCORE RECORD'}
+              <Save className="w-4 h-4 text-amber-400" />
+              {saving ? 'Recording Score...' : 'SAVE SCORE RECORD'}
             </button>
           </div>
         </form>

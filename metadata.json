@@ -1,6 +1,6 @@
 {
-  "name": "School Quiz & Assessment Management System",
-  "description": "Modern, scalable school assessment and learning platform featuring persistent Cloud SQL student records, unique Student ID generation, AI question generation using Gemini 3.8 Flash, teacher score recording, and academic performance tracking.",
+  "name": "Federal International School — Assessment Portal",
+  "description": "Modern, scalable school assessment and learning platform for Federal International School (FIS) featuring persistent Cloud SQL student records, unique Student ID generation, AI question generation using Gemini 3.8 Flash, teacher score recording, and academic performance tracking.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

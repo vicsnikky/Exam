@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.tsx';
+import { FIS_LOGOS } from '../constants/branding.ts';
 import {
   Users,
   Layers,
@@ -53,32 +54,37 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
   return (
     <div className="space-y-6">
       {/* Welcome Banner */}
-      <div className="bg-gradient-to-r from-indigo-900/60 via-slate-800 to-slate-800/80 border border-indigo-500/30 p-6 sm:p-8 rounded-2xl shadow-xl">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+      <div className="bg-gradient-to-r from-emerald-950 via-slate-900 to-slate-900 border border-emerald-500/30 p-6 sm:p-8 rounded-2xl shadow-xl fis-card-accent relative overflow-hidden">
+        {/* Crest watermark in background */}
+        <div className="absolute right-0 top-0 bottom-0 opacity-10 pointer-events-none flex items-center pr-6">
+          <img src={FIS_LOGOS.crest} alt="FIS Crest" className="h-56 w-auto" />
+        </div>
+
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
           <div>
-            <div className="flex items-center gap-2 text-indigo-400 text-xs font-semibold uppercase tracking-wider mb-2">
-              <School className="w-4 h-4" />
-              <span>{user?.schoolName || 'Federal International School'}</span>
+            <div className="flex items-center gap-2 text-amber-400 text-xs font-bold uppercase tracking-wider mb-2">
+              <School className="w-4 h-4 text-amber-400" />
+              <span>Federal International School (FIS)</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
               Welcome back, {user?.firstName} {user?.lastName || user?.surname}!
             </h1>
             <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-xl">
-              Teacher ID: <strong className="text-indigo-400 font-mono">{user?.teacherId || 'TCH-2026-0001'}</strong> • Academic Year 2026/2027. Manage students, generate MCQs with Gemini 3.8 Flash, and track academic results.
+              Teacher ID: <strong className="text-amber-400 font-mono">{user?.teacherId || 'TCH-2026-0001'}</strong> • Academic Session 2026/2027. Manage enrollments, generate AI-grounded MCQs, and track academic results.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
             <button
               onClick={() => onNavigate('question-generator')}
-              className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold flex items-center gap-2 transition shadow-lg shadow-indigo-600/30 cursor-pointer"
+              className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-2 transition shadow-lg shadow-amber-500/20 cursor-pointer"
             >
               <Sparkles className="w-4 h-4" />
               AI Question Generator
             </button>
             <button
               onClick={() => onNavigate('register-student')}
-              className="px-4 py-2.5 bg-slate-700 hover:bg-slate-600 text-white rounded-xl text-xs font-semibold flex items-center gap-2 transition cursor-pointer"
+              className="px-4 py-2.5 bg-emerald-800 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold flex items-center gap-2 transition border border-emerald-600/50 cursor-pointer"
             >
               <PlusCircle className="w-4 h-4" />
               Register Student

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.tsx';
+import { FIS_LOGOS } from '../constants/branding.ts';
 import {
   FileCheck2,
   Clock,
@@ -175,14 +176,23 @@ export const StudentQuizTaker: React.FC<StudentQuizTakerProps> = ({
   if (!activeQuiz) {
     return (
       <div className="space-y-6">
-        <div className="bg-slate-800/80 border border-slate-700 p-6 rounded-2xl">
-          <h2 className="text-xl font-bold text-white flex items-center gap-2">
-            <FileCheck2 className="w-5 h-5 text-emerald-400" />
-            Online Assessment & Quiz Portal
-          </h2>
-          <p className="text-xs text-slate-400 mt-1">
-            Welcome, <strong>{user?.firstName} {user?.surname || user?.lastName}</strong> ({user?.studentId || user?.currentClass || 'Student'})
-          </p>
+        <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl fis-card-accent flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 bg-white p-1 rounded-xl shadow-md border border-amber-400/40 shrink-0 hidden sm:flex items-center justify-center">
+              <img src={FIS_LOGOS.crest} alt="FIS Crest" className="h-full w-full object-contain" />
+            </div>
+            <div>
+              <span className="text-[11px] uppercase font-bold text-amber-400 tracking-wider block">
+                Federal International School • Online Examination Portal
+              </span>
+              <h2 className="text-xl font-bold text-white mt-0.5">
+                Available Assessments & Quizzes
+              </h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Candidate: <strong className="text-white">{user?.firstName} {user?.surname || user?.lastName}</strong> • Admission ID: <span className="font-mono text-emerald-400 font-bold">{user?.studentId || 'FIS-2026-000001'}</span>
+              </p>
+            </div>
+          </div>
         </div>
 
         {loading ? (

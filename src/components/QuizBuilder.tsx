@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.tsx';
+import { FIS_LOGOS } from '../constants/branding.ts';
 import {
   Layers,
   Search,
@@ -147,14 +148,24 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ onQuizCreated }) => {
 
   return (
     <div className="space-y-6">
-      <div className="bg-slate-800/80 border border-slate-700 p-6 rounded-2xl">
-        <h2 className="text-xl font-bold text-white flex items-center gap-2">
-          <Layers className="w-5 h-5 text-indigo-400" />
-          Quiz & Assessment Builder
-        </h2>
-        <p className="text-xs text-slate-400 mt-1">
-          Build structured online tests, choose questions from your AI bank, and assign to entire classes or specific students.
-        </p>
+      <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl fis-card-accent">
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 bg-white p-1 rounded-xl shadow-md border border-amber-400/40 shrink-0 hidden sm:flex items-center justify-center">
+            <img src={FIS_LOGOS.crest} alt="FIS Crest" className="h-full w-full object-contain" />
+          </div>
+          <div>
+            <span className="text-[11px] uppercase font-bold text-amber-400 tracking-wider block">
+              Federal International School • Examination Board
+            </span>
+            <h2 className="text-xl font-bold text-white mt-0.5 flex items-center gap-2">
+              <Layers className="w-5 h-5 text-emerald-400" />
+              Quiz & Assessment Builder
+            </h2>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Build structured online tests, set exact timers, select questions from the AI question bank, and publish to entire classes or assigned students.
+            </p>
+          </div>
+        </div>
       </div>
 
       {error && (
@@ -438,10 +449,10 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ onQuizCreated }) => {
           <button
             type="submit"
             disabled={creating}
-            className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-xl text-xs flex items-center gap-2 transition shadow-lg shadow-indigo-600/30 cursor-pointer disabled:opacity-50"
+            className="px-6 py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white font-semibold rounded-xl text-xs flex items-center gap-2 transition shadow-lg shadow-emerald-900/40 border border-emerald-600/50 cursor-pointer disabled:opacity-50"
           >
-            {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-            Publish & Assign Quiz
+            {creating ? <Loader2 className="w-4 h-4 animate-spin text-amber-400" /> : <Send className="w-4 h-4 text-amber-400" />}
+            Publish & Assign Exam
           </button>
         </div>
       </form>

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from './context/AuthContext.tsx';
+import { FIS_LOGOS } from './constants/branding.ts';
 import { AuthModal } from './components/AuthModal.tsx';
 import { DashboardHome } from './components/DashboardHome.tsx';
 import { StudentRegistration } from './components/StudentRegistration.tsx';
@@ -73,30 +74,39 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-amber-400 selection:text-emerald-950">
       {/* Top Navbar */}
-      <header className="sticky top-0 z-30 bg-slate-900/90 backdrop-blur border-b border-slate-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <header className="sticky top-0 z-30 bg-slate-900/95 backdrop-blur border-b border-slate-800 fis-card-accent">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-18 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="lg:hidden p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800"
+              className="lg:hidden p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
             >
               {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
             <div
               onClick={() => setActiveTab(isStudent ? 'take-quiz' : 'dashboard')}
-              className="flex items-center gap-2.5 cursor-pointer"
+              className="flex items-center gap-3 cursor-pointer group"
             >
-              <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-600/30">
-                <GraduationCap className="w-5 h-5" />
+              <div className="h-11 w-11 rounded-xl bg-white p-1 flex items-center justify-center shadow-md border border-amber-400/40 group-hover:scale-105 transition">
+                <img
+                  src={FIS_LOGOS.crest}
+                  alt="FIS Crest"
+                  className="h-full w-full object-contain"
+                />
               </div>
               <div>
-                <span className="font-bold text-white text-base tracking-tight block leading-tight">
-                  SQAMS
-                </span>
-                <span className="text-[10px] text-slate-400 font-medium block leading-tight">
-                  Assessment & Learning System
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-white text-base tracking-tight block leading-tight">
+                    Federal International School
+                  </span>
+                  <span className="hidden sm:inline-block px-2 py-0.5 rounded bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold">
+                    FIS
+                  </span>
+                </div>
+                <span className="text-[11px] text-amber-300/90 font-medium block leading-tight">
+                  Academic Assessment & Examination Portal
                 </span>
               </div>
             </div>
@@ -108,19 +118,24 @@ export default function App() {
               <span className="text-xs font-semibold text-white flex items-center justify-end gap-1.5">
                 {user.firstName} {user.lastName || user.surname}
                 {isSuperAdmin && (
-                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40">
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
                     SUPER ADMIN
+                  </span>
+                )}
+                {isStudent && (
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300">
+                    STUDENT
                   </span>
                 )}
               </span>
               <span className="text-[10px] text-slate-400 font-mono">
-                {isStudent ? `Student ID: ${user.studentId}` : isSuperAdmin ? 'Full Access: System Administrator' : `Teacher: ${user.teacherId || user.email}`}
+                {isStudent ? `ID: ${user.studentId}` : isSuperAdmin ? 'Full System Authority' : `Faculty: ${user.teacherId || user.email}`}
               </span>
             </div>
 
             <button
               onClick={logout}
-              className="p-2 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition cursor-pointer"
+              className="p-2.5 rounded-xl text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 transition cursor-pointer border border-transparent hover:border-amber-500/20"
               title="Sign Out"
             >
               <LogOut className="w-4 h-4" />
@@ -143,11 +158,11 @@ export default function App() {
                     onClick={() => setActiveTab('super-admin')}
                     className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer mb-2 ${
                       activeTab === 'super-admin'
-                        ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30'
-                        : 'bg-purple-950/40 text-purple-300 border border-purple-500/30 hover:bg-purple-900/50'
+                        ? 'bg-amber-500 text-slate-950 font-bold shadow-md shadow-amber-500/20'
+                        : 'bg-amber-500/10 text-amber-300 border border-amber-500/30 hover:bg-amber-500/20'
                     }`}
                   >
-                    <ShieldAlert className="w-4 h-4 shrink-0 text-purple-400" />
+                    <ShieldAlert className="w-4 h-4 shrink-0 text-amber-400" />
                     Super Admin Console
                   </button>
                 )}
@@ -156,7 +171,7 @@ export default function App() {
                   onClick={() => setActiveTab('dashboard')}
                   className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition cursor-pointer ${
                     activeTab === 'dashboard'
-                      ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                      ? 'bg-emerald-700 text-white shadow-md shadow-emerald-900/40 border border-emerald-600/40'
                       : 'text-slate-300 hover:bg-slate-700/50 hover:text-white'
                   }`}
                 >
@@ -168,7 +183,7 @@ export default function App() {
                   onClick={() => setActiveTab('students')}
                   className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition cursor-pointer ${
                     activeTab === 'students'
-                      ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                      ? 'bg-emerald-700 text-white shadow-md shadow-emerald-900/40 border border-emerald-600/40'
                       : 'text-slate-300 hover:bg-slate-700/50 hover:text-white'
                   }`}
                 >
@@ -180,7 +195,7 @@ export default function App() {
                   onClick={() => setActiveTab('register-student')}
                   className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition cursor-pointer ${
                     activeTab === 'register-student'
-                      ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                      ? 'bg-emerald-700 text-white shadow-md shadow-emerald-900/40 border border-emerald-600/40'
                       : 'text-slate-300 hover:bg-slate-700/50 hover:text-white'
                   }`}
                 >
@@ -192,7 +207,7 @@ export default function App() {
                   onClick={() => setActiveTab('subjects')}
                   className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition cursor-pointer ${
                     activeTab === 'subjects'
-                      ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                      ? 'bg-emerald-700 text-white shadow-md shadow-emerald-900/40 border border-emerald-600/40'
                       : 'text-slate-300 hover:bg-slate-700/50 hover:text-white'
                   }`}
                 >
@@ -204,7 +219,7 @@ export default function App() {
                   onClick={() => setActiveTab('question-generator')}
                   className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition cursor-pointer ${
                     activeTab === 'question-generator'
-                      ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                      ? 'bg-emerald-700 text-white shadow-md shadow-emerald-900/40 border border-emerald-600/40'
                       : 'text-slate-300 hover:bg-slate-700/50 hover:text-white'
                   }`}
                 >
@@ -216,7 +231,7 @@ export default function App() {
                   onClick={() => setActiveTab('quizzes')}
                   className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition cursor-pointer ${
                     activeTab === 'quizzes'
-                      ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                      ? 'bg-emerald-700 text-white shadow-md shadow-emerald-900/40 border border-emerald-600/40'
                       : 'text-slate-300 hover:bg-slate-700/50 hover:text-white'
                   }`}
                 >
@@ -228,7 +243,7 @@ export default function App() {
                   onClick={() => setActiveTab('add-score')}
                   className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition cursor-pointer ${
                     activeTab === 'add-score'
-                      ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                      ? 'bg-emerald-700 text-white shadow-md shadow-emerald-900/40 border border-emerald-600/40'
                       : 'text-slate-300 hover:bg-slate-700/50 hover:text-white'
                   }`}
                 >
@@ -240,7 +255,7 @@ export default function App() {
                   onClick={() => setActiveTab('results')}
                   className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition cursor-pointer ${
                     activeTab === 'results'
-                      ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                      ? 'bg-emerald-700 text-white shadow-md shadow-emerald-900/40 border border-emerald-600/40'
                       : 'text-slate-300 hover:bg-slate-700/50 hover:text-white'
                   }`}
                 >
@@ -254,11 +269,11 @@ export default function App() {
                   onClick={() => setActiveTab('take-quiz')}
                   className={`w-full flex items-center gap-3 px-3.5 py-2 rounded-xl text-xs font-medium transition cursor-pointer ${
                     activeTab === 'take-quiz'
-                      ? 'bg-emerald-600 text-white'
-                      : 'text-slate-400 hover:bg-slate-700/50 hover:text-white'
+                      ? 'bg-amber-500 text-slate-950 font-bold shadow-md shadow-amber-500/20'
+                      : 'text-amber-300/80 hover:bg-amber-500/10 hover:text-amber-300'
                   }`}
                 >
-                  <FileCheck2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                  <FileCheck2 className="w-4 h-4 shrink-0 text-amber-400" />
                   Student Exam Simulator
                 </button>
               </>
@@ -269,13 +284,13 @@ export default function App() {
               <>
                 <button
                   onClick={() => setActiveTab('take-quiz')}
-                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition cursor-pointer ${
+                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
                     activeTab === 'take-quiz'
-                      ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
+                      ? 'bg-amber-500 text-slate-950 font-bold shadow-md shadow-amber-500/20'
                       : 'text-slate-300 hover:bg-slate-700/50 hover:text-white'
                   }`}
                 >
-                  <FileCheck2 className="w-4 h-4 shrink-0" />
+                  <FileCheck2 className="w-4 h-4 shrink-0 text-amber-400" />
                   Take Assigned Quizzes
                 </button>
 
@@ -284,14 +299,14 @@ export default function App() {
                     setSelectedStudent((user as any).studentProfile || null);
                     setActiveTab('student-profile');
                   }}
-                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition cursor-pointer ${
+                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
                     activeTab === 'student-profile'
-                      ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
+                      ? 'bg-emerald-700 text-white shadow-md shadow-emerald-900/40 border border-emerald-600/40'
                       : 'text-slate-300 hover:bg-slate-700/50 hover:text-white'
                   }`}
                 >
-                  <Award className="w-4 h-4 shrink-0" />
-                  My Academic Record
+                  <Award className="w-4 h-4 shrink-0 text-emerald-400" />
+                  My Academic Record & Transcript
                 </button>
               </>
             )}

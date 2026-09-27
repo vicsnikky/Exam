@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.tsx';
+import { FIS_LOGOS } from '../constants/branding.ts';
 import {
   User,
   GraduationCap,
@@ -117,10 +118,15 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
       </div>
 
       {/* Main Student Header Card */}
-      <div className="bg-slate-800/90 border border-slate-700 p-6 sm:p-8 rounded-2xl shadow-xl">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+      <div className="bg-slate-900 border border-slate-800 p-6 sm:p-8 rounded-2xl shadow-xl fis-card-accent relative overflow-hidden">
+        {/* Subtle school watermark */}
+        <div className="absolute right-0 top-0 bottom-0 opacity-5 pointer-events-none flex items-center pr-8">
+          <img src={FIS_LOGOS.crest} alt="FIS Crest" className="h-48 w-auto" />
+        </div>
+
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
           <div className="flex items-start sm:items-center gap-4">
-            <div className="w-16 h-16 rounded-2xl bg-indigo-600 text-white flex items-center justify-center text-xl font-bold shrink-0 shadow-lg shadow-indigo-500/20">
+            <div className="w-16 h-16 rounded-2xl bg-emerald-700 text-amber-300 flex items-center justify-center text-xl font-bold shrink-0 shadow-lg shadow-emerald-950 border border-amber-400/40">
               {student.firstName[0]}{student.surname[0]}
             </div>
             <div>
@@ -128,29 +134,29 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                 <h1 className="text-2xl font-bold text-white tracking-tight">
                   {student.firstName} {student.middleName ? student.middleName + ' ' : ''}{student.surname}
                 </h1>
-                <span className="px-3 py-1 bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-full text-xs font-semibold">
+                <span className="px-3 py-1 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-full text-xs font-semibold">
                   Class: {student.currentClass}
                 </span>
-                <span className="px-3 py-1 bg-slate-700 text-slate-300 rounded-full text-xs font-medium">
+                <span className="px-3 py-1 bg-slate-800 text-slate-300 rounded-full text-xs font-medium">
                   {student.gender}
                 </span>
               </div>
 
               <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 mt-2.5 text-xs text-slate-400">
-                <span className="font-mono text-emerald-400 font-semibold text-sm">
-                  Student ID: {student.studentId}
+                <span className="font-mono text-emerald-400 font-bold text-sm">
+                  Admission ID: {student.studentId}
                 </span>
-                <span>School: {student.school}</span>
-                <span>Academic Session: {student.session}</span>
+                <span className="text-slate-300">School: Federal International School (FIS)</span>
+                <span>Session: {student.session}</span>
                 {student.email && <span>Email: {student.email}</span>}
               </div>
             </div>
           </div>
 
-          <div className="bg-slate-900/80 border border-slate-700/80 p-4 rounded-xl text-xs space-y-1 sm:min-w-[220px]">
+          <div className="bg-slate-950/80 border border-slate-800 p-4 rounded-xl text-xs space-y-1 sm:min-w-[220px]">
             <span className="text-slate-400 font-medium block">Guardian Contact:</span>
             <p className="text-white font-semibold">{student.parentName || 'Not recorded'}</p>
-            <p className="text-indigo-400 font-mono">{student.parentPhone || 'No phone number'}</p>
+            <p className="text-amber-400 font-mono">{student.parentPhone || 'No phone number'}</p>
           </div>
         </div>
 
