@@ -38,9 +38,9 @@ export const StudentRegistration: React.FC<StudentRegistrationProps> = ({
   const [email, setEmail] = useState('');
   const [parentName, setParentName] = useState('');
   const [parentPhone, setParentPhone] = useState('');
-  const [school, setSchool] = useState(user?.schoolName || 'Federal International School');
+  const [school, setSchool] = useState(user?.schoolName || 'Fenster International School');
   const [session, setSession] = useState('2026/2027');
-  const [customPrefix, setCustomPrefix] = useState('FIS');
+  const [customPrefix, setCustomPrefix] = useState('FEN');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -110,13 +110,13 @@ export const StudentRegistration: React.FC<StudentRegistrationProps> = ({
           </div>
           <div>
             <span className="text-[11px] uppercase font-bold text-amber-400 tracking-wider block">
-              Federal International School (FIS)
+              Fenster International School
             </span>
             <h2 className="text-xl font-bold text-white mt-0.5">
               Student Admission & Registration Portal
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              Assigns a permanent, globally unique Admission ID (e.g. FIS-2026-XXXXXX) independent of class progression.
+              Assigns a permanent, globally unique Admission ID (e.g. FEN-2026-XXXXXX) independent of class progression.
             </p>
           </div>
         </div>

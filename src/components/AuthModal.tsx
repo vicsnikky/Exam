@@ -27,17 +27,29 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   // Form states
-  const [emailOrId, setEmailOrId] = useState('teacher@school.edu');
-  const [password, setPassword] = useState('teacher123');
+  const [emailOrId, setEmailOrId] = useState('');
+  const [password, setPassword] = useState('');
   
   // Registration specific
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [phone, setPhone] = useState('');
-  const [schoolName, setSchoolName] = useState('Federal International School');
+  const [schoolName, setSchoolName] = useState('Fenster International School');
   const [regPassword, setRegPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+
+  const parseResponse = async (res: Response) => {
+    const text = await res.text();
+    try {
+      return JSON.parse(text);
+    } catch {
+      if (res.status === 404 || text.includes('<!DOCTYPE') || text.includes('<html')) {
+        throw new Error('Backend API is unreachable. If deployed on Vercel, ensure your Node.js backend server and database credentials (SQL_HOST, SQL_USER, SQL_PASSWORD, SQL_DB_NAME, JWT_SECRET) are configured.');
+      }
+      throw new Error(text.length > 100 ? `${text.substring(0, 100)}...` : text || 'Server returned invalid response');
+    }
+  };
 
   const handleTeacherLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,14 +62,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
         body: JSON.stringify({ identifier: emailOrId, password, role: 'teacher' }),
       });
       
-      const text = await res.text();
-      let data: any = {};
-      try {
-        data = JSON.parse(text);
-      } catch (parseErr) {
-        throw new Error(text.length > 100 ? `${text.substring(0, 100)}...` : text || 'Server returned invalid response');
-      }
-
+      const data = await parseResponse(res);
       if (!res.ok) throw new Error(data.error || 'Login failed');
 
       login(data.token, data.user);
@@ -80,14 +85,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
         body: JSON.stringify({ identifier: emailOrId, password, role: 'student' }),
       });
 
-      const text = await res.text();
-      let data: any = {};
-      try {
-        data = JSON.parse(text);
-      } catch (parseErr) {
-        throw new Error(text.length > 100 ? `${text.substring(0, 100)}...` : text || 'Server returned invalid response');
-      }
-
+      const data = await parseResponse(res);
       if (!res.ok) throw new Error(data.error || 'Student login failed');
 
       login(data.token, data.user);
@@ -140,24 +138,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
     }
   };
 
-  const fillDemoTeacher = () => {
-    setEmailOrId('teacher@school.edu');
-    setPassword('teacher123');
-    setMode('teacher-login');
-  };
-
-  const fillSuperAdmin = () => {
-    setEmailOrId('admin@school.edu');
-    setPassword('admin123');
-    setMode('teacher-login');
-  };
-
-  const fillDemoStudent = (id = 'FIS-2026-000001') => {
-    setEmailOrId(id);
-    setPassword('student123');
-    setMode('student-login');
-  };
-
   return (
     <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 selection:bg-amber-400 selection:text-emerald-950">
       <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 sm:p-8 fis-card-accent relative overflow-hidden">
@@ -178,7 +158,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
             Academic Assessment Portal
           </h1>
           <p className="text-xs text-amber-300/90 font-medium mt-1">
-            Federal International School • {FIS_LOGOS.motto}
+            Fenster International School • {FIS_LOGOS.motto}
           </p>
         </div>
 
@@ -186,7 +166,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
         <div className="flex bg-slate-950/90 p-1 rounded-xl mb-6 border border-slate-800 relative z-10">
           <button
             type="button"
-            onClick={() => { setMode('teacher-login'); setError(null); }}
+            onClick={() => { setMode('teacher-login'); setError(null); setEmailOrId(''); setPassword(''); }}
             className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
               mode === 'teacher-login'
                 ? 'bg-emerald-700 text-white shadow-md shadow-emerald-900/50 border border-emerald-600/50'
@@ -197,7 +177,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
           </button>
           <button
             type="button"
-            onClick={() => { setMode('student-login'); setError(null); setEmailOrId('FIS-2026-000001'); setPassword('student123'); }}
+            onClick={() => { setMode('student-login'); setError(null); setEmailOrId(''); setPassword(''); }}
             className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
               mode === 'student-login'
                 ? 'bg-amber-500 text-slate-950 font-bold shadow-md shadow-amber-600/40'
@@ -231,37 +211,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
             <span>{successMsg}</span>
           </div>
         )}
-
-        {/* Quick Demo Pre-fills */}
-        <div className="mb-5 bg-slate-900/60 border border-slate-700/60 rounded-xl p-3 text-xs">
-          <span className="text-slate-400 block mb-1.5 font-medium">Quick Demo Credentials:</span>
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={fillSuperAdmin}
-              className="px-2.5 py-1 bg-purple-950/80 hover:bg-purple-900 text-purple-300 rounded border border-purple-800 flex items-center gap-1.5 transition font-semibold cursor-pointer"
-            >
-              <ShieldCheck className="w-3.5 h-3.5 text-purple-400" />
-              Super Admin (admin@school.edu)
-            </button>
-            <button
-              type="button"
-              onClick={fillDemoTeacher}
-              className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-indigo-300 rounded border border-indigo-900/50 flex items-center gap-1.5 transition cursor-pointer"
-            >
-              <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
-              Teacher (Sarah Okonkwo)
-            </button>
-            <button
-              type="button"
-              onClick={() => fillDemoStudent('FIS-2026-000001')}
-              className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-emerald-300 rounded border border-emerald-900/50 flex items-center gap-1.5 transition cursor-pointer"
-            >
-              <BookOpen className="w-3.5 h-3.5 text-emerald-400" />
-              Student (John Johnson FIS-2026-000001)
-            </button>
-          </div>
-        </div>
 
         {/* TEACHER LOGIN FORM */}
         {mode === 'teacher-login' && (
@@ -412,7 +361,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
                   required
                   value={schoolName}
                   onChange={(e) => setSchoolName(e.target.value)}
-                  placeholder="e.g. Federal Int. School"
+                  placeholder="e.g. Fenster Int. School"
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
                 />
               </div>

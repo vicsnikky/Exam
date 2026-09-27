@@ -4,7 +4,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import bcrypt from 'bcryptjs';
-import { db } from './src/db/index.ts';
+import { db, createPool } from './src/db/index.ts';
+import { ensureTablesExist } from './src/db/init.ts';
 import {
   users,
   teachers,
@@ -37,8 +38,11 @@ const port = parseInt(process.env.PORT || '3000', 10);
 
 app.use(express.json({ limit: '10mb' }));
 
-// Initial seed
-seedDatabase().catch((err) => console.error('Seed error:', err));
+// Initialize DB tables and seed data
+const pool = createPool();
+ensureTablesExist(pool)
+  .then(() => seedDatabase())
+  .catch((err) => console.error('DB init/seed error:', err));
 
 // ----------------------------------------------------
 // 1. AUTHENTICATION & REGISTRATION ENDPOINTS
@@ -134,7 +138,7 @@ app.post('/api/auth/login', async (req, res) => {
     const cleanIdentifier = identifier.trim();
 
     // Check if logging in as student
-    if (role === 'student' || cleanIdentifier.toUpperCase().startsWith('FIS-')) {
+    if (role === 'student' || cleanIdentifier.toUpperCase().startsWith('FEN-') || cleanIdentifier.toUpperCase().startsWith('FIS-')) {
       const studentRec = await db.select().from(students).where(eq(students.studentId, cleanIdentifier.toUpperCase())).limit(1);
       if (studentRec.length === 0) {
         return res.status(404).json({ error: 'Student ID not found' });
@@ -194,7 +198,7 @@ app.post('/api/auth/login', async (req, res) => {
         lastName: u.lastName,
         role: u.role,
         teacherId: teacherRec[0]?.teacherId || (u.role === 'super_admin' ? 'ADMIN-GLOBAL' : 'TCH-2026-0001'),
-        schoolName: teacherRec[0]?.schoolName || 'Federal International School',
+        schoolName: teacherRec[0]?.schoolName || 'Fenster International School',
       },
     });
   } catch (error: any) {
@@ -807,6 +811,88 @@ app.get('/api/questions', authenticate, async (req: AuthRequest, res) => {
   }
 });
 
+// Single Question Creation (Manual Teacher Input with A, B, C, D and correct answer)
+app.post('/api/questions', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const {
+      subjectId,
+      topic,
+      classLevel,
+      difficulty,
+      questionText,
+      optionA,
+      optionB,
+      optionC,
+      optionD,
+      correctAnswer,
+      explanation,
+      quizId,
+    } = req.body;
+
+    if (!questionText || !optionA || !optionB || !optionC || !optionD || !correctAnswer || !subjectId) {
+      return res.status(400).json({
+        error: 'Question text, 4 options (A, B, C, D), correct answer, and subject are required.',
+      });
+    }
+
+    const cleanAns = correctAnswer.toString().toUpperCase().trim();
+    if (!['A', 'B', 'C', 'D'].includes(cleanAns)) {
+      return res.status(400).json({ error: 'Correct answer must be one of: A, B, C, or D.' });
+    }
+
+    const [newQ] = await db.insert(questions).values({
+      subjectId: Number(subjectId),
+      topic: topic ? topic.trim() : 'General',
+      classLevel: classLevel || 'All',
+      difficulty: difficulty || 'Medium',
+      questionText: questionText.trim(),
+      optionA: optionA.trim(),
+      optionB: optionB.trim(),
+      optionC: optionC.trim(),
+      optionD: optionD.trim(),
+      correctAnswer: cleanAns,
+      explanation: explanation ? explanation.trim() : 'Teacher verified answer.',
+      source: 'manual_entry',
+      createdByTeacherId: req.appUser?.teacherProfile?.id || null,
+      schoolId: req.appUser?.schoolId || 1,
+    }).returning();
+
+    // If teacher selected an active quiz to automatically attach this question to:
+    if (quizId) {
+      const qId = Number(quizId);
+      const existingInQuiz = await db.select().from(quizQuestions).where(eq(quizQuestions.quizId, qId));
+      const order = existingInQuiz.length + 1;
+      await db.insert(quizQuestions).values({
+        quizId: qId,
+        questionId: newQ.id,
+        orderIndex: order,
+      });
+    }
+
+    return res.status(201).json({
+      message: 'Question created and saved to Question Bank successfully!',
+      question: newQ,
+    });
+  } catch (error: any) {
+    console.error('Create single question error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to create question' });
+  }
+});
+
+// Delete a question from question bank
+app.delete('/api/questions/:id', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const qId = Number(req.params.id);
+    if (isNaN(qId)) return res.status(400).json({ error: 'Invalid question ID' });
+
+    await db.delete(quizQuestions).where(eq(quizQuestions.questionId, qId));
+    await db.delete(questions).where(eq(questions.id, qId));
+    return res.json({ success: true, message: 'Question removed from question bank' });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message || 'Failed to delete question' });
+  }
+});
+
 // Batch Save Questions (after AI review or manual creation)
 app.post('/api/questions/batch', authenticate, async (req: AuthRequest, res) => {
   try {
@@ -1233,7 +1319,7 @@ app.post('/api/admin/teachers', authenticate, async (req: AuthRequest, res) => {
       userId: newUser.id,
       teacherId,
       phone: phone ? phone.trim() : null,
-      schoolName: schoolName ? schoolName.trim() : 'Federal International School',
+      schoolName: schoolName ? schoolName.trim() : 'Fenster International School',
       schoolId: 1,
     }).returning();
 
@@ -1388,3 +1474,6 @@ async function startServer() {
 }
 
 startServer();
+
+export { app };
+export default app;

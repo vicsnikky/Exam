@@ -5,10 +5,10 @@ import { sql } from 'drizzle-orm';
 /**
  * Generates a globally unique, persistent Student ID formatted as:
  * {SCHOOL_CODE}-{YEAR}-{6_DIGIT_SEQUENCE}
- * e.g. FIS-2026-000001
+ * e.g. FEN-2026-000001
  * Uses sequence locking / database counting to ensure no duplicates.
  */
-export async function generateStudentId(schoolCode = 'FIS', academicYear?: string): Promise<string> {
+export async function generateStudentId(schoolCode = 'FEN', academicYear?: string): Promise<string> {
   const year = academicYear ? academicYear.slice(0, 4) : new Date().getFullYear().toString();
   const prefix = `${schoolCode}-${year}-`;
 

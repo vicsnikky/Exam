@@ -10,8 +10,8 @@ export async function seedDatabase() {
     let schoolId = 1;
     if (existingSchools.length === 0) {
       const [newSchool] = await db.insert(schools).values({
-        name: 'Federal International School',
-        code: 'FIS',
+        name: 'Fenster International School',
+        code: 'FEN',
         address: '10 Unity Way, Academic District',
       }).returning();
       schoolId = newSchool.id;
@@ -51,7 +51,7 @@ export async function seedDatabase() {
         { name: 'Biology', code: 'BIO', description: 'Life Sciences and Living Organisms', status: 'active', schoolId },
         { name: 'Physics', code: 'PHY', description: 'Mechanics, Energy, and Physical World', status: 'active', schoolId },
         { name: 'Chemistry', code: 'CHM', description: 'Matter, Reactions, and Organic Chemistry', status: 'active', schoolId },
-        { name: 'Computer Studies', code: 'CSC', description: 'Computing Fundamentals, Hardware & Software', status: 'active', schoolId },
+        { name: 'Digital Technology', code: 'DGT', description: 'Computing, Digital Systems, Information Technology & Innovation', status: 'active', schoolId },
         { name: 'ICT', code: 'ICT', description: 'Information & Communications Technology', status: 'active', schoolId },
         { name: 'Basic Science', code: 'BSC', description: 'Foundational integrated sciences for Junior secondary', status: 'active', schoolId },
         { name: 'Economics', code: 'ECO', description: 'Micro & Macroeconomics, Markets, and Trade', status: 'active', schoolId },
@@ -96,7 +96,7 @@ export async function seedDatabase() {
         userId: demoUser.id,
         teacherId: 'TCH-2026-0001',
         phone: '+2348012345678',
-        schoolName: 'Federal International School',
+        schoolName: 'Fenster International School',
         schoolId,
       }).returning();
       demoTeacherId = newTeacher.id;
@@ -106,7 +106,7 @@ export async function seedDatabase() {
       if (t.length > 0) demoTeacherId = t[0].id;
     }
 
-    // 6. Seed Sample Students with unique IDs (e.g. FIS-2026-000001, FIS-2026-000021)
+    // 6. Seed Sample Students with unique IDs (e.g. FEN-2026-000001, FEN-2026-000021)
     const existingStudents = await db.select().from(students).limit(1);
     if (existingStudents.length === 0) {
       const studentSalt = await bcrypt.genSalt(10);
@@ -114,7 +114,7 @@ export async function seedDatabase() {
 
       await db.insert(students).values([
         {
-          studentId: 'FIS-2026-000001',
+          studentId: 'FEN-2026-000001',
           firstName: 'John',
           middleName: 'Michael',
           surname: 'Johnson',
@@ -124,14 +124,14 @@ export async function seedDatabase() {
           email: 'john.johnson@student.school.edu',
           parentName: 'Mr. Robert Johnson',
           parentPhone: '+2348033221100',
-          school: 'Federal International School',
+          school: 'Fenster International School',
           session: '2026/2027',
           passwordHash: defaultStudentHash,
           schoolId,
           registeredByTeacherId: demoTeacherId,
         },
         {
-          studentId: 'FIS-2026-000002',
+          studentId: 'FEN-2026-000002',
           firstName: 'Michael',
           middleName: 'David',
           surname: 'Johnson',
@@ -141,14 +141,14 @@ export async function seedDatabase() {
           email: 'michael.johnson@student.school.edu',
           parentName: 'Mrs. Grace Johnson',
           parentPhone: '+2348033221101',
-          school: 'Federal International School',
+          school: 'Fenster International School',
           session: '2026/2027',
           passwordHash: defaultStudentHash,
           schoolId,
           registeredByTeacherId: demoTeacherId,
         },
         {
-          studentId: 'FIS-2026-000003',
+          studentId: 'FEN-2026-000003',
           firstName: 'David',
           middleName: 'Emeka',
           surname: 'Johnson',
@@ -158,14 +158,14 @@ export async function seedDatabase() {
           email: 'david.johnson@student.school.edu',
           parentName: 'Mr. & Mrs. Johnson',
           parentPhone: '+2348033221102',
-          school: 'Federal International School',
+          school: 'Fenster International School',
           session: '2026/2027',
           passwordHash: defaultStudentHash,
           schoolId,
           registeredByTeacherId: demoTeacherId,
         },
         {
-          studentId: 'FIS-2026-000021',
+          studentId: 'FEN-2026-000021',
           firstName: 'Amina',
           middleName: 'Zainab',
           surname: 'Bello',
@@ -175,7 +175,7 @@ export async function seedDatabase() {
           email: 'amina.bello@student.school.edu',
           parentName: 'Alhaji Bello',
           parentPhone: '+2348022998877',
-          school: 'Federal International School',
+          school: 'Fenster International School',
           session: '2026/2027',
           passwordHash: defaultStudentHash,
           schoolId,

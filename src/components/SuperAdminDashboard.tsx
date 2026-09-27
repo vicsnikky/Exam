@@ -46,7 +46,7 @@ export const SuperAdminDashboard: React.FC = () => {
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
-  const [schoolName, setSchoolName] = useState('Federal International School');
+  const [schoolName, setSchoolName] = useState('Fenster International School');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -142,7 +142,7 @@ export const SuperAdminDashboard: React.FC = () => {
             <div>
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-semibold uppercase tracking-wider mb-1.5">
                 <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
-                Federal International School • Super Admin Authority
+                Fenster International School • Super Admin Authority
               </div>
               <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
                 System Control & Staff Governance

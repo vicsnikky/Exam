@@ -146,7 +146,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                 <span className="font-mono text-emerald-400 font-bold text-sm">
                   Admission ID: {student.studentId}
                 </span>
-                <span className="text-slate-300">School: Federal International School (FIS)</span>
+                <span className="text-slate-300">School: {student.school || 'Fenster International School'}</span>
                 <span>Session: {student.session}</span>
                 {student.email && <span>Email: {student.email}</span>}
               </div>

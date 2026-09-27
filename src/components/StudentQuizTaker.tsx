@@ -183,7 +183,7 @@ export const StudentQuizTaker: React.FC<StudentQuizTakerProps> = ({
             </div>
             <div>
               <span className="text-[11px] uppercase font-bold text-amber-400 tracking-wider block">
-                Federal International School • Online Examination Portal
+                Fenster International School • Online Examination Portal
               </span>
               <h2 className="text-xl font-bold text-white mt-0.5">
                 Available Assessments & Quizzes

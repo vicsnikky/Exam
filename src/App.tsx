@@ -31,7 +31,8 @@ import {
   PlusCircle,
   HelpCircle,
   Award,
-  ShieldAlert
+  ShieldAlert,
+  PenTool
 } from 'lucide-react';
 import { Student } from './types/index.ts';
 
@@ -99,10 +100,10 @@ export default function App() {
               <div>
                 <div className="flex items-center gap-2">
                   <span className="font-bold text-white text-base tracking-tight block leading-tight">
-                    Federal International School
+                    Fenster International School
                   </span>
                   <span className="hidden sm:inline-block px-2 py-0.5 rounded bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold">
-                    FIS
+                    FENSTER
                   </span>
                 </div>
                 <span className="text-[11px] text-amber-300/90 font-medium block leading-tight">
@@ -223,8 +224,8 @@ export default function App() {
                       : 'text-slate-300 hover:bg-slate-700/50 hover:text-white'
                   }`}
                 >
-                  <Sparkles className="w-4 h-4 shrink-0 text-amber-400" />
-                  AI Question Generator
+                  <PenTool className="w-4 h-4 shrink-0 text-amber-400" />
+                  Create Questions & Bank
                 </button>
 
                 <button
@@ -362,7 +363,7 @@ export default function App() {
                     onClick={() => { setActiveTab('question-generator'); setMobileMenuOpen(false); }}
                     className="w-full text-left px-3 py-2 text-xs rounded-lg hover:bg-slate-700 text-amber-300 font-semibold"
                   >
-                    AI Question Generator
+                    Create Questions & Bank
                   </button>
                   <button
                     onClick={() => { setActiveTab('quizzes'); setMobileMenuOpen(false); }}

@@ -155,7 +155,7 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ onQuizCreated }) => {
           </div>
           <div>
             <span className="text-[11px] uppercase font-bold text-amber-400 tracking-wider block">
-              Federal International School • Examination Board
+              Fenster International School • Examination Board
             </span>
             <h2 className="text-xl font-bold text-white mt-0.5 flex items-center gap-2">
               <Layers className="w-5 h-5 text-emerald-400" />

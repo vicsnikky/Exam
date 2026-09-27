@@ -142,7 +142,7 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
           </div>
           <div>
             <span className="text-[11px] uppercase font-bold text-amber-400 tracking-wider block">
-              Federal International School • Continuous Assessment System
+              Fenster International School • Continuous Assessment System
             </span>
             <h2 className="text-xl font-bold text-white mt-0.5 flex items-center gap-2">
               <FileSpreadsheet className="w-5 h-5 text-emerald-400" />

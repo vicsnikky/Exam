@@ -64,7 +64,7 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
           <div>
             <div className="flex items-center gap-2 text-amber-400 text-xs font-bold uppercase tracking-wider mb-2">
               <School className="w-4 h-4 text-amber-400" />
-              <span>Federal International School (FIS)</span>
+              <span>Fenster International School</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
               Welcome back, {user?.firstName} {user?.lastName || user?.surname}!

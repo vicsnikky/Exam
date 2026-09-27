@@ -82,7 +82,7 @@ export const SubjectManager: React.FC = () => {
           </div>
           <div>
             <span className="text-[11px] uppercase font-bold text-amber-400 tracking-wider block">
-              Federal International School • Academic Curriculum
+              Fenster International School • Academic Curriculum
             </span>
             <h2 className="text-xl font-bold text-white mt-0.5 flex items-center gap-2">
               <BookOpen className="w-5 h-5 text-emerald-400" />

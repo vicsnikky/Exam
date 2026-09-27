@@ -96,7 +96,7 @@ export const ResultsView: React.FC = () => {
           <div>
             <div className="flex items-center gap-2">
               <span className="text-xs uppercase font-bold tracking-wider text-amber-400">
-                Federal International School
+                Fenster International School
               </span>
               <span className="px-2 py-0.2 bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 rounded text-[10px] font-bold">
                 Official Transcript & Ledger
