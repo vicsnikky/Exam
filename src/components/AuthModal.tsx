@@ -39,16 +39,51 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
   const [regPassword, setRegPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
-  const parseResponse = async (res: Response) => {
-    const text = await res.text();
+  const extractErrorMessage = (errData: any, fallback: string): string => {
+    if (!errData) return fallback;
+    if (typeof errData === 'string') return errData;
+    if (typeof errData.message === 'string' && errData.message !== '[object Object]') {
+      return errData.message;
+    }
+    if (errData.error) {
+      if (typeof errData.error === 'string') return errData.error;
+      if (typeof errData.error.message === 'string') return errData.error.message;
+      if (errData.error.code === 'FUNCTION_INVOCATION_FAILED') {
+        return 'Serverless function execution failed on host. Please check your Vercel logs and ensure DATABASE_URL is set in Vercel project environment variables.';
+      }
+      if (typeof errData.error.code === 'string') return `Server error (${errData.error.code})`;
+      try {
+        const s = JSON.stringify(errData.error);
+        return s !== '{}' ? s : fallback;
+      } catch {
+        return fallback;
+      }
+    }
     try {
-      return JSON.parse(text);
+      const s = JSON.stringify(errData);
+      return s !== '{}' ? s : fallback;
+    } catch {
+      return fallback;
+    }
+  };
+
+  const parseResponse = async (res: Response, defaultError: string) => {
+    const text = await res.text();
+    let data: any;
+    try {
+      data = JSON.parse(text);
     } catch {
       if (res.status === 404 || text.includes('<!DOCTYPE') || text.includes('<html')) {
-        throw new Error('Backend API is unreachable. If deployed on Vercel, ensure your Node.js backend server and database credentials (SQL_HOST, SQL_USER, SQL_PASSWORD, SQL_DB_NAME, JWT_SECRET) are configured.');
+        throw new Error('Backend API is unreachable. If deployed on Vercel, ensure your Node.js backend server and database credentials (SQL_HOST, SQL_USER, SQL_PASSWORD, SQL_DB_NAME, JWT_SECRET, or DATABASE_URL) are configured.');
       }
-      throw new Error(text.length > 100 ? `${text.substring(0, 100)}...` : text || 'Server returned invalid response');
+      throw new Error(text.length > 100 ? `${text.substring(0, 100)}...` : text || defaultError);
     }
+
+    if (!res.ok) {
+      const msg = extractErrorMessage(data, defaultError);
+      throw new Error(msg);
+    }
+    return data;
   };
 
   const handleTeacherLogin = async (e: React.FormEvent) => {
@@ -62,13 +97,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
         body: JSON.stringify({ identifier: emailOrId, password, role: 'teacher' }),
       });
       
-      const data = await parseResponse(res);
-      if (!res.ok) throw new Error(data.error || 'Login failed');
-
+      const data = await parseResponse(res, 'Login failed');
       login(data.token, data.user);
       onSuccess?.();
     } catch (err: any) {
-      setError(err.message);
+      setError(extractErrorMessage(err, 'Login failed. Please verify credentials.'));
     } finally {
       setLoading(false);
     }
@@ -85,13 +118,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
         body: JSON.stringify({ identifier: emailOrId, password, role: 'student' }),
       });
 
-      const data = await parseResponse(res);
-      if (!res.ok) throw new Error(data.error || 'Student login failed');
-
+      const data = await parseResponse(res, 'Student login failed');
       login(data.token, data.user);
       onSuccess?.();
     } catch (err: any) {
-      setError(err.message);
+      setError(extractErrorMessage(err, 'Student login failed. Please verify student ID.'));
     } finally {
       setLoading(false);
     }
@@ -113,7 +144,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
     try {
       const res = await fetch('/api/auth/register-teacher', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({
           firstName,
           lastName,
@@ -123,8 +154,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
           password: regPassword,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Registration failed');
+      const data = await parseResponse(res, 'Registration failed');
 
       setSuccessMsg('Account created! Logging you in...');
       setTimeout(() => {
@@ -132,7 +162,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
         onSuccess?.();
       }, 1000);
     } catch (err: any) {
-      setError(err.message);
+      setError(extractErrorMessage(err, 'Registration failed'));
     } finally {
       setLoading(false);
     }
