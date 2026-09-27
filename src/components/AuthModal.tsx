@@ -45,10 +45,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({ identifier: emailOrId, password, role: 'teacher' }),
       });
-      const data = await res.json();
+      
+      const text = await res.text();
+      let data: any = {};
+      try {
+        data = JSON.parse(text);
+      } catch (parseErr) {
+        throw new Error(text.length > 100 ? `${text.substring(0, 100)}...` : text || 'Server returned invalid response');
+      }
+
       if (!res.ok) throw new Error(data.error || 'Login failed');
 
       login(data.token, data.user);
@@ -67,10 +75,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({ identifier: emailOrId, password, role: 'student' }),
       });
-      const data = await res.json();
+
+      const text = await res.text();
+      let data: any = {};
+      try {
+        data = JSON.parse(text);
+      } catch (parseErr) {
+        throw new Error(text.length > 100 ? `${text.substring(0, 100)}...` : text || 'Server returned invalid response');
+      }
+
       if (!res.ok) throw new Error(data.error || 'Student login failed');
 
       login(data.token, data.user);
