@@ -9,7 +9,10 @@ import {
   Sparkles,
   Search,
   CheckCircle,
-  AlertCircle
+  AlertCircle,
+  Lock,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { Student } from '../types/index.ts';
 
@@ -26,6 +29,7 @@ export const StudentRegistration: React.FC<StudentRegistrationProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [registeredStudent, setRegisteredStudent] = useState<Student | null>(null);
+  const [savedPassword, setSavedPassword] = useState('');
   const [copied, setCopied] = useState(false);
 
   // Form Fields
@@ -34,19 +38,35 @@ export const StudentRegistration: React.FC<StudentRegistrationProps> = ({
   const [surname, setSurname] = useState('');
   const [gender, setGender] = useState('Male');
   const [dateOfBirth, setDateOfBirth] = useState('2010-06-15');
-  const [currentClass, setCurrentClass] = useState('SS 2');
+  const [currentClass, setCurrentClass] = useState('SS 3');
   const [email, setEmail] = useState('');
   const [parentName, setParentName] = useState('');
   const [parentPhone, setParentPhone] = useState('');
   const [school, setSchool] = useState(user?.schoolName || 'Fenster International School');
   const [session, setSession] = useState('2026/2027');
   const [customPrefix, setCustomPrefix] = useState('FEN');
+  const [studentPassword, setStudentPassword] = useState('student123');
+  const [confirmPassword, setConfirmPassword] = useState('student123');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
     setRegisteredStudent(null);
+
+    if (studentPassword !== confirmPassword) {
+      setError('Student passwords do not match');
+      setLoading(false);
+      return;
+    }
+
+    if (studentPassword.length < 6) {
+      setError('Student password must be at least 6 characters long');
+      setLoading(false);
+      return;
+    }
 
     try {
       const res = await fetch('/api/students', {
@@ -68,6 +88,7 @@ export const StudentRegistration: React.FC<StudentRegistrationProps> = ({
           school,
           session,
           customPrefix,
+          password: studentPassword,
         }),
       });
 
@@ -75,6 +96,7 @@ export const StudentRegistration: React.FC<StudentRegistrationProps> = ({
       if (!res.ok) throw new Error(data.error || 'Failed to register student');
 
       setRegisteredStudent(data.student);
+      setSavedPassword(studentPassword);
       onStudentRegistered?.(data.student);
       // Reset core names
       setFirstName('');
@@ -101,32 +123,26 @@ export const StudentRegistration: React.FC<StudentRegistrationProps> = ({
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 p-6 rounded-2xl fis-card-accent">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 bg-white p-1 rounded-xl shadow-md border border-amber-400/40 shrink-0 hidden sm:flex items-center justify-center">
-            <img src={FIS_LOGOS.crest} alt="FIS Crest" className="h-full w-full object-contain" />
-          </div>
-          <div>
-            <span className="text-[11px] uppercase font-bold text-amber-400 tracking-wider block">
-              Fenster International School
-            </span>
-            <h2 className="text-xl font-bold text-white mt-0.5">
-              Student Admission & Registration Portal
-            </h2>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Assigns a permanent, globally unique Admission ID (e.g. FEN-2026-XXXXXX) independent of class progression.
-            </p>
-          </div>
+      <div className="bg-slate-800/80 border border-slate-700/80 p-6 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-bold text-white flex items-center gap-2">
+            <UserPlus className="w-5 h-5 text-amber-400" />
+            Student Admission & Account Creation
+          </h2>
+          <p className="text-xs text-slate-400 mt-1">
+            Enroll students and set their custom login password for CBT exams and weekly mock results.
+          </p>
         </div>
-        <div className="flex items-center gap-2 bg-emerald-950/60 border border-emerald-500/40 px-3.5 py-2 rounded-xl text-xs text-emerald-300">
-          <Sparkles className="w-4 h-4 text-amber-400" />
-          <span>Format: <strong className="font-mono text-amber-300">{customPrefix}-2026-XXXXXX</strong></span>
+        <div className="flex items-center gap-2">
+          <span className="px-3 py-1.5 rounded-xl bg-amber-500/10 text-amber-300 border border-amber-500/20 text-xs font-mono font-medium">
+            Prefix: {customPrefix}-2026-XXXXXX
+          </span>
         </div>
       </div>
 
-      {/* Success Notification with Generated Student ID */}
+      {/* Success Banner */}
       {registeredStudent && (
         <div className="bg-emerald-950/40 border border-emerald-500/40 p-6 rounded-2xl shadow-xl transition-all animate-fadeIn">
           <div className="flex items-start gap-4">
@@ -141,11 +157,17 @@ export const StudentRegistration: React.FC<StudentRegistrationProps> = ({
                 {registeredStudent.firstName} {registeredStudent.middleName ? registeredStudent.middleName + ' ' : ''}{registeredStudent.surname}
               </h3>
               
-              <div className="mt-3 flex flex-wrap items-center gap-3 bg-slate-900/80 p-3 rounded-xl border border-slate-700">
+              <div className="mt-3 flex flex-wrap items-center gap-4 bg-slate-900/80 p-3.5 rounded-xl border border-slate-700">
                 <div>
-                  <span className="text-[11px] text-slate-400 block">Generated Unique Student ID:</span>
+                  <span className="text-[11px] text-slate-400 block">Permanent Student ID (PIN):</span>
                   <span className="text-xl font-mono font-bold text-emerald-400 tracking-wider">
                     {registeredStudent.studentId}
+                  </span>
+                </div>
+                <div className="border-l border-slate-700 pl-4">
+                  <span className="text-[11px] text-slate-400 block">Student Password:</span>
+                  <span className="text-base font-mono font-bold text-amber-300">
+                    {savedPassword || 'student123'}
                   </span>
                 </div>
                 <div className="flex items-center gap-2 ml-auto">
@@ -161,7 +183,7 @@ export const StudentRegistration: React.FC<StudentRegistrationProps> = ({
                     className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-medium border border-slate-600 flex items-center gap-1.5 transition cursor-pointer"
                   >
                     <Printer className="w-3.5 h-3.5" />
-                    Print Slip
+                    Print Admission Slip
                   </button>
                   <button
                     onClick={() => onNavigateSearch?.(registeredStudent.studentId)}
@@ -174,7 +196,7 @@ export const StudentRegistration: React.FC<StudentRegistrationProps> = ({
               </div>
 
               <p className="text-xs text-slate-400 mt-2">
-                This student ID is now globally registered. Any teacher can record scores for different subjects using this ID without creating duplicate student records.
+                The student can now log in using their <strong>Student ID (PIN)</strong> and <strong>Password</strong> to access CBT quizzes and view their SS3 Weekly Mock Results.
               </p>
             </div>
           </div>
@@ -219,7 +241,7 @@ export const StudentRegistration: React.FC<StudentRegistrationProps> = ({
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">Surname / Last Name *</label>
+              <label className="block text-xs font-medium text-slate-300 mb-1">Surname *</label>
               <input
                 type="text"
                 required
@@ -241,7 +263,6 @@ export const StudentRegistration: React.FC<StudentRegistrationProps> = ({
               >
                 <option value="Male">Male</option>
                 <option value="Female">Female</option>
-                <option value="Other">Other</option>
               </select>
             </div>
             <div>
@@ -254,7 +275,7 @@ export const StudentRegistration: React.FC<StudentRegistrationProps> = ({
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">Student Email (Optional)</label>
+              <label className="block text-xs font-medium text-slate-300 mb-1">Email Address</label>
               <input
                 type="email"
                 value={email}
@@ -279,18 +300,18 @@ export const StudentRegistration: React.FC<StudentRegistrationProps> = ({
                 onChange={(e) => setCurrentClass(e.target.value)}
                 className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
               >
-                <option value="Primary 1">Primary 1</option>
-                <option value="Primary 2">Primary 2</option>
-                <option value="Primary 3">Primary 3</option>
-                <option value="Primary 4">Primary 4</option>
-                <option value="Primary 5">Primary 5</option>
-                <option value="Primary 6">Primary 6</option>
-                <option value="JSS 1">JSS 1 (Junior Secondary 1)</option>
-                <option value="JSS 2">JSS 2 (Junior Secondary 2)</option>
-                <option value="JSS 3">JSS 3 (Junior Secondary 3)</option>
-                <option value="SS 1">SS 1 (Senior Secondary 1)</option>
+                <option value="SS 3">SS 3 (Weekly Mock Class)</option>
                 <option value="SS 2">SS 2 (Senior Secondary 2)</option>
-                <option value="SS 3">SS 3 (Senior Secondary 3)</option>
+                <option value="SS 1">SS 1 (Senior Secondary 1)</option>
+                <option value="JSS 3">JSS 3 (Junior Secondary 3)</option>
+                <option value="JSS 2">JSS 2 (Junior Secondary 2)</option>
+                <option value="JSS 1">JSS 1 (Junior Secondary 1)</option>
+                <option value="Primary 6">Primary 6</option>
+                <option value="Primary 5">Primary 5</option>
+                <option value="Primary 4">Primary 4</option>
+                <option value="Primary 3">Primary 3</option>
+                <option value="Primary 2">Primary 2</option>
+                <option value="Primary 1">Primary 1</option>
               </select>
             </div>
             <div>
@@ -321,7 +342,7 @@ export const StudentRegistration: React.FC<StudentRegistrationProps> = ({
                 type="text"
                 value={customPrefix}
                 onChange={(e) => setCustomPrefix(e.target.value.toUpperCase())}
-                placeholder="FIS"
+                placeholder="FEN"
                 maxLength={6}
                 className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white uppercase font-mono focus:outline-none focus:border-indigo-500"
               />
@@ -329,10 +350,65 @@ export const StudentRegistration: React.FC<StudentRegistrationProps> = ({
           </div>
         </div>
 
-        {/* Section 3: Guardian Details */}
+        {/* Section 3: Student Login Password */}
+        <div>
+          <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4 pb-2 border-b border-slate-700 flex items-center gap-2">
+            <Lock className="w-4 h-4 text-amber-400" />
+            3. Student Portal Password (Custom Student PIN & Password)
+          </h3>
+          <p className="text-xs text-slate-400 mb-3">
+            Provide the password the student will use to log in with their permanent Student ID (PIN).
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1">Student Password *</label>
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  value={studentPassword}
+                  onChange={(e) => setStudentPassword(e.target.value)}
+                  placeholder="Min 6 characters"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-3.5 pr-10 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-2.5 text-slate-400 hover:text-white p-0.5 rounded cursor-pointer"
+                  title={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4 text-amber-400" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1">Confirm Student Password *</label>
+              <div className="relative">
+                <input
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  required
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Re-enter password"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-3.5 pr-10 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  className="absolute right-3 top-2.5 text-slate-400 hover:text-white p-0.5 rounded cursor-pointer"
+                  title={showConfirmPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showConfirmPassword ? <EyeOff className="w-4 h-4 text-amber-400" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Section 4: Guardian Details */}
         <div>
           <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4 pb-2 border-b border-slate-700">
-            3. Parent / Guardian Contact
+            4. Parent / Guardian Contact
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>

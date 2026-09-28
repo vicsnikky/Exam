@@ -76,6 +76,13 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
 
           <div className="flex flex-wrap items-center gap-3">
             <button
+              onClick={() => onNavigate('ss3-mock-teacher')}
+              className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-xl text-xs flex items-center gap-2 transition shadow-lg shadow-emerald-950/40 cursor-pointer"
+            >
+              <Award className="w-4 h-4 text-amber-300" />
+              SS3 Mock Manager (/400)
+            </button>
+            <button
               onClick={() => onNavigate('question-generator')}
               className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-2 transition shadow-lg shadow-amber-500/20 cursor-pointer"
             >
@@ -84,7 +91,7 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
             </button>
             <button
               onClick={() => onNavigate('register-student')}
-              className="px-4 py-2.5 bg-emerald-800 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold flex items-center gap-2 transition border border-emerald-600/50 cursor-pointer"
+              className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold flex items-center gap-2 transition border border-slate-700 cursor-pointer"
             >
               <PlusCircle className="w-4 h-4" />
               Register Student

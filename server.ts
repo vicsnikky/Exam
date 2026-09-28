@@ -17,6 +17,7 @@ import {
   quizAssignments,
   quizAttempts,
   assessments,
+  ss3MockScores,
   gradingRules,
   academicSessions,
   auditLogs,
@@ -25,7 +26,7 @@ import {
 import { eq, ilike, or, and, desc, sql } from 'drizzle-orm';
 import { authenticate, AuthRequest } from './src/middleware/auth.ts';
 import { seedDatabase } from './src/db/seed.ts';
-import { generateStudentId, calculateGrade } from './src/lib/id-generator.ts';
+import { generateStudentId, calculateGrade, calculateWaecGrade } from './src/lib/id-generator.ts';
 import { getGeminiClient } from './src/lib/gemini.ts';
 
 dotenv.config();
@@ -123,6 +124,77 @@ app.post('/api/auth/register-teacher', async (req, res) => {
   } catch (error: any) {
     console.error('Registration error:', error);
     return res.status(500).json({ error: error.message || 'Failed to register teacher' });
+  }
+});
+
+// Student Self-Registration (allows student to create their custom password & obtain persistent Student ID)
+app.post('/api/auth/register-student', async (req, res) => {
+  try {
+    const { firstName, middleName, surname, gender, currentClass, password } = req.body;
+
+    if (!firstName || !surname || !password) {
+      return res.status(400).json({ error: 'First name, surname, and password are required' });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters long' });
+    }
+
+    const session = '2026/2027';
+    const uniqueStudentId = await generateStudentId('FEN', session);
+    const salt = await bcrypt.genSalt(10);
+    const passwordHash = await bcrypt.hash(password.trim(), salt);
+
+    let schoolId = 1;
+    const existingSchool = await db.select().from(schools).limit(1);
+    if (existingSchool.length > 0) {
+      schoolId = existingSchool[0].id;
+    }
+
+    const [newStudent] = await db.insert(students).values({
+      studentId: uniqueStudentId,
+      firstName: firstName.trim(),
+      middleName: middleName ? middleName.trim() : null,
+      surname: surname.trim(),
+      gender: gender || 'Male',
+      currentClass: currentClass ? currentClass.trim() : 'SS 3',
+      school: 'Fenster International School',
+      session,
+      passwordHash,
+      schoolId,
+    }).returning();
+
+    // Audit Log
+    await db.insert(auditLogs).values({
+      actorName: `${firstName} ${surname}`,
+      actorRole: 'student',
+      action: 'STUDENT_SELF_REGISTERED',
+      targetEntity: 'students',
+      details: `Student registered self: ${uniqueStudentId} (${newStudent.currentClass})`,
+      schoolId,
+    });
+
+    const token = `local-student-auth:${newStudent.studentId}`;
+
+    return res.status(201).json({
+      message: 'Student account created successfully! Keep your Student ID safe.',
+      token,
+      studentId: newStudent.studentId,
+      user: {
+        id: newStudent.id,
+        studentId: newStudent.studentId,
+        firstName: newStudent.firstName,
+        middleName: newStudent.middleName,
+        surname: newStudent.surname,
+        currentClass: newStudent.currentClass,
+        school: newStudent.school,
+        session: newStudent.session,
+        role: 'student',
+      },
+    });
+  } catch (error: any) {
+    console.error('Student registration error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to register student' });
   }
 });
 
@@ -299,10 +371,11 @@ app.post('/api/students', authenticate, async (req: AuthRequest, res) => {
     }
 
     // Generate guaranteed unique Student ID
-    const uniqueStudentId = await generateStudentId(customPrefix || 'FIS', session);
+    const uniqueStudentId = await generateStudentId(customPrefix || 'FEN', session);
 
+    const studentPlainPassword = req.body.password?.trim() || 'student123';
     const studentSalt = await bcrypt.genSalt(10);
-    const defaultPasswordHash = await bcrypt.hash('student123', studentSalt);
+    const passwordHash = await bcrypt.hash(studentPlainPassword, studentSalt);
 
     const [newStudent] = await db.insert(students).values({
       studentId: uniqueStudentId,
@@ -317,7 +390,7 @@ app.post('/api/students', authenticate, async (req: AuthRequest, res) => {
       parentPhone: parentPhone ? parentPhone.trim() : null,
       school: school.trim(),
       session: session.trim(),
-      passwordHash: defaultPasswordHash,
+      passwordHash,
       schoolId: req.appUser?.schoolId || 1,
       registeredByTeacherId: req.appUser?.teacherProfile?.id || null,
     }).returning();
@@ -665,6 +738,523 @@ app.get('/api/scores', authenticate, async (req: AuthRequest, res) => {
   } catch (error: any) {
     console.error('Scores fetch error:', error);
     return res.status(500).json({ error: error.message || 'Failed to fetch score results' });
+  }
+});
+
+// ----------------------------------------------------
+// SS3 WEEKLY MOCK EXAM MODULE
+// ----------------------------------------------------
+
+// List SS3 Students for Mock Exam
+app.get('/api/ss3-mock/students', authenticate, async (req: AuthRequest, res) => {
+  try {
+    let list = await db
+      .select({
+        id: students.id,
+        studentId: students.studentId,
+        firstName: students.firstName,
+        middleName: students.middleName,
+        surname: students.surname,
+        gender: students.gender,
+        currentClass: students.currentClass,
+        school: students.school,
+        session: students.session,
+      })
+      .from(students)
+      .where(or(ilike(students.currentClass, '%SS 3%'), ilike(students.currentClass, '%SS3%')))
+      .orderBy(students.surname, students.firstName);
+
+    // If no SS3 students yet, return all students as fallback
+    if (list.length === 0) {
+      list = await db
+        .select({
+          id: students.id,
+          studentId: students.studentId,
+          firstName: students.firstName,
+          middleName: students.middleName,
+          surname: students.surname,
+          gender: students.gender,
+          currentClass: students.currentClass,
+          school: students.school,
+          session: students.session,
+        })
+        .from(students)
+        .orderBy(students.surname, students.firstName);
+    }
+
+    return res.json({ students: list });
+  } catch (error: any) {
+    console.error('SS3 students fetch error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to fetch SS3 students' });
+  }
+});
+
+// List Mock Weeks summary
+app.get('/api/ss3-mock/weeks', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const defaultWeeks = Array.from({ length: 12 }, (_, i) => ({
+      weekNumber: i + 1,
+      title: `Week ${i + 1} Mock Examination`,
+      description: `Senior School 3 (SS3) UTME / Mock Series - 4 Subject Assessment (Over 400 Marks)`,
+      isEnglishRule: 'English: (Raw Score ÷ 60) × 100',
+      isGeneralRule: 'Mathematics & Other Subjects: (Raw Score ÷ 40) × 100',
+      totalMarks: 400,
+    }));
+
+    return res.json({ weeks: defaultWeeks });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// Helper for SS3 Mock score calculation
+function calculateMockSubjectValues(subjectName: string, rawScoreInput?: any, scaledScoreInput?: any) {
+  const isEnglish = (subjectName || '').toLowerCase().includes('english');
+  const maxRawScore = isEnglish ? 60 : 40;
+
+  let rawScore = 0;
+  let scaledScore = 0;
+
+  if (rawScoreInput !== undefined && rawScoreInput !== null && rawScoreInput !== '' && !isNaN(Number(rawScoreInput))) {
+    rawScore = Math.min(Math.max(0, Number(rawScoreInput)), maxRawScore);
+    scaledScore = Math.round(((rawScore / maxRawScore) * 100) * 10) / 10;
+  } else if (scaledScoreInput !== undefined && scaledScoreInput !== null && scaledScoreInput !== '' && !isNaN(Number(scaledScoreInput))) {
+    scaledScore = Math.min(Math.max(0, Number(scaledScoreInput)), 100);
+    rawScore = Math.round(((scaledScore / 100) * maxRawScore) * 10) / 10;
+  }
+
+  const formula = isEnglish
+    ? `(${rawScore} ÷ 60) × 100 = ${scaledScore}`
+    : `(${rawScore} ÷ 40) × 100 = ${scaledScore}`;
+
+  const { grade, remark } = calculateWaecGrade(scaledScore, 100);
+
+  return {
+    isEnglish,
+    maxRawScore,
+    rawScore,
+    scaledScore,
+    formula,
+    grade,
+    remark,
+  };
+}
+
+// Get SS3 Mock Scores (Single Student breakdown or Class Weekly Broadsheet)
+app.get('/api/ss3-mock/scores', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const isStudent = req.appUser?.role === 'student';
+    let targetStudentId = req.query.studentId ? Number(req.query.studentId) : null;
+    const weekNumber = req.query.weekNumber ? Number(req.query.weekNumber) : null;
+
+    // Enforce student privacy: students can only see their own mock results
+    if (isStudent) {
+      targetStudentId = req.appUser?.id || null;
+    }
+
+    // Query assessments where assessmentType = 'SS3_MOCK'
+    const conditions: any[] = [eq(assessments.assessmentType, 'SS3_MOCK')];
+    if (targetStudentId) {
+      conditions.push(eq(assessments.studentId, targetStudentId));
+    }
+
+    const whereClause = and(...conditions);
+    const mockAssessments = await db
+      .select({
+        id: assessments.id,
+        studentId: assessments.studentId,
+        studentNumber: students.studentId,
+        studentFirstName: students.firstName,
+        studentMiddleName: students.middleName,
+        studentSurname: students.surname,
+        studentClass: students.currentClass,
+        subjectId: subjects.id,
+        subjectName: subjects.name,
+        subjectCode: subjects.code,
+        mockSeriesTitle: assessments.assessmentTitle,
+        score: assessments.score,
+        maxScore: assessments.maxScore,
+        percentage: assessments.percentage,
+        grade: assessments.grade,
+        teacherComment: assessments.teacherComment,
+        term: assessments.term,
+        session: assessments.session,
+        createdAt: assessments.createdAt,
+      })
+      .from(assessments)
+      .innerJoin(students, eq(assessments.studentId, students.id))
+      .innerJoin(subjects, eq(assessments.subjectId, subjects.id))
+      .where(whereClause)
+      .orderBy(students.surname, subjects.name);
+
+    // Process each record to extract rawScore and formula
+    let rawScores = mockAssessments.map((a) => {
+      // extract week from term or title e.g. "Week 1"
+      const match = (a.term + ' ' + a.mockSeriesTitle).match(/Week\s*(\d+)/i);
+      const w = match ? parseInt(match[1], 10) : 1;
+
+      let parsedComment: any = {};
+      try {
+        if (a.teacherComment && a.teacherComment.trim().startsWith('{')) {
+          parsedComment = JSON.parse(a.teacherComment);
+        }
+      } catch (_) {}
+
+      const calc = calculateMockSubjectValues(
+        a.subjectName,
+        parsedComment.rawScore,
+        parseFloat(a.score) || 0
+      );
+
+      return {
+        id: a.id,
+        studentId: a.studentId,
+        studentNumber: a.studentNumber,
+        studentFirstName: a.studentFirstName,
+        studentMiddleName: a.studentMiddleName,
+        studentSurname: a.studentSurname,
+        studentName: `${a.studentFirstName} ${a.studentSurname}`,
+        studentClass: a.studentClass,
+        subjectId: a.subjectId,
+        subjectName: a.subjectName,
+        subjectCode: a.subjectCode,
+        isEnglish: calc.isEnglish,
+        rawScore: parsedComment.rawScore !== undefined ? parsedComment.rawScore : calc.rawScore,
+        maxRawScore: calc.maxRawScore,
+        score: calc.scaledScore,
+        maxScore: 100,
+        percentage: calc.scaledScore,
+        formula: calc.formula,
+        grade: a.grade || calc.grade,
+        remark: parsedComment.remark || a.teacherComment || calc.remark,
+        weekNumber: w,
+        mockSeriesTitle: a.mockSeriesTitle || `SS3 Weekly Mock - Week ${w}`,
+        session: a.session,
+        term: `Week ${w}`,
+        examDate: a.createdAt ? a.createdAt.toISOString().split('T')[0] : '2026-09-28',
+      };
+    });
+
+    if (weekNumber) {
+      rawScores = rawScores.filter((s) => s.weekNumber === weekNumber);
+    }
+
+    // Group scores by week for student view
+    const weekGroups: Record<number, any> = {};
+    for (const sc of rawScores) {
+      const w = sc.weekNumber || 1;
+      if (!weekGroups[w]) {
+        weekGroups[w] = {
+          weekNumber: w,
+          mockSeriesTitle: sc.mockSeriesTitle || `SS3 Weekly Mock - Week ${w}`,
+          session: sc.session,
+          term: sc.term,
+          examDate: sc.examDate,
+          subjects: [],
+        };
+      }
+      weekGroups[w].subjects.push(sc);
+    }
+
+    // Compute overall performance summary for each week
+    const weeklySummaries = Object.values(weekGroups).map((wg: any) => {
+      // Sort subjects: English Language first, then others alphabetically
+      wg.subjects.sort((a: any, b: any) => {
+        if (a.isEnglish) return -1;
+        if (b.isEnglish) return 1;
+        return a.subjectName.localeCompare(b.subjectName);
+      });
+
+      // Sum of 4 subjects scaled scores = Total out of 400
+      const totalScore400 = wg.subjects.reduce((sum: number, s: any) => sum + (Number(s.score) || 0), 0);
+      const roundedTotal400 = Math.round(totalScore400 * 10) / 10;
+      const averagePercentage = Math.round((roundedTotal400 / 400) * 1000) / 10;
+      const waec = calculateWaecGrade(averagePercentage, 100);
+
+      let targetBenchmarkRemark = 'Good Effort';
+      if (roundedTotal400 >= 300) {
+        targetBenchmarkRemark = 'Outstanding - Elite Distinction (300+ Benchmark Achieved)';
+      } else if (roundedTotal400 >= 250) {
+        targetBenchmarkRemark = 'Strong - Competitive University Benchmark (250+)';
+      } else if (roundedTotal400 >= 200) {
+        targetBenchmarkRemark = 'Passed - Minimum UTME Admission Threshold (200+)';
+      } else {
+        targetBenchmarkRemark = 'Requires Intensive Remedial Study (< 200)';
+      }
+
+      return {
+        ...wg,
+        totalScore400: roundedTotal400,
+        maxPossibleScore: 400,
+        averagePercentage,
+        overallGrade: waec.grade,
+        overallRemark: waec.remark,
+        targetBenchmarkRemark,
+        creditsCount: wg.subjects.filter((s: any) => Number(s.score) >= 50).length,
+        distinctionsCount: wg.subjects.filter((s: any) => Number(s.score) >= 75).length,
+      };
+    });
+
+    weeklySummaries.sort((a: any, b: any) => a.weekNumber - b.weekNumber);
+
+    const progressChartData = weeklySummaries.map((w: any) => ({
+      weekNumber: w.weekNumber,
+      weekLabel: `Week ${w.weekNumber}`,
+      totalScore400: w.totalScore400,
+      percentage: w.averagePercentage,
+      targetScore: 250,
+      examDate: w.examDate,
+      subjectsCount: w.subjects.length,
+    }));
+
+    return res.json({
+      scores: rawScores,
+      weeklySummaries,
+      progressChartData,
+    });
+  } catch (error: any) {
+    console.error('SS3 mock scores error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to fetch SS3 mock scores' });
+  }
+});
+
+// SS3 Mock Broadsheet for all students in a given week
+app.get('/api/ss3-mock/broadsheet', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const weekNumber = req.query.weekNumber ? Number(req.query.weekNumber) : 1;
+    const session = (req.query.session as string) || '2026/2027';
+
+    // Get all SS3 students
+    const ss3Students = await db
+      .select({
+        id: students.id,
+        studentId: students.studentId,
+        firstName: students.firstName,
+        middleName: students.middleName,
+        surname: students.surname,
+        currentClass: students.currentClass,
+        school: students.school,
+        session: students.session,
+      })
+      .from(students)
+      .where(or(ilike(students.currentClass, '%SS 3%'), ilike(students.currentClass, '%SS3%')))
+      .orderBy(students.surname, students.firstName);
+
+    // Fetch mock assessments for this week
+    const mockAssessments = await db
+      .select({
+        id: assessments.id,
+        studentId: assessments.studentId,
+        subjectId: assessments.subjectId,
+        subjectName: subjects.name,
+        subjectCode: subjects.code,
+        score: assessments.score,
+        maxScore: assessments.maxScore,
+        percentage: assessments.percentage,
+        grade: assessments.grade,
+        teacherComment: assessments.teacherComment,
+        term: assessments.term,
+      })
+      .from(assessments)
+      .innerJoin(subjects, eq(assessments.subjectId, subjects.id))
+      .where(
+        and(
+          eq(assessments.assessmentType, 'SS3_MOCK'),
+          eq(assessments.term, `Week ${weekNumber}`)
+        )
+      );
+
+    const rows = ss3Students.map((st) => {
+      const stScores = mockAssessments.filter((a) => a.studentId === st.id);
+      let total400 = 0;
+      const subjectsMap: Record<string, any> = {};
+
+      for (const sc of stScores) {
+        let parsed: any = {};
+        try {
+          if (sc.teacherComment && sc.teacherComment.trim().startsWith('{')) {
+            parsed = JSON.parse(sc.teacherComment);
+          }
+        } catch (_) {}
+
+        const calc = calculateMockSubjectValues(
+          sc.subjectName,
+          parsed.rawScore,
+          parseFloat(sc.score) || 0
+        );
+
+        total400 += calc.scaledScore;
+        subjectsMap[sc.subjectName] = {
+          subjectId: sc.subjectId,
+          subjectName: sc.subjectName,
+          rawScore: parsed.rawScore !== undefined ? parsed.rawScore : calc.rawScore,
+          maxRawScore: calc.maxRawScore,
+          scaledScore: calc.scaledScore,
+          grade: sc.grade || calc.grade,
+          isEnglish: calc.isEnglish,
+          formula: calc.formula,
+        };
+      }
+
+      const totalRounded = Math.round(total400 * 10) / 10;
+      return {
+        student: st,
+        subjects: subjectsMap,
+        subjectsCount: stScores.length,
+        totalScore400: totalRounded,
+        averagePercentage: Math.round((totalRounded / 400) * 1000) / 10,
+      };
+    });
+
+    // Sort by totalScore400 descending
+    rows.sort((a, b) => b.totalScore400 - a.totalScore400);
+
+    const rankedRows = rows.map((r, idx) => ({
+      ...r,
+      rank: r.subjectsCount > 0 ? idx + 1 : null,
+    }));
+
+    return res.json({
+      weekNumber,
+      session,
+      totalStudents: ss3Students.length,
+      participatingStudents: rankedRows.filter((r) => r.subjectsCount > 0).length,
+      rows: rankedRows,
+    });
+  } catch (error: any) {
+    console.error('SS3 mock broadsheet error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to fetch SS3 mock broadsheet' });
+  }
+});
+
+// Record / Update SS3 Mock Exam Scores (For Subject Teachers & Super Admin)
+app.post('/api/ss3-mock/scores', authenticate, async (req: AuthRequest, res) => {
+  try {
+    // Only Teachers and Super Admin can record mock scores (Super Admin is also a teacher)
+    if (req.appUser?.role === 'student') {
+      return res.status(403).json({ error: 'Permission denied. Only faculty and administrators can record mock scores.' });
+    }
+
+    const {
+      studentId,
+      weekNumber,
+      session,
+      term,
+      examDate,
+      mockSeriesTitle,
+      scores, // Array<{ subjectId: number, rawScore?: number, score?: number, remark?: string }>
+    } = req.body;
+
+    if (!studentId || !weekNumber || !Array.isArray(scores) || scores.length === 0) {
+      return res.status(400).json({ error: 'Student ID, week number, and at least one subject score are required' });
+    }
+
+    const resolvedStudent = await db.select().from(students).where(eq(students.id, Number(studentId))).limit(1);
+    if (resolvedStudent.length === 0) {
+      return res.status(404).json({ error: 'SS3 Student not found' });
+    }
+
+    const currentStudent = resolvedStudent[0];
+    const targetSession = session || currentStudent.session || '2026/2027';
+    const targetTerm = term || 'Second Term';
+    const targetExamDate = examDate || new Date().toISOString().split('T')[0];
+    const seriesTitle = mockSeriesTitle || `SS3 Weekly Mock Series - Week ${weekNumber}`;
+
+    // Fetch all active subjects to verify names and English rules
+    const allSubjects = await db.select().from(subjects);
+
+    const savedResults: any[] = [];
+
+    for (const item of scores) {
+      if (!item.subjectId) continue;
+      const sub = allSubjects.find((s) => s.id === Number(item.subjectId));
+      const subName = sub ? sub.name : 'Subject';
+
+      // Apply the user-specified rule:
+      // English: whatever you scored divided by 60 multiplied by 100
+      // Mathematics and all other subjects: whatever you scored divided by 40 multiplied by 100
+      const calc = calculateMockSubjectValues(subName, item.rawScore, item.score);
+
+      const commentPayload = JSON.stringify({
+        rawScore: calc.rawScore,
+        maxRawScore: calc.maxRawScore,
+        formula: calc.formula,
+        scaledScore: calc.scaledScore,
+        remark: item.remark?.trim() || calc.remark,
+      });
+
+      // Upsert into assessments table
+      const existing = await db
+        .select()
+        .from(assessments)
+        .where(
+          and(
+            eq(assessments.studentId, currentStudent.id),
+            eq(assessments.subjectId, Number(item.subjectId)),
+            eq(assessments.assessmentType, 'SS3_MOCK'),
+            eq(assessments.term, `Week ${weekNumber}`)
+          )
+        )
+        .limit(1);
+
+      if (existing.length > 0) {
+        const [updated] = await db
+          .update(assessments)
+          .set({
+            score: calc.scaledScore.toString(),
+            maxScore: '100',
+            percentage: calc.scaledScore.toString(),
+            grade: calc.grade,
+            teacherComment: commentPayload,
+            session: targetSession,
+            assessmentTitle: seriesTitle,
+            teacherId: req.appUser?.teacherProfile?.id || null,
+          })
+          .where(eq(assessments.id, existing[0].id))
+          .returning();
+        savedResults.push(updated);
+      } else {
+        const [inserted] = await db
+          .insert(assessments)
+          .values({
+            studentId: currentStudent.id,
+            subjectId: Number(item.subjectId),
+            assessmentType: 'SS3_MOCK',
+            assessmentTitle: seriesTitle,
+            score: calc.scaledScore.toString(),
+            maxScore: '100',
+            percentage: calc.scaledScore.toString(),
+            grade: calc.grade,
+            session: targetSession,
+            term: `Week ${weekNumber}`,
+            teacherComment: commentPayload,
+            teacherId: req.appUser?.teacherProfile?.id || null,
+            schoolId: req.appUser?.schoolId || 1,
+          })
+          .returning();
+        savedResults.push(inserted);
+      }
+    }
+
+    // Audit Log
+    await db.insert(auditLogs).values({
+      actorName: `${req.appUser?.firstName} ${req.appUser?.lastName}`,
+      actorRole: req.appUser?.role || 'teacher',
+      action: 'SS3_MOCK_SCORES_RECORDED',
+      targetEntity: 'assessments',
+      details: `Recorded Week ${weekNumber} SS3 Mock Exam scores for ${currentStudent.firstName} ${currentStudent.surname} (${currentStudent.studentId}) with 60/40 UTME scaling formula`,
+      schoolId: req.appUser?.schoolId || 1,
+    });
+
+    return res.status(201).json({
+      message: `Successfully recorded Week ${weekNumber} mock scores for ${currentStudent.firstName} ${currentStudent.surname}`,
+      count: savedResults.length,
+      student: currentStudent,
+      weekNumber,
+    });
+  } catch (error: any) {
+    console.error('SS3 mock score recording error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to record SS3 mock scores' });
   }
 });
 

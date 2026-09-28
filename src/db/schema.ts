@@ -158,7 +158,7 @@ export const assessments = pgTable('assessments', {
   id: serial('id').primaryKey(),
   studentId: integer('student_id').references(() => students.id).notNull(),
   subjectId: integer('subject_id').references(() => subjects.id).notNull(),
-  assessmentType: text('assessment_type').notNull(), // CA | Test | Examination | Assignment | Quiz
+  assessmentType: text('assessment_type').notNull(), // CA | Test | Examination | Assignment | Quiz | SS3_MOCK
   assessmentTitle: text('assessment_title').notNull(), // e.g. First Continuous Assessment
   score: numeric('score').notNull(), // e.g. 78
   maxScore: numeric('max_score').notNull().default('100'), // e.g. 100
@@ -169,6 +169,26 @@ export const assessments = pgTable('assessments', {
   teacherComment: text('teacher_comment'),
   teacherId: integer('teacher_id').references(() => teachers.id),
   quizAttemptId: integer('quiz_attempt_id').references(() => quizAttempts.id),
+  schoolId: integer('school_id').references(() => schools.id),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// Dedicated SS3 Weekly Mock Exam Scores (8-12 subjects per week)
+export const ss3MockScores = pgTable('ss3_mock_scores', {
+  id: serial('id').primaryKey(),
+  studentId: integer('student_id').references(() => students.id).notNull(),
+  subjectId: integer('subject_id').references(() => subjects.id).notNull(),
+  weekNumber: integer('week_number').notNull(), // 1, 2, 3, etc.
+  mockSeriesTitle: text('mock_series_title').notNull(), // e.g. SS3 Weekly Mock Series - Week 1
+  score: numeric('score').notNull(),
+  maxScore: numeric('max_score').notNull().default('100'),
+  percentage: numeric('percentage').notNull(),
+  grade: text('grade').notNull(),
+  remark: text('remark'),
+  term: text('term').notNull().default('Second Term'),
+  session: text('session').notNull().default('2026/2027'),
+  examDate: text('exam_date'),
+  recordedByTeacherId: integer('recorded_by_teacher_id').references(() => teachers.id),
   schoolId: integer('school_id').references(() => schools.id),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });

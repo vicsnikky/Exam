@@ -93,3 +93,56 @@ export interface Quiz {
   attemptsCount?: number;
   createdAt: string;
 }
+
+export interface SS3MockSubjectScore {
+  id?: number;
+  studentId: number;
+  studentNumber?: string;
+  studentName?: string;
+  studentClass?: string;
+  subjectId: number;
+  subjectName: string;
+  subjectCode?: string;
+  isEnglish: boolean;
+  rawScore: number;
+  maxRawScore: number; // 60 for English, 40 for others
+  score: number; // scaled score / 100
+  maxScore: number; // 100
+  percentage: number;
+  formula: string; // e.g. (48 ÷ 60) × 100 = 80
+  grade: string;
+  remark: string;
+  weekNumber: number;
+  mockSeriesTitle?: string;
+  session?: string;
+  term?: string;
+  examDate?: string;
+}
+
+export interface SS3MockWeeklySummary {
+  weekNumber: number;
+  mockSeriesTitle: string;
+  session: string;
+  term: string;
+  examDate?: string;
+  subjects: SS3MockSubjectScore[];
+  totalScore400: number; // over 400
+  maxPossibleScore: number; // 400
+  averagePercentage: number;
+  overallGrade: string;
+  overallRemark: string;
+  targetBenchmarkRemark?: string;
+  creditsCount: number;
+  distinctionsCount: number;
+}
+
+export interface SS3MockProgressPoint {
+  weekNumber: number;
+  weekLabel: string;
+  totalScore400: number;
+  percentage: number;
+  targetScore: number;
+  examDate?: string;
+  subjectsCount: number;
+}
+
