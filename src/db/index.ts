@@ -7,13 +7,21 @@ declare global {
   var _postgresPool: Pool | undefined;
 }
 
+function sanitizePostgresUrl(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  // Clean accidental square brackets like postgres:[password]@host -> postgres:password@host
+  return url.replace(/:(?:\[([^\]]+)\])(@)/, ':$1$2');
+}
+
 export const createPool = () => {
   if (!global._postgresPool) {
-    const connectionString =
+    const rawConnectionString =
       process.env.POSTGRES_URL ||
       process.env.DATABASE_URL ||
       process.env.SUPABASE_DB_URL ||
       (SUPABASE_DATABASE_URL && SUPABASE_DATABASE_URL.startsWith('postgres') ? SUPABASE_DATABASE_URL : undefined);
+
+    const connectionString = sanitizePostgresUrl(rawConnectionString);
 
     if (connectionString) {
       global._postgresPool = new Pool({
