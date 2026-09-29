@@ -1,5 +1,4 @@
 import express from 'express';
-import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
@@ -40,10 +39,13 @@ const port = parseInt(process.env.PORT || '3000', 10);
 app.use(express.json({ limit: '10mb' }));
 
 // Initialize DB tables and seed data
-const pool = createPool();
-ensureTablesExist(pool)
-  .then(() => seedDatabase())
-  .catch((err) => console.error('DB init/seed error:', err));
+let pool: any = null;
+if (!process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
+  pool = createPool();
+  ensureTablesExist(pool)
+    .then(() => seedDatabase())
+    .catch((err) => console.error('DB init/seed error:', err));
+}
 
 // ----------------------------------------------------
 // 1. AUTHENTICATION & REGISTRATION ENDPOINTS
@@ -2049,6 +2051,7 @@ app.get('/api/admin/overview', authenticate, async (req: AuthRequest, res) => {
 // ----------------------------------------------------
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
