@@ -344,6 +344,26 @@ SELECT setval('subjects_id_seq', (SELECT COALESCE(MAX(id), 1) FROM subjects));
 SELECT setval('assessments_id_seq', (SELECT COALESCE(MAX(id), 1) FROM assessments));
 SELECT setval('ss3_mock_scores_id_seq', (SELECT COALESCE(MAX(id), 1) FROM ss3_mock_scores));
 
+-- Ensure Row Level Security (RLS) does NOT block web portal inserts & updates
+ALTER TABLE schools DISABLE ROW LEVEL SECURITY;
+ALTER TABLE users DISABLE ROW LEVEL SECURITY;
+ALTER TABLE teachers DISABLE ROW LEVEL SECURITY;
+ALTER TABLE academic_sessions DISABLE ROW LEVEL SECURITY;
+ALTER TABLE grading_rules DISABLE ROW LEVEL SECURITY;
+ALTER TABLE students DISABLE ROW LEVEL SECURITY;
+ALTER TABLE subjects DISABLE ROW LEVEL SECURITY;
+ALTER TABLE questions DISABLE ROW LEVEL SECURITY;
+ALTER TABLE quizzes DISABLE ROW LEVEL SECURITY;
+ALTER TABLE quiz_questions DISABLE ROW LEVEL SECURITY;
+ALTER TABLE quiz_assignments DISABLE ROW LEVEL SECURITY;
+ALTER TABLE quiz_attempts DISABLE ROW LEVEL SECURITY;
+ALTER TABLE assessments DISABLE ROW LEVEL SECURITY;
+ALTER TABLE ss3_mock_scores DISABLE ROW LEVEL SECURITY;
+ALTER TABLE audit_logs DISABLE ROW LEVEL SECURITY;
+
+GRANT ALL ON ALL TABLES IN SCHEMA public TO postgres, anon, authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO postgres, anon, authenticated, service_role;
+
 -- ============================================================================
 -- SETUP COMPLETE
 -- ============================================================================

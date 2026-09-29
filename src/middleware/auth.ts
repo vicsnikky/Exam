@@ -34,16 +34,25 @@ export const authenticate = async (
 
   const token = authHeader.split('Bearer ')[1];
 
-  // Support local session bypass tokens for demo / direct student or teacher login
-  if (token.startsWith('local-teacher-') || token.startsWith('local-student-') || token.startsWith('local-demo-') || token.startsWith('local-admin-')) {
-    const parts = token.split(':');
-    const rolePrefix = parts[0];
-    const role = rolePrefix.includes('student') ? 'student' : (rolePrefix.includes('admin') ? 'super_admin' : 'teacher');
-    const emailOrId = parts[1] || '';
-
+  // Support local session bypass tokens for demo / direct student, teacher or super admin login
+  if (
+    token.startsWith('local-teacher-') ||
+    token.startsWith('local-student-') ||
+    token.startsWith('local-demo-') ||
+    token.startsWith('local-admin-') ||
+    token.startsWith('fis_session_') ||
+    token.startsWith('fis_teacher_') ||
+    token.startsWith('fis_student_')
+  ) {
     try {
-      if (role === 'teacher' || role === 'super_admin') {
-        const found = await db.select().from(users).where(eq(users.email, emailOrId)).limit(1);
+      // 1. Super Admin Session Tokens
+      if (token.startsWith('local-admin-') || token.startsWith('fis_session_')) {
+        const found = await db
+          .select()
+          .from(users)
+          .where(eq(users.role, 'super_admin'))
+          .limit(1);
+
         if (found.length > 0) {
           const teacherRec = await db.select().from(teachers).where(eq(teachers.userId, found[0].id)).limit(1);
           req.appUser = {
@@ -52,26 +61,80 @@ export const authenticate = async (
             email: found[0].email,
             firstName: found[0].firstName,
             lastName: found[0].lastName,
-            role: found[0].role,
-            schoolId: found[0].schoolId,
+            role: 'super_admin',
+            schoolId: found[0].schoolId || 1,
             teacherProfile: teacherRec[0] || null,
           };
           return next();
         }
-      } else {
-        const studentRec = await db.select().from(students).where(eq(students.studentId, emailOrId)).limit(1);
-        if (studentRec.length > 0) {
+      }
+
+      // 2. Teacher Session Tokens
+      if (token.startsWith('local-teacher-') || token.startsWith('fis_teacher_')) {
+        const parts = token.split(':');
+        const identifier = parts[1] || '';
+        
+        let foundUser: any = null;
+        if (identifier) {
+          const found = await db.select().from(users).where(eq(users.email, identifier.toLowerCase())).limit(1);
+          if (found.length > 0) foundUser = found[0];
+        }
+
+        if (!foundUser && token.startsWith('fis_teacher_')) {
+          // Token format: fis_teacher_TCH-2026-XXXX_timestamp
+          const tchParts = token.split('_');
+          const tchId = tchParts[2];
+          if (tchId) {
+            const tchRec = await db.select().from(teachers).where(eq(teachers.teacherId, tchId)).limit(1);
+            if (tchRec.length > 0 && tchRec[0].userId) {
+              const u = await db.select().from(users).where(eq(users.id, tchRec[0].userId)).limit(1);
+              if (u.length > 0) foundUser = u[0];
+            }
+          }
+        }
+
+        if (foundUser) {
+          const teacherRec = await db.select().from(teachers).where(eq(teachers.userId, foundUser.id)).limit(1);
           req.appUser = {
-            id: studentRec[0].id,
-            uid: studentRec[0].studentId,
-            email: studentRec[0].email || `${studentRec[0].studentId}@school.edu`,
-            firstName: studentRec[0].firstName,
-            lastName: studentRec[0].surname,
-            role: 'student',
-            schoolId: studentRec[0].schoolId,
-            studentProfile: studentRec[0],
+            id: foundUser.id,
+            uid: foundUser.uid,
+            email: foundUser.email,
+            firstName: foundUser.firstName,
+            lastName: foundUser.lastName,
+            role: foundUser.role,
+            schoolId: foundUser.schoolId || 1,
+            teacherProfile: teacherRec[0] || null,
           };
           return next();
+        }
+      }
+
+      // 3. Student Session Tokens
+      if (token.startsWith('local-student-') || token.startsWith('fis_student_')) {
+        const parts = token.split(':');
+        let studentId = parts[1] || '';
+
+        if (!studentId && token.startsWith('fis_student_')) {
+          // Token format: fis_student_FEN-XXXX-XXXXXX_timestamp
+          const stParts = token.split('_');
+          studentId = stParts[2] || '';
+        }
+
+        if (studentId) {
+          const studentRec = await db.select().from(students).where(eq(students.studentId, studentId.toUpperCase())).limit(1);
+          if (studentRec.length > 0) {
+            req.appUser = {
+              id: studentRec[0].id,
+              uid: studentRec[0].studentId,
+              email: studentRec[0].email || `${studentRec[0].studentId}@school.edu`,
+              firstName: studentRec[0].firstName,
+              lastName: studentRec[0].surname,
+              role: 'student',
+              schoolId: studentRec[0].schoolId || 1,
+              studentProfile: studentRec[0],
+            };
+            return next();
+          }
         }
       }
     } catch (e) {

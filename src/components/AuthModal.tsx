@@ -69,8 +69,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
         return;
       }
 
-      // Check registered faculty records in local storage roster
-      const localAuth = authenticateLocalTeacher(emailOrId.trim(), password);
+      // Check registered faculty records in local storage roster or Supabase
+      const localAuth = await authenticateLocalTeacher(emailOrId.trim(), password);
       if (localAuth) {
         login(localAuth.token, localAuth.user);
         onSuccess?.();
@@ -91,7 +91,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
           role: 'super_admin' as const,
           schoolName: 'Fenster International School',
         };
-        const token = 'fis_session_' + Date.now();
+        const token = `local-admin-auth:${adminUser.email}`;
         login(token, adminUser);
         onSuccess?.();
         return;
@@ -106,7 +106,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
           role: 'teacher' as const,
           schoolName: 'Fenster International School',
         };
-        const token = 'fis_session_' + Date.now();
+        const token = `local-teacher-auth:${teacherUser.email}`;
         login(token, teacherUser);
         onSuccess?.();
         return;
@@ -155,8 +155,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
         return;
       }
 
-      // Check registered students in local storage roster
-      const localStudentAuth = authenticateLocalStudent(emailOrId.trim(), password);
+      // Check registered students in local storage roster or Supabase
+      const localStudentAuth = await authenticateLocalStudent(emailOrId.trim(), password);
       if (localStudentAuth) {
         login(localStudentAuth.token, localStudentAuth.user);
         onSuccess?.();
