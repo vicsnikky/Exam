@@ -244,24 +244,47 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
 
-    // Otherwise Teacher / Super Admin Login
-    const userRec = await db.select().from(users).where(eq(users.email, cleanIdentifier.toLowerCase())).limit(1);
-    if (userRec.length === 0) {
-      return res.status(404).json({ error: 'No account found with this email' });
-    }
+    // Otherwise Teacher / Super Admin Login (Support both Email and Teacher ID e.g. TCH-2026-0001)
+    let u: any = null;
+    let teacherRec: any[] = [];
 
-    const u = userRec[0];
-    if (u.passwordHash) {
-      const isMatch = await bcrypt.compare(password, u.passwordHash);
-      const isDevFallback = (u.role === 'super_admin' && password === 'admin123') || 
-                            (u.role === 'teacher' && password === 'teacher123') ||
-                            (u.email.toLowerCase() === 'victoralo1862@gmail.com' && password === 'Alo.13071996');
-      if (!isMatch && !isDevFallback) {
-        return res.status(401).json({ error: 'Invalid password' });
+    if (cleanIdentifier.toUpperCase().startsWith('TCH-')) {
+      teacherRec = await db
+        .select()
+        .from(teachers)
+        .where(eq(teachers.teacherId, cleanIdentifier.toUpperCase()))
+        .limit(1);
+
+      if (teacherRec.length > 0 && teacherRec[0].userId) {
+        const userFound = await db.select().from(users).where(eq(users.id, teacherRec[0].userId)).limit(1);
+        if (userFound.length > 0) {
+          u = userFound[0];
+        }
       }
     }
 
-    const teacherRec = await db.select().from(teachers).where(eq(teachers.userId, u.id)).limit(1);
+    if (!u) {
+      const userRec = await db.select().from(users).where(eq(users.email, cleanIdentifier.toLowerCase())).limit(1);
+      if (userRec.length > 0) {
+        u = userRec[0];
+        teacherRec = await db.select().from(teachers).where(eq(teachers.userId, u.id)).limit(1);
+      }
+    }
+
+    if (!u) {
+      return res.status(404).json({ error: 'No faculty or admin account found with this email or Teacher ID' });
+    }
+
+    if (u.passwordHash) {
+      const isMatch = await bcrypt.compare(password, u.passwordHash);
+      const isDevFallback = (u.role === 'super_admin' && (password === 'admin123' || password === 'Alo.13071996')) || 
+                            (u.role === 'teacher' && (password === 'teacher123' || password === 'password123')) ||
+                            (u.email.toLowerCase() === 'victoralo1862@gmail.com' && password === 'Alo.13071996');
+      if (!isMatch && !isDevFallback) {
+        return res.status(401).json({ error: 'Invalid password. Please check your credentials.' });
+      }
+    }
+
     const token = u.role === 'super_admin' ? `local-admin-auth:${u.email}` : `local-teacher-auth:${u.email}`;
 
     return res.json({

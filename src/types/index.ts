@@ -23,6 +23,7 @@ export interface Student {
   dateOfBirth?: string | null;
   currentClass: string;
   email?: string | null;
+  password?: string | null;
   parentName?: string | null;
   parentPhone?: string | null;
   school: string;

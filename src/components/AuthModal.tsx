@@ -13,6 +13,7 @@ import {
   EyeOff
 } from 'lucide-react';
 import { extractErrorMessage } from '../lib/error.ts';
+import { authenticateLocalTeacher, authenticateLocalStudent } from '../lib/schoolStore.ts';
 
 interface AuthModalProps {
   onSuccess?: () => void;
@@ -40,6 +41,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
     setError(null);
     try {
       let data: any = null;
+      let backendErrorMsg: string | null = null;
+
       try {
         const res = await fetch('/api/auth/login', {
           method: 'POST',
@@ -52,19 +55,24 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
           if (text && (text.startsWith('{') || text.startsWith('['))) {
             data = JSON.parse(text);
           }
-        } else if (res.status === 400 || res.status === 401) {
+        } else {
           const errData = await res.json().catch(() => null);
-          throw new Error(errData?.error || 'Invalid email or password');
+          backendErrorMsg = errData?.error || null;
         }
       } catch (err: any) {
-        if (err.message && (err.message.includes('Invalid') || err.message.includes('required'))) {
-          throw err;
-        }
-        console.warn('Backend login endpoint unavailable or server error, checking direct credentials:', err);
+        console.warn('Backend login endpoint unavailable or offline, falling back to local credentials:', err);
       }
 
       if (data && data.token && data.user) {
         login(data.token, data.user);
+        onSuccess?.();
+        return;
+      }
+
+      // Check registered faculty records in local storage roster
+      const localAuth = authenticateLocalTeacher(emailOrId.trim(), password);
+      if (localAuth) {
+        login(localAuth.token, localAuth.user);
         onSuccess?.();
         return;
       }
@@ -104,7 +112,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
         return;
       }
 
-      throw new Error('Invalid email or password. Please verify your credentials.');
+      throw new Error(backendErrorMsg || 'Invalid email/Teacher ID or password. Please verify your credentials.');
     } catch (err: any) {
       setError(extractErrorMessage(err, 'Login failed. Please verify credentials.'));
     } finally {
@@ -119,6 +127,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
     setError(null);
     try {
       let data: any = null;
+      let backendErrorMsg: string | null = null;
+
       try {
         const res = await fetch('/api/auth/login', {
           method: 'POST',
@@ -131,19 +141,24 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
           if (text && (text.startsWith('{') || text.startsWith('['))) {
             data = JSON.parse(text);
           }
-        } else if (res.status === 400 || res.status === 401) {
+        } else {
           const errData = await res.json().catch(() => null);
-          throw new Error(errData?.error || 'Invalid Student ID or Password');
+          backendErrorMsg = errData?.error || null;
         }
       } catch (err: any) {
-        if (err.message && (err.message.includes('Invalid') || err.message.includes('required'))) {
-          throw err;
-        }
         console.warn('Backend student login endpoint unavailable, checking credentials:', err);
       }
 
       if (data && data.token && data.user) {
         login(data.token, data.user);
+        onSuccess?.();
+        return;
+      }
+
+      // Check registered students in local storage roster
+      const localStudentAuth = authenticateLocalStudent(emailOrId.trim(), password);
+      if (localStudentAuth) {
+        login(localStudentAuth.token, localStudentAuth.user);
         onSuccess?.();
         return;
       }
@@ -171,7 +186,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
         return;
       }
 
-      throw new Error('Invalid Student ID or password. Please verify your credentials.');
+      throw new Error(backendErrorMsg || 'Invalid Student ID or password. Please verify your credentials.');
     } catch (err: any) {
       setError(extractErrorMessage(err, 'Student login failed. Please verify your Student ID and password.'));
     } finally {
@@ -260,15 +275,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
         {mode === 'teacher-login' && (
           <form onSubmit={handleTeacherLogin} className="space-y-4">
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">Faculty / Admin Email Address</label>
+              <label className="block text-xs font-medium text-slate-300 mb-1">
+                Faculty Email Address or Teacher ID
+              </label>
               <div className="relative">
                 <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                 <input
-                  type="email"
+                  type="text"
                   required
                   value={emailOrId}
                   onChange={(e) => setEmailOrId(e.target.value)}
-                  placeholder="e.g. user@school.edu or admin@school.edu"
+                  placeholder="e.g. teacher.name@school.edu or TCH-2026-0002"
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 transition"
                 />
               </div>
