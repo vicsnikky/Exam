@@ -11,29 +11,27 @@
 
 ---
 
-## ⚡ Fastest Fix on Vercel (1-Click Database Setup)
+## ⚡ Database Setup with Supabase (Fast & Reliable)
 
-You don't have to manually configure 5 different database keys. We have updated the codebase to automatically support **`POSTGRES_URL`** and **`DATABASE_URL`**:
+The backend natively supports Supabase via standard PostgreSQL connection pooling (`pg` + `drizzle-orm`):
 
-### Option 1: 1-Click Vercel Postgres (Zero manual key typing!)
-1. Open your project in the **[Vercel Dashboard](https://vercel.com/)**.
-2. Click the **Storage** tab at the top.
-3. Click **"Connect Store"** (or "Create Database") → Select **Postgres** (powered by Neon).
-4. Click **Create** and link it to your project.
-5. Vercel will automatically inject `POSTGRES_URL` into your environment variables!
-6. Go to **Settings** → **Environment Variables**, add:
-   * `JWT_SECRET` = `fenster-secret-jwt-key-2026`
-   * `GEMINI_API_KEY` = your Google AI Studio API key
-7. Go to **Deployments** → Click the three dots `...` on the latest deployment → **Redeploy**.
-8. That's it! Your login and database will work immediately.
+### Step 1: Run the Database Migration Script in Supabase
+1. Create a free project at **[Supabase.com](https://supabase.com)**.
+2. In your Supabase project dashboard, open the **SQL Editor** from the left navigation bar.
+3. Open `supabase_setup.sql` from this repository (or copy its contents).
+4. Paste it into the Supabase SQL Editor and click **Run**.
+5. All 15 tables (`schools`, `users`, `teachers`, `students`, `subjects`, `assessments`, `ss3_mock_scores`, `questions`, `quizzes`, etc.) and default seed accounts (`victoralo1862@gmail.com`, SS3 candidates, and mock scores) will be created instantly.
 
-### Option 2: Use Free Neon.tech or Supabase (1 single connection string)
-1. Create a free account at **[Neon.tech](https://neon.tech)** (free serverless Postgres).
-2. Copy your connection string (looks like `postgresql://user:pass@ep-xyz.neon.tech/neondb?sslmode=require`).
-3. In **Vercel Project Settings → Environment Variables**, add:
-   * `DATABASE_URL`: (paste your connection string)
-   * `JWT_SECRET`: `fenster-secret-jwt-key-2026`
-4. Redeploy on Vercel.
+### Step 2: Connect Supabase to your Deployment
+1. In your Supabase Project Dashboard, navigate to **Project Settings** → **Database**.
+2. Scroll to the **Connection String** section and copy the **URI** (Session or Transaction pooler):
+   * Example: `postgresql://postgres:[YOUR-PASSWORD]@db.[YOUR-PROJECT-REF].supabase.co:5432/postgres`
+   * Replace `[YOUR-PASSWORD]` with your actual database password.
+3. In your hosting environment (Vercel, Render, Railway, Cloud Run, etc.) or `.env`, add:
+   * **`DATABASE_URL`**: Your Supabase connection string.
+   * **`JWT_SECRET`**: `fenster-international-school-secret-jwt-key-2026`
+   * **`GEMINI_API_KEY`**: Your Google AI Studio API key.
+4. Redeploy your application. Supabase connection will be established automatically!
 
 ---
 

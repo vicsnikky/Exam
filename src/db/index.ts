@@ -1,6 +1,7 @@
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 import * as schema from './schema.ts';
+import { SUPABASE_DATABASE_URL } from '../supabaseConfig.ts';
 
 declare global {
   var _postgresPool: Pool | undefined;
@@ -8,7 +9,11 @@ declare global {
 
 export const createPool = () => {
   if (!global._postgresPool) {
-    const connectionString = process.env.POSTGRES_URL || process.env.DATABASE_URL;
+    const connectionString =
+      process.env.POSTGRES_URL ||
+      process.env.DATABASE_URL ||
+      process.env.SUPABASE_DB_URL ||
+      (SUPABASE_DATABASE_URL && SUPABASE_DATABASE_URL.startsWith('postgres') ? SUPABASE_DATABASE_URL : undefined);
 
     if (connectionString) {
       global._postgresPool = new Pool({
@@ -23,6 +28,8 @@ export const createPool = () => {
         user: process.env.SQL_USER,
         password: process.env.SQL_PASSWORD,
         database: process.env.SQL_DB_NAME,
+        port: process.env.SQL_PORT ? Number(process.env.SQL_PORT) : 5432,
+        ssl: false,
         max: 10,
         connectionTimeoutMillis: 15000,
       });
