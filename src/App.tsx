@@ -295,26 +295,28 @@ export default function App() {
                   </span>
                 </motion.button>
 
-                <motion.button
-                  whileHover={{ x: 2 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => setActiveTab('register-student')}
-                  className={`w-full relative flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition-colors cursor-pointer ${
-                    activeTab === 'register-student' ? 'text-white' : 'text-slate-300 hover:text-white hover:bg-slate-700/40'
-                  }`}
-                >
-                  {activeTab === 'register-student' && (
-                    <motion.div
-                      layoutId="activeSidebarIndicator"
-                      className="absolute inset-0 bg-emerald-700 rounded-xl shadow-md shadow-emerald-900/40 border border-emerald-600/40 z-0"
-                      transition={{ type: 'spring', stiffness: 450, damping: 32 }}
-                    />
-                  )}
-                  <span className="relative z-10 flex items-center gap-3">
-                    <UserPlus className="w-4 h-4 shrink-0" />
-                    Register Student (Unique ID)
-                  </span>
-                </motion.button>
+                {isSuperAdmin && (
+                  <motion.button
+                    whileHover={{ x: 2 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => setActiveTab('register-student')}
+                    className={`w-full relative flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition-colors cursor-pointer ${
+                      activeTab === 'register-student' ? 'text-white' : 'text-slate-300 hover:text-white hover:bg-slate-700/40'
+                    }`}
+                  >
+                    {activeTab === 'register-student' && (
+                      <motion.div
+                        layoutId="activeSidebarIndicator"
+                        className="absolute inset-0 bg-emerald-700 rounded-xl shadow-md shadow-emerald-900/40 border border-emerald-600/40 z-0"
+                        transition={{ type: 'spring', stiffness: 450, damping: 32 }}
+                      />
+                    )}
+                    <span className="relative z-10 flex items-center gap-3">
+                      <UserPlus className="w-4 h-4 shrink-0 text-amber-400" />
+                      Register Student (Admin Only)
+                    </span>
+                  </motion.button>
+                )}
 
                 <motion.button
                   whileHover={{ x: 2 }}
@@ -604,14 +606,16 @@ export default function App() {
                     >
                       Students Directory
                     </button>
-                    <button
-                      onClick={() => { setActiveTab('register-student'); setMobileMenuOpen(false); }}
-                      className={`w-full text-left px-3 py-2 text-xs rounded-lg transition ${
-                        activeTab === 'register-student' ? 'bg-emerald-700 text-white font-semibold' : 'text-slate-300 hover:bg-slate-700'
-                      }`}
-                    >
-                      Register Student (Unique ID)
-                    </button>
+                    {isSuperAdmin && (
+                      <button
+                        onClick={() => { setActiveTab('register-student'); setMobileMenuOpen(false); }}
+                        className={`w-full text-left px-3 py-2 text-xs rounded-lg transition ${
+                          activeTab === 'register-student' ? 'bg-emerald-700 text-white font-semibold' : 'text-slate-300 hover:bg-slate-700'
+                        }`}
+                      >
+                        Register Student (Admin Only)
+                      </button>
+                    )}
                     <button
                       onClick={() => { setActiveTab('subjects'); setMobileMenuOpen(false); }}
                       className={`w-full text-left px-3 py-2 text-xs rounded-lg transition ${
