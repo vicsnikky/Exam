@@ -550,6 +550,57 @@ app.get('/api/students/:id', authenticate, async (req: AuthRequest, res) => {
   }
 });
 
+// DELETE Student (Super Admin & Staff)
+app.delete('/api/students/:id', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const rawId = req.params.id;
+    if (req.appUser?.role !== 'super_admin' && req.appUser?.role !== 'teacher') {
+      return res.status(403).json({ error: 'Access denied: Super Admin or Faculty privileges required' });
+    }
+
+    let targetStudent;
+    if (!isNaN(Number(rawId))) {
+      const found = await db.select().from(students).where(eq(students.id, Number(rawId))).limit(1);
+      targetStudent = found[0];
+    } else {
+      const found = await db.select().from(students).where(eq(students.studentId, rawId.toUpperCase().trim())).limit(1);
+      targetStudent = found[0];
+    }
+
+    if (!targetStudent) {
+      return res.status(404).json({ error: 'Student not found in database' });
+    }
+
+    // Delete related records safely
+    try { await db.delete(quizAssignments).where(eq(quizAssignments.studentId, targetStudent.id)); } catch (_) {}
+    try { await db.delete(quizAttempts).where(eq(quizAttempts.studentId, targetStudent.id)); } catch (_) {}
+    try { await db.delete(assessments).where(eq(assessments.studentId, targetStudent.id)); } catch (_) {}
+    try { await db.delete(ss3MockScores).where(eq(ss3MockScores.studentId, targetStudent.id)); } catch (_) {}
+    await db.delete(students).where(eq(students.id, targetStudent.id));
+    if (targetStudent.email) {
+      try { await db.delete(users).where(eq(users.email, targetStudent.email.toLowerCase().trim())); } catch (_) {}
+    }
+
+    // Audit log
+    await db.insert(auditLogs).values({
+      actorName: `${req.appUser?.firstName} ${req.appUser?.lastName}`,
+      actorRole: req.appUser?.role || 'teacher',
+      action: 'STUDENT_DELETED',
+      targetEntity: 'students',
+      details: `Student permanently deleted: ${targetStudent.firstName} ${targetStudent.surname} (${targetStudent.studentId})`,
+      schoolId: req.appUser?.schoolId || 1,
+    });
+
+    return res.json({
+      success: true,
+      message: `Student ${targetStudent.firstName} ${targetStudent.surname} (${targetStudent.studentId}) permanently deleted.`,
+    });
+  } catch (error: any) {
+    console.error('Delete student error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to delete student' });
+  }
+});
+
 // ----------------------------------------------------
 // 4. SUBJECT MANAGEMENT
 // ----------------------------------------------------
@@ -2006,6 +2057,71 @@ app.post('/api/admin/teachers', authenticate, async (req: AuthRequest, res) => {
   }
 });
 
+// Super Admin: Delete Teacher
+app.delete('/api/admin/teachers/:id', authenticate, async (req: AuthRequest, res) => {
+  try {
+    if (req.appUser?.role !== 'super_admin') {
+      return res.status(403).json({ error: 'Access denied: Super Admin authorization required' });
+    }
+
+    const rawId = req.params.id;
+    let targetTeacher;
+    if (!isNaN(Number(rawId))) {
+      const found = await db.select().from(teachers).where(eq(teachers.id, Number(rawId))).limit(1);
+      targetTeacher = found[0];
+    } else {
+      const found = await db.select().from(teachers).where(eq(teachers.teacherId, rawId.toUpperCase().trim())).limit(1);
+      targetTeacher = found[0];
+    }
+
+    if (!targetTeacher) {
+      return res.status(404).json({ error: 'Teacher not found' });
+    }
+
+    // Delete teacher and user
+    await db.delete(teachers).where(eq(teachers.id, targetTeacher.id));
+    if (targetTeacher.userId) {
+      await db.delete(users).where(eq(users.id, targetTeacher.userId));
+    }
+
+    await db.insert(auditLogs).values({
+      actorName: `${req.appUser?.firstName} ${req.appUser?.lastName}`,
+      actorRole: 'super_admin',
+      action: 'TEACHER_DELETED',
+      targetEntity: 'teachers',
+      details: `Faculty member deleted: Teacher ID ${targetTeacher.teacherId}`,
+      schoolId: req.appUser?.schoolId || 1,
+    });
+
+    return res.json({
+      success: true,
+      message: `Teacher account ${targetTeacher.teacherId} deleted successfully.`,
+    });
+  } catch (error: any) {
+    console.error('Delete teacher error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to delete teacher' });
+  }
+});
+
+// Super Admin: Delete User
+app.delete('/api/admin/users/:id', authenticate, async (req: AuthRequest, res) => {
+  try {
+    if (req.appUser?.role !== 'super_admin') {
+      return res.status(403).json({ error: 'Access denied: Super Admin authorization required' });
+    }
+
+    const userId = Number(req.params.id);
+    if (isNaN(userId)) {
+      return res.status(400).json({ error: 'Invalid user ID' });
+    }
+
+    await db.delete(users).where(eq(users.id, userId));
+    return res.json({ success: true, message: 'User account deleted.' });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message || 'Failed to delete user' });
+  }
+});
+
 // Super Admin: List all system users across roles
 app.get('/api/admin/users', authenticate, async (req: AuthRequest, res) => {
   try {
@@ -2103,6 +2219,17 @@ app.get('/api/admin/overview', authenticate, async (req: AuthRequest, res) => {
   } catch (error: any) {
     return res.status(500).json({ error: error.message });
   }
+});
+
+// Global Express Error-handling Middleware (Always returns JSON, never HTML or plain text)
+app.use((err: any, req: any, res: any, next: any) => {
+  console.error('Express server unhandled error:', err);
+  if (res.headersSent) {
+    return next(err);
+  }
+  return res.status(500).json({
+    error: err?.message || 'An internal server error occurred',
+  });
 });
 
 // ----------------------------------------------------

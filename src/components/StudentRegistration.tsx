@@ -15,6 +15,8 @@ import {
   EyeOff
 } from 'lucide-react';
 import { Student } from '../types/index.ts';
+import { registerNewStudent } from '../lib/schoolStore.ts';
+import { RegistrationSuccessCard } from './RegistrationSuccessCard.tsx';
 
 interface StudentRegistrationProps {
   onStudentRegistered?: (student: Student) => void;
@@ -69,67 +71,26 @@ export const StudentRegistration: React.FC<StudentRegistrationProps> = ({
     }
 
     try {
-      let registeredData: any = null;
-      try {
-        const res = await fetch('/api/students', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            firstName,
-            middleName,
-            surname,
-            gender,
-            dateOfBirth,
-            currentClass,
-            email,
-            parentName,
-            parentPhone,
-            school,
-            session,
-            customPrefix,
-            password: studentPassword,
-          }),
-        });
+      const result = await registerNewStudent(token, {
+        firstName,
+        middleName,
+        surname,
+        gender,
+        dateOfBirth,
+        currentClass,
+        email,
+        parentName,
+        parentPhone,
+        school,
+        session,
+        customPrefix,
+        password: studentPassword,
+      });
 
-        if (res.ok) {
-          const text = await res.text();
-          if (text && (text.startsWith('{') || text.startsWith('['))) {
-            const data = JSON.parse(text);
-            registeredData = data.student;
-          }
-        }
-      } catch (e) {
-        console.warn('Backend student registration offline fallback:', e);
-      }
+      setRegisteredStudent(result.student);
+      setSavedPassword(result.password);
+      onStudentRegistered?.(result.student);
 
-      if (!registeredData) {
-        // Generate valid institutional student record
-        const nextNum = Math.floor(100000 + Math.random() * 900000);
-        const generatedStudentId = `${customPrefix || 'FEN'}-${session.split('/')[0]}-${String(nextNum).padStart(6, '0')}`;
-        registeredData = {
-          id: Date.now(),
-          studentId: generatedStudentId,
-          firstName,
-          middleName,
-          surname,
-          gender,
-          dateOfBirth,
-          currentClass,
-          email,
-          parentName,
-          parentPhone,
-          school,
-          session,
-          createdAt: new Date().toISOString(),
-        };
-      }
-
-      setRegisteredStudent(registeredData);
-      setSavedPassword(studentPassword);
-      onStudentRegistered?.(registeredData);
       // Reset core names
       setFirstName('');
       setMiddleName('');
@@ -174,65 +135,19 @@ export const StudentRegistration: React.FC<StudentRegistrationProps> = ({
         </div>
       </div>
 
-      {/* Success Banner */}
+      {/* Success Banner Card */}
       {registeredStudent && (
-        <div className="bg-emerald-950/40 border border-emerald-500/40 p-6 rounded-2xl shadow-xl transition-all animate-fadeIn">
-          <div className="flex items-start gap-4">
-            <div className="w-12 h-12 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
-              <CheckCircle className="w-6 h-6" />
-            </div>
-            <div className="flex-1">
-              <span className="text-xs font-semibold text-emerald-400 uppercase tracking-wider">
-                Registration Successful
-              </span>
-              <h3 className="text-lg font-bold text-white mt-0.5">
-                {registeredStudent.firstName} {registeredStudent.middleName ? registeredStudent.middleName + ' ' : ''}{registeredStudent.surname}
-              </h3>
-              
-              <div className="mt-3 flex flex-wrap items-center gap-4 bg-slate-900/80 p-3.5 rounded-xl border border-slate-700">
-                <div>
-                  <span className="text-[11px] text-slate-400 block">Permanent Student ID (PIN):</span>
-                  <span className="text-xl font-mono font-bold text-emerald-400 tracking-wider">
-                    {registeredStudent.studentId}
-                  </span>
-                </div>
-                <div className="border-l border-slate-700 pl-4">
-                  <span className="text-[11px] text-slate-400 block">Student Password:</span>
-                  <span className="text-base font-mono font-bold text-amber-300">
-                    {savedPassword || 'student123'}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2 ml-auto">
-                  <button
-                    onClick={handleCopyId}
-                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-medium border border-slate-600 flex items-center gap-1.5 transition cursor-pointer"
-                  >
-                    {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                    {copied ? 'Copied ID' : 'Copy ID'}
-                  </button>
-                  <button
-                    onClick={handlePrint}
-                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-medium border border-slate-600 flex items-center gap-1.5 transition cursor-pointer"
-                  >
-                    <Printer className="w-3.5 h-3.5" />
-                    Print Admission Slip
-                  </button>
-                  <button
-                    onClick={() => onNavigateSearch?.(registeredStudent.studentId)}
-                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-medium flex items-center gap-1.5 transition cursor-pointer"
-                  >
-                    <Search className="w-3.5 h-3.5" />
-                    View Student Profile
-                  </button>
-                </div>
-              </div>
-
-              <p className="text-xs text-slate-400 mt-2">
-                The student can now log in using their <strong>Student ID (PIN)</strong> and <strong>Password</strong> to access CBT quizzes and view their SS3 Weekly Mock Results.
-              </p>
-            </div>
-          </div>
-        </div>
+        <RegistrationSuccessCard
+          type="student"
+          name={`${registeredStudent.firstName} ${registeredStudent.middleName ? registeredStudent.middleName + ' ' : ''}${registeredStudent.surname}`}
+          uniqueId={registeredStudent.studentId}
+          roleOrClass={registeredStudent.currentClass}
+          email={registeredStudent.email || undefined}
+          password={savedPassword || 'student123'}
+          school={registeredStudent.school}
+          onDismiss={() => setRegisteredStudent(null)}
+          onViewList={() => onNavigateSearch?.(registeredStudent.studentId)}
+        />
       )}
 
       {error && (

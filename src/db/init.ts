@@ -176,6 +176,25 @@ export async function ensureTablesExist(pool: Pool) {
       recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS ss3_mock_scores (
+      id SERIAL PRIMARY KEY,
+      student_id INTEGER REFERENCES students(id) NOT NULL,
+      subject_id INTEGER REFERENCES subjects(id) NOT NULL,
+      week_number INTEGER NOT NULL,
+      mock_series_title TEXT NOT NULL,
+      score NUMERIC NOT NULL,
+      max_score NUMERIC DEFAULT 100 NOT NULL,
+      percentage NUMERIC NOT NULL,
+      grade TEXT NOT NULL,
+      remark TEXT,
+      term TEXT DEFAULT 'Second Term' NOT NULL,
+      session TEXT DEFAULT '2026/2027' NOT NULL,
+      exam_date TEXT,
+      recorded_by_teacher_id INTEGER REFERENCES teachers(id),
+      school_id INTEGER REFERENCES schools(id),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS audit_logs (
       id SERIAL PRIMARY KEY,
       actor_name TEXT NOT NULL,

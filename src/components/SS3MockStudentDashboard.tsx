@@ -19,6 +19,16 @@ import {
   Info
 } from 'lucide-react';
 import { SS3MockWeeklySummary, SS3MockProgressPoint } from '../types/index.ts';
+import {
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ReferenceLine,
+} from 'recharts';
 
 interface SS3MockStudentDashboardProps {
   studentDbId?: number;
@@ -579,6 +589,94 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
                 <span className="w-3 h-1 bg-amber-400 inline-block" />
                 Competitive Benchmark (250+)
               </span>
+            </div>
+          </div>
+
+          {/* Interactive Recharts Performance Graph */}
+          <div className="bg-slate-900/90 border border-slate-750 rounded-2xl p-5 shadow-lg space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-amber-400" />
+                  Performance Trajectory Trend
+                </h3>
+                <p className="text-[11px] text-slate-400">
+                  Weekly score trajectory plotted against 250 Target and 300+ Elite benchmarks
+                </p>
+              </div>
+              <div className="flex items-center gap-3 text-xs">
+                <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" />
+                  Candidate Score
+                </span>
+                <span className="flex items-center gap-1.5 text-amber-400 font-medium">
+                  <span className="w-3 h-0.5 bg-amber-400 inline-block" />
+                  250 Target
+                </span>
+                <span className="flex items-center gap-1.5 text-emerald-300 font-medium">
+                  <span className="w-3 h-0.5 bg-emerald-400 inline-block" />
+                  300 Elite
+                </span>
+              </div>
+            </div>
+
+            <div className="h-72 w-full pt-2">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={progressData} margin={{ top: 15, right: 30, left: -10, bottom: 5 }}>
+                  <defs>
+                    <linearGradient id="scoreGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.45} />
+                      <stop offset="95%" stopColor="#10b981" stopOpacity={0.0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.6} />
+                  <XAxis
+                    dataKey="weekLabel"
+                    stroke="#94a3b8"
+                    tick={{ fill: '#cbd5e1', fontSize: 12, fontWeight: 500 }}
+                  />
+                  <YAxis
+                    domain={[0, 400]}
+                    stroke="#94a3b8"
+                    tick={{ fill: '#94a3b8', fontSize: 11 }}
+                    ticks={[0, 100, 200, 250, 300, 400]}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: '#0f172a',
+                      borderColor: '#10b981',
+                      borderRadius: '14px',
+                      color: '#f8fafc',
+                      fontSize: '12px',
+                      boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.5)',
+                      padding: '10px 14px',
+                    }}
+                    formatter={(value: any) => [`${value} / 400 (${Math.round((value / 400) * 100)}%)`, 'Aggregate Score']}
+                    labelFormatter={(label) => `${label} UTME Mock Examination`}
+                  />
+                  <ReferenceLine
+                    y={250}
+                    stroke="#f59e0b"
+                    strokeDasharray="4 4"
+                    label={{ value: 'Target (250)', fill: '#f59e0b', fontSize: 11, position: 'right' }}
+                  />
+                  <ReferenceLine
+                    y={300}
+                    stroke="#34d399"
+                    strokeDasharray="4 4"
+                    label={{ value: 'Elite (300+)', fill: '#34d399', fontSize: 11, position: 'right' }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="totalScore400"
+                    stroke="#10b981"
+                    strokeWidth={3}
+                    fillOpacity={1}
+                    fill="url(#scoreGradient)"
+                    activeDot={{ r: 7, stroke: '#34d399', strokeWidth: 2, fill: '#064e3b' }}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
             </div>
           </div>
 

@@ -22,6 +22,7 @@ import {
   Info
 } from 'lucide-react';
 import { Student, Subject } from '../types/index.ts';
+import { getLocalStudents } from '../lib/schoolStore.ts';
 
 export const SS3MockTeacherModule: React.FC = () => {
   const { user, token } = useAuth();
@@ -62,6 +63,12 @@ export const SS3MockTeacherModule: React.FC = () => {
   // Fetch initial SS3 students & subjects
   useEffect(() => {
     fetchInitialData();
+    const handleStudentsUpdated = () => {
+      const local = getLocalStudents();
+      setSs3Students(local);
+    };
+    window.addEventListener('fis:students-updated', handleStudentsUpdated);
+    return () => window.removeEventListener('fis:students-updated', handleStudentsUpdated);
   }, []);
 
   const fetchInitialData = async () => {
@@ -86,15 +93,18 @@ export const SS3MockTeacherModule: React.FC = () => {
         console.warn('Backend student list unavailable:', e);
       }
 
-      // Default high-yield SS3 candidate roster
+      // Local persistent SS3 candidate roster
+      const localList = getLocalStudents();
       if (studentsList.length === 0) {
-        studentsList = [
-          { id: 5, studentId: 'FEN-2026-000005', firstName: 'Chiamaka', surname: 'Eze', gender: 'Female', currentClass: 'SS 3', school: 'Fenster International School', session: '2025/2026', email: 'chiamaka.eze@student.school.edu', createdAt: new Date().toISOString() },
-          { id: 6, studentId: 'FEN-2026-000006', firstName: 'Emeka', surname: 'Okafor', gender: 'Male', currentClass: 'SS 3', school: 'Fenster International School', session: '2025/2026', email: 'emeka.okafor@student.school.edu', createdAt: new Date().toISOString() },
-          { id: 7, studentId: 'FEN-2026-000007', firstName: 'Zainab', surname: 'Bello', gender: 'Female', currentClass: 'SS 3', school: 'Fenster International School', session: '2025/2026', email: 'zainab.bello@student.school.edu', createdAt: new Date().toISOString() },
-          { id: 8, studentId: 'FEN-2026-000008', firstName: 'Tunde', surname: 'Adeyemi', gender: 'Male', currentClass: 'SS 3', school: 'Fenster International School', session: '2025/2026', email: 'tunde.adeyemi@student.school.edu', createdAt: new Date().toISOString() },
-          { id: 9, studentId: 'FEN-2026-000009', firstName: 'Somtochukwu', surname: 'Nnamdi', gender: 'Male', currentClass: 'SS 3', school: 'Fenster International School', session: '2025/2026', email: 'somto.nnamdi@student.school.edu', createdAt: new Date().toISOString() },
-        ];
+        studentsList = localList;
+      } else {
+        const ids = new Set(studentsList.map((s) => s.studentId));
+        for (const ls of localList) {
+          if (!ids.has(ls.studentId)) {
+            studentsList.push(ls);
+            ids.add(ls.studentId);
+          }
+        }
       }
       setSs3Students(studentsList);
       if (selectedStudentId === '' && studentsList.length > 0) {

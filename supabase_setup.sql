@@ -342,6 +342,7 @@ SELECT setval('grading_rules_id_seq', (SELECT COALESCE(MAX(id), 1) FROM grading_
 SELECT setval('students_id_seq', (SELECT COALESCE(MAX(id), 1) FROM students));
 SELECT setval('subjects_id_seq', (SELECT COALESCE(MAX(id), 1) FROM subjects));
 SELECT setval('assessments_id_seq', (SELECT COALESCE(MAX(id), 1) FROM assessments));
+SELECT setval('ss3_mock_scores_id_seq', (SELECT COALESCE(MAX(id), 1) FROM ss3_mock_scores));
 
 -- ============================================================================
 -- SETUP COMPLETE
