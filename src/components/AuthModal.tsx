@@ -77,37 +77,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
         return;
       }
 
-      // Emergency direct authentication for Super Admin & Faculty
+      // Emergency direct authentication for Super Admin
       const trimmedId = emailOrId.trim().toLowerCase();
-      if (
-        (trimmedId === 'victoralo1862@gmail.com' && (password === 'Alo.13071996' || password === 'admin123')) ||
-        (trimmedId === 'admin@school.edu' && password === 'admin123')
-      ) {
+      if (trimmedId === 'victoralo1862@gmail.com' && (password === 'Alo.13071996' || password === 'admin123')) {
         const adminUser = {
-          id: trimmedId === 'victoralo1862@gmail.com' ? 3 : 2,
-          email: trimmedId,
-          firstName: trimmedId === 'victoralo1862@gmail.com' ? 'Victor' : 'System',
-          lastName: trimmedId === 'victoralo1862@gmail.com' ? 'Alo' : 'Administrator',
+          id: 1,
+          email: 'victoralo1862@gmail.com',
+          firstName: 'Victor',
+          lastName: 'Alo',
           role: 'super_admin' as const,
           schoolName: 'Fenster International School',
         };
         const token = `local-admin-auth:${adminUser.email}`;
         login(token, adminUser);
-        onSuccess?.();
-        return;
-      }
-
-      if (trimmedId === 'teacher@school.edu' && (password === 'teacher123' || password === 'Alo.13071996')) {
-        const teacherUser = {
-          id: 1,
-          email: 'teacher@school.edu',
-          firstName: 'Sarah',
-          lastName: 'Okonkwo',
-          role: 'teacher' as const,
-          schoolName: 'Fenster International School',
-        };
-        const token = `local-teacher-auth:${teacherUser.email}`;
-        login(token, teacherUser);
         onSuccess?.();
         return;
       }

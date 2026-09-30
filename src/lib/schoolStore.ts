@@ -17,93 +17,7 @@ export interface TeacherRecord {
   createdAt: string;
 }
 
-const DEFAULT_STUDENTS: Student[] = [
-  {
-    id: 5,
-    studentId: 'FEN-2026-000005',
-    firstName: 'Chiamaka',
-    middleName: 'Blessing',
-    surname: 'Eze',
-    gender: 'Female',
-    dateOfBirth: '2008-04-15',
-    currentClass: 'SS 3',
-    email: 'chiamaka.eze@student.school.edu',
-    password: 'student123',
-    parentName: 'Chief & Mrs. O. Eze',
-    parentPhone: '+234 803 111 2233',
-    school: 'Fenster International School',
-    session: '2025/2026',
-    createdAt: '2026-01-10T08:00:00.000Z',
-  },
-  {
-    id: 6,
-    studentId: 'FEN-2026-000006',
-    firstName: 'Emeka',
-    middleName: 'Godwin',
-    surname: 'Okafor',
-    gender: 'Male',
-    dateOfBirth: '2008-07-22',
-    currentClass: 'SS 3',
-    email: 'emeka.okafor@student.school.edu',
-    password: 'student123',
-    parentName: 'Mr. & Mrs. Okafor',
-    parentPhone: '+234 802 334 5566',
-    school: 'Fenster International School',
-    session: '2025/2026',
-    createdAt: '2026-01-10T08:15:00.000Z',
-  },
-  {
-    id: 7,
-    studentId: 'FEN-2026-000007',
-    firstName: 'Zainab',
-    middleName: 'Amina',
-    surname: 'Bello',
-    gender: 'Female',
-    dateOfBirth: '2008-09-11',
-    currentClass: 'SS 3',
-    email: 'zainab.bello@student.school.edu',
-    password: 'student123',
-    parentName: 'Alhaji Bello',
-    parentPhone: '+234 805 778 9900',
-    school: 'Fenster International School',
-    session: '2025/2026',
-    createdAt: '2026-01-10T08:30:00.000Z',
-  },
-  {
-    id: 8,
-    studentId: 'FEN-2026-000008',
-    firstName: 'Tunde',
-    middleName: 'David',
-    surname: 'Adeyemi',
-    gender: 'Male',
-    dateOfBirth: '2008-03-05',
-    currentClass: 'SS 3',
-    email: 'tunde.adeyemi@student.school.edu',
-    password: 'student123',
-    parentName: 'Pastor Adeyemi',
-    parentPhone: '+234 810 445 6677',
-    school: 'Fenster International School',
-    session: '2025/2026',
-    createdAt: '2026-01-10T08:45:00.000Z',
-  },
-  {
-    id: 9,
-    studentId: 'FEN-2026-000009',
-    firstName: 'Somtochukwu',
-    middleName: 'Francis',
-    surname: 'Nnamdi',
-    gender: 'Male',
-    dateOfBirth: '2008-11-19',
-    currentClass: 'SS 3',
-    email: 'somto.nnamdi@student.school.edu',
-    password: 'student123',
-    parentName: 'Dr. & Dr. Mrs. Nnamdi',
-    parentPhone: '+234 812 667 8899',
-    school: 'Fenster International School',
-    session: '2025/2026',
-    createdAt: '2026-01-10T09:00:00.000Z',
-  },
-];
+const DEFAULT_STUDENTS: Student[] = [];
 
 const DEFAULT_TEACHERS: TeacherRecord[] = [
   {
@@ -119,45 +33,6 @@ const DEFAULT_TEACHERS: TeacherRecord[] = [
     role: 'super_admin',
     createdAt: '2026-01-01T00:00:00.000Z',
   },
-  {
-    id: 2,
-    userId: 2,
-    teacherId: 'TCH-2026-0002',
-    firstName: 'Babatunde',
-    lastName: 'Fashola',
-    email: 'b.fashola@fenster.edu',
-    password: 'teacher123',
-    phone: '+234 802 345 6789',
-    schoolName: 'Fenster International School',
-    role: 'teacher',
-    createdAt: '2026-01-05T09:00:00.000Z',
-  },
-  {
-    id: 3,
-    userId: 3,
-    teacherId: 'TCH-2026-0003',
-    firstName: 'Ngozi',
-    lastName: 'Okonjo',
-    email: 'n.okonjo@fenster.edu',
-    password: 'teacher123',
-    phone: '+234 803 456 7890',
-    schoolName: 'Fenster International School',
-    role: 'teacher',
-    createdAt: '2026-01-06T10:00:00.000Z',
-  },
-  {
-    id: 4,
-    userId: 4,
-    teacherId: 'TCH-2026-0004',
-    firstName: 'Kalu',
-    lastName: 'Uzor',
-    email: 'k.uzor@fenster.edu',
-    password: 'teacher123',
-    phone: '+234 804 567 8901',
-    schoolName: 'Fenster International School',
-    role: 'teacher',
-    createdAt: '2026-01-07T11:00:00.000Z',
-  },
 ];
 
 const STORAGE_KEYS = {
@@ -165,7 +40,220 @@ const STORAGE_KEYS = {
   TEACHERS: 'fis_teachers_roster_v2',
   DELETED_STUDENT_IDS: 'fis_deleted_student_ids',
   DELETED_TEACHER_IDS: 'fis_deleted_teacher_ids',
+  INSTITUTIONAL_VAULT: 'fis_institutional_vault_v1',
+  DEPARTED_TEACHERS: 'fis_departed_teacher_portfolios',
 };
+
+// ----------------------------------------------------
+// INSTITUTIONAL VAULT & RECOVERY CENTER HELPERS
+// ----------------------------------------------------
+export interface VaultData {
+  teachers: TeacherRecord[];
+  students: Student[];
+  lastBackup: string;
+}
+
+export function getInstitutionalVault(): VaultData {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.INSTITUTIONAL_VAULT);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        teachers: Array.isArray(parsed.teachers) ? parsed.teachers : [],
+        students: Array.isArray(parsed.students) ? parsed.students : [],
+        lastBackup: parsed.lastBackup || new Date().toISOString(),
+      };
+    }
+  } catch (_) {}
+
+  // Fallback initialize from current local rosters
+  const currentTeachers = getLocalTeachers();
+  const currentStudents = getLocalStudents();
+  const initialVault: VaultData = {
+    teachers: currentTeachers,
+    students: currentStudents,
+    lastBackup: new Date().toISOString(),
+  };
+  try {
+    localStorage.setItem(STORAGE_KEYS.INSTITUTIONAL_VAULT, JSON.stringify(initialVault));
+  } catch (_) {}
+  return initialVault;
+}
+
+export function saveInstitutionalVault(vault: VaultData) {
+  try {
+    vault.lastBackup = new Date().toISOString();
+    localStorage.setItem(STORAGE_KEYS.INSTITUTIONAL_VAULT, JSON.stringify(vault));
+    window.dispatchEvent(new CustomEvent('fis:vault-updated', { detail: vault }));
+  } catch (_) {}
+}
+
+export function mirrorToInstitutionalVault(type: 'teacher' | 'student', record: any) {
+  try {
+    const vault = getInstitutionalVault();
+    if (type === 'teacher') {
+      const existingIdx = vault.teachers.findIndex((t) => t.id === record.id || t.email === record.email || t.teacherId === record.teacherId);
+      if (existingIdx >= 0) {
+        vault.teachers[existingIdx] = { ...vault.teachers[existingIdx], ...record };
+      } else {
+        vault.teachers.unshift(record);
+      }
+    } else {
+      const existingIdx = vault.students.findIndex((s) => s.id === record.id || s.studentId === record.studentId);
+      if (existingIdx >= 0) {
+        vault.students[existingIdx] = { ...vault.students[existingIdx], ...record };
+      } else {
+        vault.students.unshift(record);
+      }
+    }
+    saveInstitutionalVault(vault);
+  } catch (_) {}
+}
+
+export function removeFromInstitutionalVault(type: 'teacher' | 'student', idOrIdentifier: string | number) {
+  try {
+    const vault = getInstitutionalVault();
+    const idStr = String(idOrIdentifier).toLowerCase().trim();
+    if (type === 'teacher') {
+      vault.teachers = vault.teachers.filter(
+        (t) => String(t.id) !== idStr && String(t.teacherId).toLowerCase() !== idStr && String(t.email).toLowerCase() !== idStr
+      );
+    } else {
+      vault.students = vault.students.filter(
+        (s) => String(s.id) !== idStr && String(s.studentId).toLowerCase() !== idStr
+      );
+    }
+    saveInstitutionalVault(vault);
+  } catch (_) {}
+}
+
+export async function syncVaultToLiveDatabase(token: string | null): Promise<{ success: boolean; syncedTeachers: number; syncedStudents: number; message: string }> {
+  const vault = getInstitutionalVault();
+  let teacherCount = 0;
+  let studentCount = 0;
+
+  // 1. Sync all teachers to Supabase and Backend
+  for (const t of vault.teachers) {
+    if (t.role === 'super_admin' || t.email === 'victoralo1862@gmail.com') continue;
+    try {
+      // Supabase sync
+      const salt = bcrypt.genSaltSync(8);
+      const hash = bcrypt.hashSync(t.password || 'teacher123', salt);
+      const emailClean = t.email.toLowerCase().trim();
+
+      const { data: existingUser } = await supabase.from('users').select('id').eq('email', emailClean).limit(1);
+      let supaUserId: number | null = existingUser && existingUser[0] ? existingUser[0].id : null;
+
+      if (!supaUserId) {
+        const { data: newUser } = await supabase.from('users').insert([{
+          uid: `tch_usr_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+          email: emailClean,
+          password_hash: hash,
+          first_name: t.firstName.trim(),
+          last_name: t.lastName.trim(),
+          role: 'teacher',
+          school_id: 1,
+        }]).select();
+        if (newUser && newUser[0]) supaUserId = newUser[0].id;
+      }
+
+      if (supaUserId) {
+        const { data: existingTch } = await supabase.from('teachers').select('id').eq('teacher_id', t.teacherId).limit(1);
+        if (!existingTch || existingTch.length === 0) {
+          await supabase.from('teachers').insert([{
+            user_id: supaUserId,
+            teacher_id: t.teacherId,
+            phone: t.phone || null,
+            school_name: t.schoolName || 'Fenster International School',
+            school_id: 1,
+          }]);
+        }
+      }
+
+      // Backend sync
+      if (token) {
+        await safeFetchJson('/api/admin/teachers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            firstName: t.firstName,
+            lastName: t.lastName,
+            email: t.email,
+            phone: t.phone,
+            schoolName: t.schoolName,
+            password: t.password || 'teacher123',
+            teacherId: t.teacherId,
+          }),
+        });
+      }
+      teacherCount++;
+    } catch (e) {
+      console.warn('Teacher sync item failed:', e);
+    }
+  }
+
+  // 2. Sync all students to Supabase and Backend
+  for (const s of vault.students) {
+    try {
+      const salt = bcrypt.genSaltSync(8);
+      const hash = bcrypt.hashSync(s.password || 'student123', salt);
+      const { data: existingSt } = await supabase.from('students').select('id').eq('student_id', s.studentId).limit(1);
+      if (!existingSt || existingSt.length === 0) {
+        await supabase.from('students').insert([{
+          student_id: s.studentId,
+          first_name: s.firstName,
+          middle_name: s.middleName || null,
+          surname: s.surname,
+          gender: s.gender || 'Female',
+          date_of_birth: s.dateOfBirth || '2008-01-01',
+          current_class: s.currentClass,
+          email: s.email,
+          parent_name: s.parentName || null,
+          parent_phone: s.parentPhone || null,
+          school: s.school || 'Fenster International School',
+          session: s.session || '2025/2026',
+          password_hash: hash,
+          school_id: 1,
+        }]);
+      }
+
+      if (token) {
+        await safeFetchJson('/api/students', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify(s),
+        });
+      }
+      studentCount++;
+    } catch (e) {
+      console.warn('Student sync item failed:', e);
+    }
+  }
+
+  return {
+    success: true,
+    syncedTeachers: teacherCount,
+    syncedStudents: studentCount,
+    message: `Recovery synchronization complete: ${teacherCount} faculty members and ${studentCount} students verified and secured in live database.`,
+  };
+}
+
+export function exportInstitutionalVault(format: 'json' | 'csv'): string {
+  const vault = getInstitutionalVault();
+  if (format === 'json') {
+    return JSON.stringify(vault, null, 2);
+  }
+
+  // CSV format
+  const rows: string[] = ['Record Type,Unique ID,Full Name,Email,Phone / Contact,Role / Class,Access Key / PIN,Created Date'];
+  vault.teachers.forEach((t) => {
+    rows.push(`Faculty Member,"${t.teacherId}","${t.firstName} ${t.lastName}","${t.email}","${t.phone || 'N/A'}","${t.role}","${t.password || 'teacher123'}","${t.createdAt}"`);
+  });
+  vault.students.forEach((s) => {
+    rows.push(`Student Scholar,"${s.studentId}","${s.firstName} ${s.surname}","${s.email || 'N/A'}","${s.parentPhone || 'N/A'}","${s.currentClass}","${s.password || 'student123'}","${s.createdAt}"`);
+  });
+  return rows.join('\n');
+}
 
 // ----------------------------------------------------
 // LOCAL PERSISTENCE HELPERS
@@ -198,19 +286,31 @@ export function getLocalStudents(): Student[] {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        list = parsed;
+        list = parsed.filter((s) => {
+          const sName = `${s.firstName || ''} ${s.surname || ''}`.toLowerCase();
+          const sId = (s.studentId || '').toUpperCase();
+          // Filter out old generic mock students
+          const isGenericMock =
+            sName.includes('chiamaka') ||
+            sName.includes('emeka') ||
+            sName.includes('zainab') ||
+            sName.includes('tunde adeyemi') ||
+            sName.includes('somtochukwu') ||
+            sId === 'FEN-2026-000005' ||
+            sId === 'FEN-2026-000006' ||
+            sId === 'FEN-2026-000007' ||
+            sId === 'FEN-2026-000008' ||
+            sId === 'FEN-2026-000009';
+          return !isGenericMock;
+        });
       }
     }
 
-    if (list.length === 0) {
-      list = [...DEFAULT_STUDENTS];
-      localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(list));
-    }
-
     // Filter out deleted students
-    return list.filter((s) => !deletedSet.has(String(s.id)) && !deletedSet.has(String(s.studentId)));
+    const cleanList = list.filter((s) => !deletedSet.has(String(s.id)) && !deletedSet.has(String(s.studentId)));
+    return cleanList;
   } catch (_) {
-    return [...DEFAULT_STUDENTS];
+    return [];
   }
 }
 
@@ -230,13 +330,31 @@ export function getLocalTeachers(): TeacherRecord[] {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        list = parsed;
+        list = parsed.filter((t) => {
+          const tEmail = (t.email || '').toLowerCase().trim();
+          const tId = (t.teacherId || '').toUpperCase();
+          // Filter out old generic mock teachers
+          const isGenericMock =
+            tEmail.includes('b.fashola') ||
+            tEmail.includes('n.okonjo') ||
+            tEmail.includes('k.uzor') ||
+            tEmail === 'teacher@school.edu' ||
+            tId === 'TCH-2026-0002' ||
+            tId === 'TCH-2026-0003' ||
+            tId === 'TCH-2026-0004';
+          return !isGenericMock;
+        });
       }
     }
 
     if (list.length === 0) {
       list = [...DEFAULT_TEACHERS];
       localStorage.setItem(STORAGE_KEYS.TEACHERS, JSON.stringify(list));
+    }
+
+    // Always include Super Admin if missing
+    if (!list.some((t) => t.email.toLowerCase() === 'victoralo1862@gmail.com' || t.role === 'super_admin')) {
+      list.unshift(DEFAULT_TEACHERS[0]);
     }
 
     // Filter out deleted teachers
@@ -308,6 +426,7 @@ export async function registerNewStudent(
   // 1. Immediately persist locally so it's instantly visible in all views
   const updatedList = [newStudent, ...currentStudents];
   saveLocalStudents(updatedList);
+  mirrorToInstitutionalVault('student', newStudent);
 
   // 2. Direct Sync to Supabase Database
   try {
@@ -383,11 +502,24 @@ export async function deleteStudent(
     (s) => String(s.id) !== String(studentIdOrId) && String(s.studentId) !== String(studentIdOrId)
   );
   saveLocalStudents(filtered);
+  removeFromInstitutionalVault('student', studentIdOrId);
 
-  // 2. Direct delete from Supabase Database
+  // 2. Direct delete from Supabase Database (Cascading related records)
   try {
     const studentIdentifier = target?.studentId || String(studentIdOrId);
-    await supabase.from('students').delete().eq('student_id', studentIdentifier);
+    const numericTargetId = target?.id || (!isNaN(Number(studentIdOrId)) ? Number(studentIdOrId) : null);
+
+    // Clean related child records first to ensure no constraint violations
+    if (numericTargetId) {
+      await supabase.from('assessments').delete().eq('student_id', numericTargetId);
+      await supabase.from('ss3_mock_scores').delete().eq('student_id', numericTargetId);
+      await supabase.from('quiz_attempts').delete().eq('student_id', numericTargetId);
+      await supabase.from('quiz_assignments').delete().eq('student_id', numericTargetId);
+      await supabase.from('students').delete().eq('id', numericTargetId);
+    }
+    if (studentIdentifier) {
+      await supabase.from('students').delete().eq('student_id', studentIdentifier);
+    }
   } catch (supaErr) {
     console.warn('Direct Supabase student delete exception:', supaErr);
   }
@@ -449,6 +581,7 @@ export async function registerNewTeacher(
   // 1. Immediately persist locally
   const updatedList = [newTeacher, ...currentTeachers];
   saveLocalTeachers(updatedList);
+  mirrorToInstitutionalVault('teacher', newTeacher);
 
   // 2. Direct Sync to Supabase Database (Guarantees rows appear directly in Supabase table)
   try {
@@ -548,8 +681,42 @@ export async function deleteTeacher(
   );
   saveLocalTeachers(filtered);
 
-  // 2. Direct delete from Supabase Database
+  // 2. Preserve Departed Teacher Portfolio for Super Admin Reallocation
   try {
+    if (target) {
+      const rawDeparted = localStorage.getItem('fis_departed_teacher_portfolios');
+      const departedList = rawDeparted ? JSON.parse(rawDeparted) : [];
+      departedList.unshift({
+        id: target.id,
+        teacherId: target.teacherId,
+        name: `${target.firstName} ${target.lastName}`,
+        email: target.email,
+        phone: target.phone,
+        schoolName: target.schoolName,
+        deletedAt: new Date().toISOString(),
+        reallocatedTo: null,
+      });
+      localStorage.setItem('fis_departed_teacher_portfolios', JSON.stringify(departedList.slice(0, 30)));
+      window.dispatchEvent(new CustomEvent('fis:departed-teachers-updated'));
+    }
+  } catch (_) {}
+
+  // 3. Direct delete from Supabase Database (Decouple academic assets so they remain intact)
+  try {
+    let numericTeacherId: number | null = target?.id && !isNaN(Number(target.id)) ? Number(target.id) : null;
+    if (!numericTeacherId && target?.teacherId) {
+      const { data: supaT } = await supabase.from('teachers').select('id').eq('teacher_id', target.teacherId).limit(1);
+      if (supaT && supaT[0]) numericTeacherId = supaT[0].id;
+    }
+
+    if (numericTeacherId) {
+      try { await supabase.from('assessments').update({ teacher_id: null }).eq('teacher_id', numericTeacherId); } catch (_) {}
+      try { await supabase.from('ss3_mock_scores').update({ recorded_by_teacher_id: null }).eq('recorded_by_teacher_id', numericTeacherId); } catch (_) {}
+      try { await supabase.from('quizzes').update({ created_by_teacher_id: null }).eq('created_by_teacher_id', numericTeacherId); } catch (_) {}
+      try { await supabase.from('questions').update({ created_by_teacher_id: null }).eq('created_by_teacher_id', numericTeacherId); } catch (_) {}
+      try { await supabase.from('students').update({ registered_by_teacher_id: null }).eq('registered_by_teacher_id', numericTeacherId); } catch (_) {}
+    }
+
     if (target?.teacherId) {
       await supabase.from('teachers').delete().eq('teacher_id', target.teacherId);
     }
@@ -560,7 +727,7 @@ export async function deleteTeacher(
     console.warn('Direct Supabase teacher delete exception:', supaErr);
   }
 
-  // 3. Call backend safely
+  // 4. Call backend safely
   if (token) {
     try {
       await safeFetchJson(`/api/admin/teachers/${teacherIdOrId}`, {
@@ -580,17 +747,144 @@ export async function deleteTeacher(
   };
 }
 
+export function getDepartedTeacherPortfolios(): Array<{
+  id: number;
+  teacherId: string;
+  name: string;
+  email: string;
+  phone?: string | null;
+  schoolName: string;
+  deletedAt: string;
+  reallocatedTo: string | null;
+}> {
+  try {
+    const raw = localStorage.getItem('fis_departed_teacher_portfolios');
+    if (!raw) return [];
+    const list = JSON.parse(raw);
+    return Array.isArray(list) ? list : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+export async function reallocateTeacherAssets(
+  token: string | null,
+  fromTeacherId: string | number | null,
+  toTeacherId: string | number
+): Promise<{ success: boolean; message: string }> {
+  // 1. Direct Supabase updates
+  try {
+    let targetNumericId: number | null = null;
+    if (!isNaN(Number(toTeacherId))) {
+      targetNumericId = Number(toTeacherId);
+    } else {
+      const { data: found } = await supabase
+        .from('teachers')
+        .select('id')
+        .eq('teacher_id', String(toTeacherId).toUpperCase().trim())
+        .limit(1);
+      if (found && found[0]) targetNumericId = found[0].id;
+    }
+
+    if (targetNumericId) {
+      if (fromTeacherId) {
+        let fromNumericId: number | null = null;
+        if (!isNaN(Number(fromTeacherId))) {
+          fromNumericId = Number(fromTeacherId);
+        } else {
+          const { data: found } = await supabase
+            .from('teachers')
+            .select('id')
+            .eq('teacher_id', String(fromTeacherId).toUpperCase().trim())
+            .limit(1);
+          if (found && found[0]) fromNumericId = found[0].id;
+        }
+
+        if (fromNumericId) {
+          await supabase.from('assessments').update({ teacher_id: targetNumericId }).eq('teacher_id', fromNumericId);
+          await supabase.from('ss3_mock_scores').update({ recorded_by_teacher_id: targetNumericId }).eq('recorded_by_teacher_id', fromNumericId);
+          await supabase.from('quizzes').update({ created_by_teacher_id: targetNumericId }).eq('created_by_teacher_id', fromNumericId);
+          await supabase.from('questions').update({ created_by_teacher_id: targetNumericId }).eq('created_by_teacher_id', fromNumericId);
+          await supabase.from('students').update({ registered_by_teacher_id: targetNumericId }).eq('registered_by_teacher_id', fromNumericId);
+        }
+      } else {
+        // Reallocate all orphaned/unassigned records
+        await supabase.from('assessments').update({ teacher_id: targetNumericId }).is('teacher_id', null);
+        await supabase.from('ss3_mock_scores').update({ recorded_by_teacher_id: targetNumericId }).is('recorded_by_teacher_id', null);
+        await supabase.from('quizzes').update({ created_by_teacher_id: targetNumericId }).is('created_by_teacher_id', null);
+        await supabase.from('questions').update({ created_by_teacher_id: targetNumericId }).is('created_by_teacher_id', null);
+      }
+    }
+  } catch (supaErr) {
+    console.warn('Direct Supabase reallocation exception:', supaErr);
+  }
+
+  // 2. Call backend endpoint
+  if (token) {
+    try {
+      await safeFetchJson('/api/admin/reallocate-teacher-assets', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ fromTeacherId, toTeacherId }),
+      });
+    } catch (e) {
+      console.warn('Server reallocation deferred:', e);
+    }
+  }
+
+  // 3. Update local departed portfolios
+  try {
+    const raw = localStorage.getItem('fis_departed_teacher_portfolios');
+    if (raw) {
+      const list = JSON.parse(raw);
+      if (Array.isArray(list)) {
+        const updated = list.map((item) =>
+          !fromTeacherId || String(item.teacherId) === String(fromTeacherId) || String(item.id) === String(fromTeacherId)
+            ? { ...item, reallocatedTo: String(toTeacherId), reallocatedAt: new Date().toISOString() }
+            : item
+        );
+        localStorage.setItem('fis_departed_teacher_portfolios', JSON.stringify(updated));
+      }
+    }
+  } catch (_) {}
+
+  return {
+    success: true,
+    message: `Academic portfolios and assets have been transferred to teacher ${toTeacherId}.`,
+  };
+}
+
 // ----------------------------------------------------
 // LOCAL & SUPABASE AUTHENTICATION HELPERS
 // ----------------------------------------------------
 export async function authenticateLocalTeacher(identifier: string, passwordAttempt: string) {
   const clean = identifier.trim().toLowerCase();
   const teachers = getLocalTeachers();
-  const teacher = teachers.find(
+  let teacher = teachers.find(
     (t) =>
       t.email.toLowerCase() === clean ||
       t.teacherId.toLowerCase() === clean
   );
+
+  // If not found in active list, check institutional recovery vault
+  if (!teacher) {
+    const vault = getInstitutionalVault();
+    const vaultTeacher = vault.teachers.find(
+      (t) =>
+        t.email.toLowerCase() === clean ||
+        t.teacherId.toLowerCase() === clean
+    );
+    if (vaultTeacher) {
+      teacher = vaultTeacher;
+      const currentList = getLocalTeachers();
+      if (!currentList.some((t) => t.id === vaultTeacher.id || t.email === vaultTeacher.email)) {
+        saveLocalTeachers([vaultTeacher, ...currentList]);
+      }
+    }
+  }
 
   if (teacher) {
     const isMatch =

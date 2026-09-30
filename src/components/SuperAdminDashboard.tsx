@@ -23,6 +23,13 @@ import {
   Table,
   Server,
   Trash2,
+  Share2,
+  Archive,
+  RefreshCw,
+  Download,
+  ShieldCheck,
+  RotateCcw,
+  Sparkles,
 } from 'lucide-react';
 import {
   getLocalTeachers,
@@ -30,28 +37,44 @@ import {
   registerNewTeacher,
   deleteTeacher,
   deleteStudent,
+  reallocateTeacherAssets,
+  getDepartedTeacherPortfolios,
+  getInstitutionalVault,
+  syncVaultToLiveDatabase,
+  exportInstitutionalVault,
   TeacherRecord,
 } from '../lib/schoolStore.ts';
 import { safeFetchJson } from '../lib/api.ts';
+import { Student } from '../types/index.ts';
 import { RegistrationSuccessCard } from './RegistrationSuccessCard.tsx';
 import { DeleteConfirmModal } from './DeleteConfirmModal.tsx';
 
 export const SuperAdminDashboard: React.FC = () => {
   const { token, user } = useAuth();
   const [overview, setOverview] = useState<any>({
-    totalUsers: 9,
-    totalTeachers: 4,
-    totalStudents: 5,
-    totalQuizzes: 12,
-    totalAssessments: 126,
-    totalSubjects: 14,
+    totalUsers: 1,
+    totalTeachers: 1,
+    totalStudents: 0,
+    totalQuizzes: 0,
+    totalAssessments: 0,
+    totalSubjects: 9,
   });
+
   const [teachersList, setTeachersList] = useState<TeacherRecord[]>([]);
+  const [studentsList, setStudentsList] = useState<Student[]>([]);
+  const [departedList, setDepartedList] = useState<any[]>([]);
+  const [vaultData, setVaultData] = useState<any>({ teachers: [], students: [] });
   const [usersList, setUsersList] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
-  const [dbTables, setDbTables] = useState<any[]>([]);
   const [selectedDbTable, setSelectedDbTable] = useState<string>('students');
-  const [activeAdminTab, setActiveAdminTab] = useState<'teachers' | 'users' | 'audit' | 'database'>('teachers');
+  const [activeAdminTab, setActiveAdminTab] = useState<'teachers' | 'reallocation' | 'vault' | 'database' | 'users' | 'audit'>('teachers');
+
+  // Asset Reallocation states
+  const [selectedRecipientTeacher, setSelectedRecipientTeacher] = useState<string>('');
+  const [reallocating, setReallocating] = useState(false);
+
+  // Vault Sync state
+  const [syncingVault, setSyncingVault] = useState(false);
 
   // Form states for creating teacher
   const [firstName, setFirstName] = useState('');
@@ -95,12 +118,30 @@ export const SuperAdminDashboard: React.FC = () => {
     // 1. Always load local baseline immediately
     const localTeachers = getLocalTeachers();
     const localStudents = getLocalStudents();
+    const localDeparted = getDepartedTeacherPortfolios();
+    const localVault = getInstitutionalVault();
+
     setTeachersList(localTeachers);
+    setStudentsList(localStudents);
+    setDepartedList(localDeparted);
+    setVaultData(localVault);
 
     const initialUsers = [
       { id: 1, firstName: 'Victor', lastName: 'Alo (Super Admin)', email: 'victoralo1862@gmail.com', role: 'super_admin' },
-      ...localTeachers.map((t) => ({ id: t.id, firstName: t.firstName, lastName: t.lastName, email: t.email, role: t.role || 'teacher' })),
-      ...localStudents.map((s) => ({ id: s.id, firstName: s.firstName, lastName: s.surname, email: s.email || s.studentId, role: 'student' })),
+      ...localTeachers.filter((t) => t.email !== 'victoralo1862@gmail.com').map((t) => ({
+        id: t.id,
+        firstName: t.firstName,
+        lastName: t.lastName,
+        email: t.email,
+        role: t.role || 'teacher',
+      })),
+      ...localStudents.map((s) => ({
+        id: s.id,
+        firstName: s.firstName,
+        lastName: s.surname,
+        email: s.email || s.studentId,
+        role: 'student',
+      })),
     ];
     setUsersList(initialUsers);
 
@@ -108,27 +149,34 @@ export const SuperAdminDashboard: React.FC = () => {
       totalUsers: initialUsers.length,
       totalTeachers: localTeachers.length,
       totalStudents: localStudents.length,
-      totalQuizzes: 12,
-      totalAssessments: 126,
-      totalSubjects: 14,
+      totalQuizzes: 0,
+      totalAssessments: 0,
+      totalSubjects: 9,
     });
+
+    // Set default recipient for reallocation if available
+    if (localTeachers.length > 0 && !selectedRecipientTeacher) {
+      setSelectedRecipientTeacher(localTeachers[0].teacherId);
+    }
 
     // 2. Safe async fetch from backend
     if (token) {
       try {
-        const [overRes, tchRes, usrRes, dbRes] = await Promise.all([
+        const [overRes, tchRes, usrRes] = await Promise.all([
           safeFetchJson<any>('/api/admin/overview', { headers: { Authorization: `Bearer ${token}` } }),
           safeFetchJson<any>('/api/admin/teachers', { headers: { Authorization: `Bearer ${token}` } }),
           safeFetchJson<any>('/api/admin/users', { headers: { Authorization: `Bearer ${token}` } }),
-          safeFetchJson<any>('/api/admin/database-explorer', { headers: { Authorization: `Bearer ${token}` } }),
         ]);
 
         if (overRes.ok && overRes.data?.overview) {
           setOverview((prev: any) => ({
             ...prev,
-            ...overRes.data.overview,
+            totalUsers: Math.max(overRes.data.overview.totalUsers || 0, initialUsers.length),
             totalTeachers: Math.max(overRes.data.overview.totalTeachers || 0, localTeachers.length),
             totalStudents: Math.max(overRes.data.overview.totalStudents || 0, localStudents.length),
+            totalQuizzes: overRes.data.overview.totalQuizzes || 0,
+            totalAssessments: overRes.data.overview.totalAssessments || 0,
+            totalSubjects: overRes.data.overview.totalSubjects || 9,
           }));
         }
         if (overRes.ok && overRes.data?.recentLogs) {
@@ -140,14 +188,8 @@ export const SuperAdminDashboard: React.FC = () => {
         if (usrRes.ok && Array.isArray(usrRes.data?.users) && usrRes.data.users.length > 0) {
           setUsersList(usrRes.data.users);
         }
-        if (dbRes.ok && Array.isArray(dbRes.data?.tables)) {
-          setDbTables(dbRes.data.tables);
-          if (dbRes.data.tables.length > 0 && !selectedDbTable) {
-            setSelectedDbTable(dbRes.data.tables[0].name);
-          }
-        }
-      } catch (err) {
-        console.warn('Super Admin server stats fallback:', err);
+      } catch (e) {
+        console.warn('Backend admin sync fallback:', e);
       }
     }
   };
@@ -155,19 +197,28 @@ export const SuperAdminDashboard: React.FC = () => {
   useEffect(() => {
     fetchAdminData();
 
-    const handleTeachersUpdated = () => {
-      fetchAdminData();
+    const onStudentsUpdated = () => {
+      setStudentsList(getLocalStudents());
+      setVaultData(getInstitutionalVault());
     };
-    const handleStudentsUpdated = () => {
-      fetchAdminData();
+    const onTeachersUpdated = () => {
+      setTeachersList(getLocalTeachers());
+      setVaultData(getInstitutionalVault());
+    };
+    const onDepartedUpdated = () => {
+      setDepartedList(getDepartedTeacherPortfolios());
     };
 
-    window.addEventListener('fis:teachers-updated', handleTeachersUpdated);
-    window.addEventListener('fis:students-updated', handleStudentsUpdated);
+    window.addEventListener('fis:students-updated', onStudentsUpdated);
+    window.addEventListener('fis:teachers-updated', onTeachersUpdated);
+    window.addEventListener('fis:departed-teachers-updated', onDepartedUpdated);
+    window.addEventListener('fis:vault-updated', onStudentsUpdated);
 
     return () => {
-      window.removeEventListener('fis:teachers-updated', handleTeachersUpdated);
-      window.removeEventListener('fis:students-updated', handleStudentsUpdated);
+      window.removeEventListener('fis:students-updated', onStudentsUpdated);
+      window.removeEventListener('fis:teachers-updated', onTeachersUpdated);
+      window.removeEventListener('fis:departed-teachers-updated', onDepartedUpdated);
+      window.removeEventListener('fis:vault-updated', onStudentsUpdated);
     };
   }, [token]);
 
@@ -175,7 +226,6 @@ export const SuperAdminDashboard: React.FC = () => {
     e.preventDefault();
     setSubmitting(true);
     setErrorMsg(null);
-    setRegisteredSuccess(null);
 
     try {
       const result = await registerNewTeacher(token, {
@@ -228,6 +278,17 @@ export const SuperAdminDashboard: React.FC = () => {
     });
   };
 
+  const promptDeleteStudent = (s: Student) => {
+    setDeleteModal({
+      isOpen: true,
+      type: 'student',
+      title: 'Permanently Delete Student Scholar',
+      name: `${s.firstName} ${s.surname}`,
+      identifier: s.studentId,
+      targetId: s.id,
+    });
+  };
+
   const promptDeleteUser = (u: any) => {
     if (u.email === 'victoralo1862@gmail.com' || u.role === 'super_admin') {
       setNotification({ type: 'error', message: 'The primary Super Admin account cannot be deleted.' });
@@ -247,10 +308,20 @@ export const SuperAdminDashboard: React.FC = () => {
   const handleConfirmDelete = async () => {
     if (deleteModal.type === 'teacher') {
       await deleteTeacher(token, deleteModal.targetId);
-      setNotification({ type: 'success', message: `Teacher ${deleteModal.name} (${deleteModal.identifier}) has been permanently deleted.` });
+      setTeachersList(getLocalTeachers());
+      setDepartedList(getDepartedTeacherPortfolios());
+      setNotification({
+        type: 'success',
+        message: `Teacher ${deleteModal.name} (${deleteModal.identifier}) removed. Academic assets preserved in Departed Faculty Archive for reallocation.`,
+      });
     } else if (deleteModal.type === 'student') {
       await deleteStudent(token, deleteModal.targetId);
-      setNotification({ type: 'success', message: `Student ${deleteModal.name} (${deleteModal.identifier}) has been permanently deleted.` });
+      const updated = getLocalStudents();
+      setStudentsList(updated);
+      setNotification({
+        type: 'success',
+        message: `Student scholar ${deleteModal.name} (${deleteModal.identifier}) permanently removed from live database and registry.`,
+      });
     } else {
       if (token) {
         await safeFetchJson(`/api/admin/users/${deleteModal.targetId}`, {
@@ -261,15 +332,69 @@ export const SuperAdminDashboard: React.FC = () => {
       setNotification({ type: 'success', message: `Account ${deleteModal.name} deleted successfully.` });
     }
 
-    setTimeout(() => setNotification(null), 4000);
+    setDeleteModal({ isOpen: false, type: 'teacher', title: '', name: '', identifier: '', targetId: '' });
+    setTimeout(() => setNotification(null), 4500);
     fetchAdminData();
+  };
+
+  const handleReallocate = async (fromTeacherId: string | number | null) => {
+    if (!selectedRecipientTeacher) {
+      setNotification({ type: 'error', message: 'Please select an active teacher to receive the academic portfolio.' });
+      setTimeout(() => setNotification(null), 4000);
+      return;
+    }
+    setReallocating(true);
+    try {
+      const res = await reallocateTeacherAssets(token, fromTeacherId, selectedRecipientTeacher);
+      if (res.success) {
+        setDepartedList(getDepartedTeacherPortfolios());
+        setNotification({
+          type: 'success',
+          message: `Academic assets successfully transferred to faculty member ${selectedRecipientTeacher}.`,
+        });
+        fetchAdminData();
+      }
+    } catch (e: any) {
+      setNotification({ type: 'error', message: e.message || 'Failed to reallocate assets.' });
+    } finally {
+      setReallocating(false);
+      setTimeout(() => setNotification(null), 4500);
+    }
+  };
+
+  const handleSyncVault = async () => {
+    setSyncingVault(true);
+    try {
+      const res = await syncVaultToLiveDatabase(token);
+      setNotification({ type: 'success', message: res.message });
+      fetchAdminData();
+    } catch (e: any) {
+      setNotification({ type: 'error', message: 'Synchronization deferred. Vault data remains intact.' });
+    } finally {
+      setSyncingVault(false);
+      setTimeout(() => setNotification(null), 5000);
+    }
+  };
+
+  const handleExportVault = (format: 'json' | 'csv') => {
+    const data = exportInstitutionalVault(format);
+    const blob = new Blob([data], { type: format === 'json' ? 'application/json' : 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `fenster_institutional_vault_${new Date().toISOString().split('T')[0]}.${format}`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setNotification({ type: 'success', message: `Institutional Vault exported as ${format.toUpperCase()} successfully.` });
+    setTimeout(() => setNotification(null), 4000);
   };
 
   return (
     <div className="space-y-6">
       {/* Super Admin Top Banner */}
       <div className="bg-gradient-to-r from-emerald-950 via-slate-900 to-amber-950/40 border border-amber-500/40 p-6 sm:p-8 rounded-2xl shadow-2xl fis-card-accent relative overflow-hidden">
-        {/* Subtle Crest Watermark */}
         <div className="absolute right-0 top-0 bottom-0 opacity-10 pointer-events-none flex items-center pr-6">
           <img src={FIS_LOGOS.crest} alt="FIS Crest" className="h-56 w-auto" />
         </div>
@@ -288,7 +413,7 @@ export const SuperAdminDashboard: React.FC = () => {
                 System Control & Staff Governance
               </h1>
               <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-2xl">
-                As Super Admin, you manage all faculty members, approve teacher registrations, oversee student enrollments, inspect institutional audits, and have full authority to delete any student or faculty record.
+                Super Admin governs all staff accounts, student enrollments, academic asset reallocations for departed teachers, and manages the Institutional Recovery Vault.
               </p>
             </div>
           </div>
@@ -301,21 +426,33 @@ export const SuperAdminDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Global Notification Banner */}
+      {/* Floating Notification */}
       {notification && (
         <div
-          className={`p-4 rounded-xl text-xs font-semibold flex items-center gap-2.5 transition animate-fadeIn ${
+          className={`p-4 rounded-xl text-xs flex items-center justify-between shadow-lg transition-all animate-fade-in ${
             notification.type === 'success'
-              ? 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-300'
-              : 'bg-rose-500/20 border border-rose-500/40 text-rose-300'
+              ? 'bg-emerald-950/90 text-emerald-200 border border-emerald-500/40'
+              : 'bg-rose-950/90 text-rose-200 border border-rose-500/40'
           }`}
         >
-          {notification.type === 'success' ? <CheckCircle className="w-4 h-4 shrink-0 text-emerald-400" /> : <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />}
-          <span>{notification.message}</span>
+          <div className="flex items-center gap-2">
+            {notification.type === 'success' ? (
+              <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+            ) : (
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            )}
+            <span className="font-medium">{notification.message}</span>
+          </div>
+          <button
+            onClick={() => setNotification(null)}
+            className="text-slate-400 hover:text-white text-xs ml-4"
+          >
+            ✕
+          </button>
         </div>
       )}
 
-      {/* Registration Success Card Popup */}
+      {/* Registration Success Modal / Card */}
       {registeredSuccess && (
         <RegistrationSuccessCard
           type="teacher"
@@ -325,21 +462,31 @@ export const SuperAdminDashboard: React.FC = () => {
           email={registeredSuccess.email}
           password={registeredSuccess.password}
           onDismiss={() => setRegisteredSuccess(null)}
-          onViewList={() => setActiveAdminTab('teachers')}
         />
       )}
 
-      {/* Global System KPIs */}
+      {/* Delete Confirmation Modal */}
+      <DeleteConfirmModal
+        isOpen={deleteModal.isOpen}
+        title={deleteModal.title}
+        name={deleteModal.name}
+        identifier={deleteModal.identifier}
+        type={deleteModal.type}
+        onConfirm={handleConfirmDelete}
+        onClose={() => setDeleteModal({ isOpen: false, type: 'teacher', title: '', name: '', identifier: '', targetId: '' })}
+      />
+
+      {/* Global Real System KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-6 gap-3.5">
         <div className="bg-slate-800/80 border border-slate-700 p-4 rounded-2xl">
           <span className="text-[11px] text-slate-400 font-medium block">Total Teachers</span>
           <span className="text-xl font-bold text-white font-mono mt-1 block">{overview.totalTeachers}</span>
-          <span className="text-[10px] text-indigo-400 mt-0.5 block">Faculty Staff</span>
+          <span className="text-[10px] text-indigo-400 mt-0.5 block">Active Faculty</span>
         </div>
         <div className="bg-slate-800/80 border border-slate-700 p-4 rounded-2xl">
           <span className="text-[11px] text-slate-400 font-medium block">Total Students</span>
-          <span className="text-xl font-bold text-emerald-400 font-mono mt-1 block">{overview.totalStudents}</span>
-          <span className="text-[10px] text-slate-400 mt-0.5 block">Unique Admission IDs</span>
+          <span className="text-xl font-bold text-emerald-400 font-mono mt-1 block">{studentsList.length}</span>
+          <span className="text-[10px] text-slate-400 mt-0.5 block">Enrolled Scholars</span>
         </div>
         <div className="bg-slate-800/80 border border-slate-700 p-4 rounded-2xl">
           <span className="text-[11px] text-slate-400 font-medium block">Total Quizzes</span>
@@ -352,14 +499,14 @@ export const SuperAdminDashboard: React.FC = () => {
           <span className="text-[10px] text-slate-400 mt-0.5 block">Recorded Scores</span>
         </div>
         <div className="bg-slate-800/80 border border-slate-700 p-4 rounded-2xl">
-          <span className="text-[11px] text-slate-400 font-medium block">Subjects</span>
-          <span className="text-xl font-bold text-cyan-400 font-mono mt-1 block">{overview.totalSubjects}</span>
-          <span className="text-[10px] text-slate-400 mt-0.5 block">Curriculum Courses</span>
+          <span className="text-[11px] text-slate-400 font-medium block">Departed Portfolios</span>
+          <span className="text-xl font-bold text-orange-400 font-mono mt-1 block">{departedList.length}</span>
+          <span className="text-[10px] text-slate-400 mt-0.5 block">Awaiting Reallocation</span>
         </div>
         <div className="bg-slate-800/80 border border-slate-700 p-4 rounded-2xl">
-          <span className="text-[11px] text-slate-400 font-medium block">All System Users</span>
-          <span className="text-xl font-bold text-white font-mono mt-1 block">{overview.totalUsers}</span>
-          <span className="text-[10px] text-slate-400 mt-0.5 block">Accounts in System</span>
+          <span className="text-[11px] text-slate-400 font-medium block">Institutional Vault</span>
+          <span className="text-xl font-bold text-cyan-400 font-mono mt-1 block">{vaultData.teachers.length + vaultData.students.length}</span>
+          <span className="text-[10px] text-slate-400 mt-0.5 block">Secured Accounts</span>
         </div>
       </div>
 
@@ -373,7 +520,7 @@ export const SuperAdminDashboard: React.FC = () => {
               Add & Provision New Teacher
             </h3>
             <p className="text-[11px] text-slate-400 mt-0.5">
-              Super Admin creates authorized faculty accounts with automated Teacher IDs.
+              Super Admin provisions verified staff accounts. Automatically mirrored to Database & Institutional Vault.
             </p>
           </div>
 
@@ -437,7 +584,7 @@ export const SuperAdminDashboard: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-medium text-slate-300 mb-1">Temporary Password *</label>
+                <label className="block text-[11px] font-medium text-slate-300 mb-1">Initial Password *</label>
                 <input
                   type="password"
                   required
@@ -450,23 +597,25 @@ export const SuperAdminDashboard: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-[11px] font-medium text-slate-300 mb-1">School / Branch</label>
-              <input
-                type="text"
-                required
-                value={schoolName}
-                onChange={(e) => setSchoolName(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500"
-              />
+              <label className="block text-[11px] font-medium text-slate-300 mb-1">Assigned Institution</label>
+              <div className="relative">
+                <School className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  value={schoolName}
+                  onChange={(e) => setSchoolName(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-8 pr-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500"
+                />
+              </div>
             </div>
 
             <button
               type="submit"
               disabled={submitting}
-              className="w-full py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition shadow-lg shadow-purple-600/30 cursor-pointer disabled:opacity-50 mt-2"
+              className="w-full mt-2 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold rounded-xl shadow-lg transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
             >
-              <UserPlus className="w-4 h-4" />
-              {submitting ? 'Creating Teacher Account...' : 'Provision Teacher Account'}
+              <UserPlus className="w-3.5 h-3.5" />
+              {submitting ? 'Registering & Syncing...' : 'Provision Faculty Account'}
             </button>
           </form>
         </div>
@@ -484,7 +633,40 @@ export const SuperAdminDashboard: React.FC = () => {
               }`}
             >
               <GraduationCap className="w-3.5 h-3.5" />
-              Faculty Members ({teachersList.length})
+              Active Faculty ({teachersList.length})
+            </button>
+            <button
+              onClick={() => setActiveAdminTab('reallocation')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                activeAdminTab === 'reallocation'
+                  ? 'bg-amber-600 text-white shadow'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Share2 className="w-3.5 h-3.5 text-amber-300" />
+              Departed Faculty & Reallocation ({departedList.length})
+            </button>
+            <button
+              onClick={() => setActiveAdminTab('vault')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                activeAdminTab === 'vault'
+                  ? 'bg-cyan-600 text-white shadow'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-cyan-300" />
+              Institutional Vault & Recovery
+            </button>
+            <button
+              onClick={() => setActiveAdminTab('database')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                activeAdminTab === 'database'
+                  ? 'bg-purple-600 text-white shadow'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Database className="w-3.5 h-3.5 text-indigo-400" />
+              Database Explorer ({studentsList.length} Students)
             </button>
             <button
               onClick={() => setActiveAdminTab('users')}
@@ -508,69 +690,247 @@ export const SuperAdminDashboard: React.FC = () => {
               <Activity className="w-3.5 h-3.5" />
               Audit Logs
             </button>
-            <button
-              onClick={() => setActiveAdminTab('database')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
-                activeAdminTab === 'database'
-                  ? 'bg-purple-600 text-white shadow'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <Database className="w-3.5 h-3.5 text-cyan-400" />
-              Database Explorer
-            </button>
           </div>
 
           {/* TEACHERS LIST */}
           {activeAdminTab === 'teachers' && (
             <div className="flex-1 overflow-y-auto max-h-[460px] space-y-2 pr-1">
-              {teachersList.map((t) => (
-                <div
-                  key={t.id}
-                  className="p-3.5 bg-slate-900/80 border border-slate-700/80 rounded-xl flex items-center justify-between gap-3 hover:border-slate-600 transition"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-9 h-9 rounded-xl bg-purple-600/20 text-purple-400 font-bold text-xs flex items-center justify-center border border-purple-500/30 shrink-0">
-                      {t.firstName?.[0] || 'T'}{t.lastName?.[0] || 'M'}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-bold text-white text-xs truncate">
-                          {t.firstName} {t.lastName}
-                        </span>
-                        <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-indigo-300 border border-slate-700">
-                          {t.teacherId}
-                        </span>
-                        {t.role === 'super_admin' && (
-                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 uppercase">
-                            Super Admin
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-0.5 flex-wrap">
-                        <span className="truncate">{t.email}</span>
-                        {t.phone && <span>• {t.phone}</span>}
-                        <span>• {t.schoolName}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400">
-                      Active
-                    </span>
-                    {t.role !== 'super_admin' && t.email !== 'victoralo1862@gmail.com' && (
-                      <button
-                        onClick={() => promptDeleteTeacher(t)}
-                        className="p-1.5 rounded-lg text-rose-400 hover:text-white hover:bg-rose-600/30 border border-rose-500/20 hover:border-rose-500 transition cursor-pointer"
-                        title="Delete teacher account"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
+              {teachersList.length === 0 ? (
+                <div className="p-8 text-center text-slate-400 text-xs">
+                  No active teachers registered. Provision a teacher account using the form on the left.
                 </div>
-              ))}
+              ) : (
+                teachersList.map((t) => (
+                  <div
+                    key={t.id}
+                    className="p-3.5 bg-slate-900/80 border border-slate-700/80 rounded-xl flex items-center justify-between gap-3 hover:border-slate-600 transition"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-9 h-9 rounded-xl bg-purple-600/20 text-purple-400 font-bold text-xs flex items-center justify-center border border-purple-500/30 shrink-0">
+                        {t.firstName?.[0] || 'T'}{t.lastName?.[0] || 'M'}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-white text-xs truncate">
+                            {t.firstName} {t.lastName}
+                          </span>
+                          <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-indigo-300 border border-slate-700">
+                            {t.teacherId}
+                          </span>
+                          {t.role === 'super_admin' && (
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 uppercase">
+                              Super Admin
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-0.5 flex-wrap">
+                          <span className="truncate">{t.email}</span>
+                          {t.phone && <span>• {t.phone}</span>}
+                          <span>• {t.schoolName}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400">
+                        Active
+                      </span>
+                      {t.role !== 'super_admin' && t.email !== 'victoralo1862@gmail.com' && (
+                        <button
+                          onClick={() => promptDeleteTeacher(t)}
+                          className="p-1.5 rounded-lg text-rose-400 hover:text-white hover:bg-rose-600/30 border border-rose-500/20 hover:border-rose-500 transition cursor-pointer"
+                          title="Delete faculty member and preserve assets for reallocation"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
+          {/* DEPARTED FACULTY & ASSET REALLOCATION */}
+          {activeAdminTab === 'reallocation' && (
+            <div className="flex-1 flex flex-col space-y-4 overflow-y-auto max-h-[460px] pr-1">
+              <div className="p-4 bg-amber-950/30 border border-amber-500/30 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h4 className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                    <Archive className="w-4 h-4 text-amber-400" />
+                    Academic Assets & Departed Teacher Portfolios
+                  </h4>
+                  <p className="text-[11px] text-slate-300 mt-0.5">
+                    When faculty depart, their assessments, mock scores, quizzes, and questions are preserved here. Super Admin can reallocate them to any active teacher's dashboard.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <select
+                    value={selectedRecipientTeacher}
+                    onChange={(e) => setSelectedRecipientTeacher(e.target.value)}
+                    className="bg-slate-900 border border-amber-500/40 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none"
+                  >
+                    {teachersList.map((t) => (
+                      <option key={t.id} value={t.teacherId}>
+                        {t.firstName} {t.lastName} ({t.teacherId})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {departedList.length === 0 ? (
+                <div className="p-12 text-center text-slate-400 text-xs border border-dashed border-slate-700 rounded-xl">
+                  <Archive className="w-8 h-8 mx-auto text-slate-600 mb-2" />
+                  <span>No departed faculty portfolios. When a faculty member is deleted, their academic history is archived here for reallocation.</span>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {departedList.map((dep, idx) => (
+                    <div
+                      key={dep.id || idx}
+                      className="p-4 bg-slate-900/90 border border-slate-700/80 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-white text-xs">{dep.name}</span>
+                          <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 border border-slate-700">
+                            {dep.teacherId}
+                          </span>
+                          {dep.reallocatedTo ? (
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                              Reallocated to {dep.reallocatedTo}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                              Unassigned Academic Assets
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-400 flex items-center gap-3 flex-wrap">
+                          <span>{dep.email}</span>
+                          {dep.phone && <span>• {dep.phone}</span>}
+                          <span>• Departed: {new Date(dep.deletedAt).toLocaleDateString()}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={() => handleReallocate(dep.teacherId)}
+                          disabled={reallocating || teachersList.length === 0}
+                          className="px-3 py-1.5 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white text-xs font-bold rounded-lg shadow transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                          <Share2 className="w-3.5 h-3.5" />
+                          {reallocating ? 'Transferring...' : `Allocate to ${selectedRecipientTeacher || 'Faculty'}`}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* INSTITUTIONAL VAULT & RECOVERY CENTER */}
+          {activeAdminTab === 'vault' && (
+            <div className="flex-1 flex flex-col space-y-4 overflow-y-auto max-h-[460px] pr-1">
+              <div className="p-4 bg-cyan-950/40 border border-cyan-500/40 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h4 className="text-xs font-bold text-cyan-300 flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-cyan-400" />
+                    Institutional Vault & Permanent Disaster Recovery
+                  </h4>
+                  <p className="text-[11px] text-slate-300 mt-0.5">
+                    All created staff credentials, student accounts, and access keys are mirrored here. If database records are ever desynchronized, one click re-provisions everything into the live database.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                  <button
+                    onClick={handleSyncVault}
+                    disabled={syncingVault}
+                    className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold rounded-lg shadow transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${syncingVault ? 'animate-spin' : ''}`} />
+                    {syncingVault ? 'Restoring...' : 'Sync & Restore to Database'}
+                  </button>
+                  <button
+                    onClick={() => handleExportVault('csv')}
+                    className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 hover:text-white text-xs font-medium rounded-lg transition flex items-center gap-1 cursor-pointer"
+                    title="Export CSV"
+                  >
+                    <Download className="w-3 h-3" />
+                    CSV
+                  </button>
+                  <button
+                    onClick={() => handleExportVault('json')}
+                    className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 hover:text-white text-xs font-medium rounded-lg transition flex items-center gap-1 cursor-pointer"
+                    title="Export JSON"
+                  >
+                    <Download className="w-3 h-3" />
+                    JSON
+                  </button>
+                </div>
+              </div>
+
+              {/* Vault Teachers Section */}
+              <div className="space-y-2">
+                <span className="text-xs font-bold text-white uppercase tracking-wider block">
+                  Vault Faculty Roster ({vaultData.teachers.length})
+                </span>
+                <div className="space-y-1.5">
+                  {vaultData.teachers.map((t: any) => (
+                    <div
+                      key={t.id}
+                      className="p-3 bg-slate-900/80 border border-slate-800 rounded-xl flex items-center justify-between text-xs"
+                    >
+                      <div>
+                        <span className="font-bold text-white block">{t.firstName} {t.lastName}</span>
+                        <span className="text-slate-400 text-[11px] font-mono">{t.teacherId} • {t.email}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-cyan-400 font-mono text-[11px] block">
+                          Key: {t.password ? t.password : '••••••••'}
+                        </span>
+                        <span className="text-[10px] text-slate-500">
+                          {t.role === 'super_admin' ? 'Super Admin' : 'Academic Faculty'}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Vault Students Section */}
+              <div className="space-y-2 pt-2">
+                <span className="text-xs font-bold text-white uppercase tracking-wider block">
+                  Vault Student Registry ({vaultData.students.length})
+                </span>
+                {vaultData.students.length === 0 ? (
+                  <div className="p-4 text-center text-slate-500 text-xs font-mono">
+                    No student records currently in vault. Newly enrolled students will automatically mirror here.
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {vaultData.students.map((s: any) => (
+                      <div
+                        key={s.id}
+                        className="p-3 bg-slate-900/80 border border-slate-800 rounded-xl flex items-center justify-between text-xs"
+                      >
+                        <div>
+                          <span className="font-bold text-white block">{s.firstName} {s.surname}</span>
+                          <span className="text-slate-400 text-[11px] font-mono">{s.studentId} • {s.currentClass}</span>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-emerald-400 font-mono text-[11px] block">
+                            PIN: {s.password || 'student123'}
+                          </span>
+                          <span className="text-[10px] text-slate-500">{s.parentPhone || 'No phone'}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -661,7 +1021,7 @@ export const SuperAdminDashboard: React.FC = () => {
                     }`}
                   >
                     <Table className="w-3 h-3" />
-                    {name}
+                    {name} {name === 'students' ? `(${studentsList.length})` : ''}
                   </button>
                 ))}
               </div>
@@ -691,33 +1051,32 @@ export const SuperAdminDashboard: React.FC = () => {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800">
-                        {getLocalStudents().map((s) => (
-                          <tr key={s.id} className="hover:bg-slate-800/40">
-                            <td className="py-2 px-2.5 text-amber-300 font-bold">{s.studentId}</td>
-                            <td className="py-2 px-2.5 text-white">{s.firstName} {s.surname}</td>
-                            <td className="py-2 px-2.5 text-slate-300">{s.currentClass}</td>
-                            <td className="py-2 px-2.5 text-slate-400">{s.gender}</td>
-                            <td className="py-2 px-2.5 text-slate-400">{s.parentPhone || '—'}</td>
-                            <td className="py-2 px-2.5 text-right">
-                              <button
-                                onClick={() => {
-                                  setDeleteModal({
-                                    isOpen: true,
-                                    type: 'student',
-                                    title: 'Delete Student Record',
-                                    name: `${s.firstName} ${s.surname}`,
-                                    identifier: s.studentId,
-                                    targetId: s.id,
-                                  });
-                                }}
-                                className="text-rose-400 hover:text-rose-300 hover:bg-rose-500/20 p-1 rounded transition cursor-pointer"
-                                title="Delete student"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                        {studentsList.length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="py-8 text-center text-slate-500 font-sans text-xs">
+                              No registered students in database. Enroll scholars from the student registration portal to populate records.
                             </td>
                           </tr>
-                        ))}
+                        ) : (
+                          studentsList.map((s) => (
+                            <tr key={s.id} className="hover:bg-slate-800/40">
+                              <td className="py-2 px-2.5 text-amber-300 font-bold">{s.studentId}</td>
+                              <td className="py-2 px-2.5 text-white">{s.firstName} {s.surname}</td>
+                              <td className="py-2 px-2.5 text-slate-300">{s.currentClass}</td>
+                              <td className="py-2 px-2.5 text-slate-400">{s.gender}</td>
+                              <td className="py-2 px-2.5 text-slate-400">{s.parentPhone || '—'}</td>
+                              <td className="py-2 px-2.5 text-right">
+                                <button
+                                  onClick={() => promptDeleteStudent(s)}
+                                  className="text-rose-400 hover:text-rose-300 hover:bg-rose-500/20 p-1.5 rounded transition cursor-pointer"
+                                  title="Permanently delete student from live database"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
                       </tbody>
                     </table>
                   </div>
@@ -746,7 +1105,7 @@ export const SuperAdminDashboard: React.FC = () => {
                               {t.role !== 'super_admin' && (
                                 <button
                                   onClick={() => promptDeleteTeacher(t)}
-                                  className="text-rose-400 hover:text-rose-300 hover:bg-rose-500/20 p-1 rounded transition cursor-pointer"
+                                  className="text-rose-400 hover:text-rose-300 hover:bg-rose-500/20 p-1.5 rounded transition cursor-pointer"
                                   title="Delete teacher"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
@@ -770,17 +1129,6 @@ export const SuperAdminDashboard: React.FC = () => {
           )}
         </div>
       </div>
-
-      {/* Delete Confirmation Modal */}
-      <DeleteConfirmModal
-        isOpen={deleteModal.isOpen}
-        type={deleteModal.type}
-        title={deleteModal.title}
-        name={deleteModal.name}
-        identifier={deleteModal.identifier}
-        onConfirm={handleConfirmDelete}
-        onClose={() => setDeleteModal((prev) => ({ ...prev, isOpen: false }))}
-      />
     </div>
   );
 };

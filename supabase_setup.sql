@@ -302,37 +302,6 @@ VALUES
   (14, 'Commerce', 'COM', 'Trade, Banking, Insurance, and Business Finance', 'active', 1)
 ON CONFLICT (id) DO NOTHING;
 
--- 7. Sample SS3 Students (Password for all sample students is: student123)
-INSERT INTO students (id, student_id, first_name, middle_name, surname, gender, date_of_birth, current_class, email, parent_name, parent_phone, school, session, password_hash, school_id, registered_by_teacher_id)
-VALUES
-  (5, 'FEN-2026-000005', 'Victor', 'Chukwuemeka', 'Alo', 'Male', '2008-05-14', 'SS 3', 'victor.alo@student.fenster.edu', 'Chief & Mrs. Alo', '+2348030000005', 'Fenster International School', '2026/2027', '$2b$10$qLcCwI5mkWGBLUKKS1K6P.NygPrd1LmM1zOD05e.lzZ4yzSXlmiHK', 1, 1),
-  (6, 'FEN-2026-000031', 'Chioma', 'Grace', 'Adebayo', 'Female', '2008-08-20', 'SS 3', 'chioma.adebayo@student.fenster.edu', 'Dr. & Mrs. Adebayo', '+2348030000031', 'Fenster International School', '2026/2027', '$2b$10$qLcCwI5mkWGBLUKKS1K6P.NygPrd1LmM1zOD05e.lzZ4yzSXlmiHK', 1, 1),
-  (7, 'FEN-2026-000032', 'Emmanuel', 'Kalu', 'Okafor', 'Male', '2008-03-11', 'SS 3', 'emmanuel.okafor@student.fenster.edu', 'Engr. & Mrs. Okafor', '+2348030000032', 'Fenster International School', '2026/2027', '$2b$10$qLcCwI5mkWGBLUKKS1K6P.NygPrd1LmM1zOD05e.lzZ4yzSXlmiHK', 1, 1),
-  (8, 'FEN-2026-000033', 'Fatima', 'Zainab', 'Danjuma', 'Female', '2008-11-25', 'SS 3', 'fatima.danjuma@student.fenster.edu', 'Alhaji & Hajia Danjuma', '+2348030000033', 'Fenster International School', '2026/2027', '$2b$10$qLcCwI5mkWGBLUKKS1K6P.NygPrd1LmM1zOD05e.lzZ4yzSXlmiHK', 1, 1)
-ON CONFLICT (student_id) DO NOTHING;
-
--- 8. Sample SS3 Mock Assessment Records (With 60/40 Scaling Formula, 4 Subjects, Total = 400)
--- Week 1: Victor Alo (FEN-2026-000005) -> English (raw 48/60 -> 80), Maths (raw 36/40 -> 90), Physics (raw 32/40 -> 80), Chemistry (raw 34/40 -> 85). Total = 335 / 400
-INSERT INTO assessments (student_id, subject_id, assessment_type, assessment_title, score, max_score, percentage, grade, session, term, teacher_comment, school_id)
-VALUES
-  (5, 2, 'SS3_MOCK', 'SS3 Weekly Mock Series - Week 1', 80, 100, 80, 'A1', '2026/2027', 'Week 1', '{"rawScore":48,"maxRawScore":60,"formula":"(48 ÷ 60) × 100 = 80","scaledScore":80,"remark":"Outstanding vocabulary and comprehension"}', 1),
-  (5, 1, 'SS3_MOCK', 'SS3 Weekly Mock Series - Week 1', 90, 100, 90, 'A1', '2026/2027', 'Week 1', '{"rawScore":36,"maxRawScore":40,"formula":"(36 ÷ 40) × 100 = 90","scaledScore":90,"remark":"Superb analytical and calculus skills"}', 1),
-  (5, 4, 'SS3_MOCK', 'SS3 Weekly Mock Series - Week 1', 80, 100, 80, 'A1', '2026/2027', 'Week 1', '{"rawScore":32,"maxRawScore":40,"formula":"(32 ÷ 40) × 100 = 80","scaledScore":80,"remark":"Great grasp of mechanics and optics"}', 1),
-  (5, 5, 'SS3_MOCK', 'SS3 Weekly Mock Series - Week 1', 85, 100, 85, 'A1', '2026/2027', 'Week 1', '{"rawScore":34,"maxRawScore":40,"formula":"(34 ÷ 40) × 100 = 85","scaledScore":85,"remark":"Excellent stoichiometry and organic chemistry"}', 1),
-
-  -- Week 2: Victor Alo (FEN-2026-000005) -> English (raw 51/60 -> 85), Maths (raw 38/40 -> 95), Physics (raw 35/40 -> 87.5), Chemistry (raw 36/40 -> 90). Total = 357.5 / 400
-  (5, 2, 'SS3_MOCK', 'SS3 Weekly Mock Series - Week 2', 85, 100, 85, 'A1', '2026/2027', 'Week 2', '{"rawScore":51,"maxRawScore":60,"formula":"(51 ÷ 60) × 100 = 85","scaledScore":85,"remark":"Brilliant grammatical accuracy"}', 1),
-  (5, 1, 'SS3_MOCK', 'SS3 Weekly Mock Series - Week 2', 95, 100, 95, 'A1', '2026/2027', 'Week 2', '{"rawScore":38,"maxRawScore":40,"formula":"(38 ÷ 40) × 100 = 95","scaledScore":95,"remark":"Near perfect score in general mathematics"}', 1),
-  (5, 4, 'SS3_MOCK', 'SS3 Weekly Mock Series - Week 2', 87.5, 100, 87.5, 'A1', '2026/2027', 'Week 2', '{"rawScore":35,"maxRawScore":40,"formula":"(35 ÷ 40) × 100 = 87.5","scaledScore":87.5,"remark":"Distinction level performance"}', 1),
-  (5, 5, 'SS3_MOCK', 'SS3 Weekly Mock Series - Week 2', 90, 100, 90, 'A1', '2026/2027', 'Week 2', '{"rawScore":36,"maxRawScore":40,"formula":"(36 ÷ 40) × 100 = 90","scaledScore":90,"remark":"Solid conceptual mastery"}', 1),
-
-  -- Week 1: Chioma Adebayo (FEN-2026-000031) -> English (raw 54/60 -> 90), Maths (raw 34/40 -> 85), Physics (raw 30/40 -> 75), Chemistry (raw 33/40 -> 82.5). Total = 332.5 / 400
-  (6, 2, 'SS3_MOCK', 'SS3 Weekly Mock Series - Week 1', 90, 100, 90, 'A1', '2026/2027', 'Week 1', '{"rawScore":54,"maxRawScore":60,"formula":"(54 ÷ 60) × 100 = 90","scaledScore":90,"remark":"Top of class in English comprehension"}', 1),
-  (6, 1, 'SS3_MOCK', 'SS3 Weekly Mock Series - Week 1', 85, 100, 85, 'A1', '2026/2027', 'Week 1', '{"rawScore":34,"maxRawScore":40,"formula":"(34 ÷ 40) × 100 = 85","scaledScore":85,"remark":"Strong algebra problem solving"}', 1),
-  (6, 4, 'SS3_MOCK', 'SS3 Weekly Mock Series - Week 1', 75, 100, 75, 'A1', '2026/2027', 'Week 1', '{"rawScore":30,"maxRawScore":40,"formula":"(30 ÷ 40) × 100 = 75","scaledScore":75,"remark":"Commendable effort in waves and sound"}', 1),
-  (6, 5, 'SS3_MOCK', 'SS3 Weekly Mock Series - Week 1', 82.5, 100, 82.5, 'A1', '2026/2027', 'Week 1', '{"rawScore":33,"maxRawScore":40,"formula":"(33 ÷ 40) × 100 = 82.5","scaledScore":82.5,"remark":"Very good chemical equilibria calculations"}', 1)
-ON CONFLICT DO NOTHING;
-
 -- Reset primary key sequences
 SELECT setval('schools_id_seq', (SELECT COALESCE(MAX(id), 1) FROM schools));
 SELECT setval('users_id_seq', (SELECT COALESCE(MAX(id), 1) FROM users));

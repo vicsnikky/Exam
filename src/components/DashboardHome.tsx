@@ -16,6 +16,7 @@ import {
   School
 } from 'lucide-react';
 import { Student } from '../types/index.ts';
+import { getLocalStudents } from '../lib/schoolStore.ts';
 
 interface DashboardHomeProps {
   onNavigate: (tab: string) => void;
@@ -57,18 +58,15 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
         console.warn('Dashboard stats fetch fallback:', e);
       }
 
-      // High fidelity fallback statistics
+      // Real baseline statistics (clean start)
+      const currentStudents = getLocalStudents();
       setStats({
-        totalStudents: 42,
-        totalQuizzes: 12,
-        totalQuestions: 180,
-        totalAssessments: 126,
+        totalStudents: currentStudents.length,
+        totalQuizzes: 0,
+        totalQuestions: 0,
+        totalAssessments: 0,
       });
-      setRecentStudents([
-        { id: 5, studentId: 'FEN-2026-000005', firstName: 'Chiamaka', surname: 'Eze', currentClass: 'SS 3', createdAt: new Date().toISOString() },
-        { id: 6, studentId: 'FEN-2026-000006', firstName: 'Emeka', surname: 'Okafor', currentClass: 'SS 3', createdAt: new Date().toISOString() },
-        { id: 7, studentId: 'FEN-2026-000007', firstName: 'Zainab', surname: 'Bello', currentClass: 'SS 3', createdAt: new Date().toISOString() },
-      ]);
+      setRecentStudents(currentStudents.slice(0, 5));
     }
 
     loadStats().finally(() => setLoading(false));

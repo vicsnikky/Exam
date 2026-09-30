@@ -107,107 +107,21 @@ export async function seedDatabase() {
       demoTeacherId = adminTeacherRecord[0].id;
     }
 
-    // Also ensure a secondary demo teacher exists if needed
-    const teacherUsers = await db.select().from(users).where(eq(users.role, 'teacher')).limit(1);
-    if (teacherUsers.length === 0) {
-      const salt = await bcrypt.genSalt(10);
-      const hashedPassword = await bcrypt.hash('teacher123', salt);
-      const [demoUser] = await db.insert(users).values({
-        uid: 'demo-teacher-001',
-        email: 'teacher@school.edu',
-        passwordHash: hashedPassword,
-        firstName: 'Sarah',
-        lastName: 'Okonkwo',
-        role: 'teacher',
-        schoolId,
-      }).returning();
-
-      await db.insert(teachers).values({
-        userId: demoUser.id,
-        teacherId: 'TCH-2026-0002',
-        phone: '+2348012345678',
-        schoolName: 'Fenster International School',
-        schoolId,
-      });
-    }
-
-    // 6. Seed Sample Students with unique IDs (e.g. FEN-2026-000001, FEN-2026-000021)
-    const existingStudents = await db.select().from(students).limit(1);
-    if (existingStudents.length === 0) {
-      const studentSalt = await bcrypt.genSalt(10);
-      const defaultStudentHash = await bcrypt.hash('student123', studentSalt);
-
-      await db.insert(students).values([
-        {
-          studentId: 'FEN-2026-000001',
-          firstName: 'John',
-          middleName: 'Michael',
-          surname: 'Johnson',
-          gender: 'Male',
-          dateOfBirth: '2010-04-15',
-          currentClass: 'SS 2',
-          email: 'john.johnson@student.school.edu',
-          parentName: 'Mr. Robert Johnson',
-          parentPhone: '+2348033221100',
-          school: 'Fenster International School',
-          session: '2026/2027',
-          passwordHash: defaultStudentHash,
-          schoolId,
-          registeredByTeacherId: demoTeacherId,
-        },
-        {
-          studentId: 'FEN-2026-000002',
-          firstName: 'Michael',
-          middleName: 'David',
-          surname: 'Johnson',
-          gender: 'Male',
-          dateOfBirth: '2011-08-20',
-          currentClass: 'SS 1',
-          email: 'michael.johnson@student.school.edu',
-          parentName: 'Mrs. Grace Johnson',
-          parentPhone: '+2348033221101',
-          school: 'Fenster International School',
-          session: '2026/2027',
-          passwordHash: defaultStudentHash,
-          schoolId,
-          registeredByTeacherId: demoTeacherId,
-        },
-        {
-          studentId: 'FEN-2026-000003',
-          firstName: 'David',
-          middleName: 'Emeka',
-          surname: 'Johnson',
-          gender: 'Male',
-          dateOfBirth: '2014-02-10',
-          currentClass: 'Primary 5',
-          email: 'david.johnson@student.school.edu',
-          parentName: 'Mr. & Mrs. Johnson',
-          parentPhone: '+2348033221102',
-          school: 'Fenster International School',
-          session: '2026/2027',
-          passwordHash: defaultStudentHash,
-          schoolId,
-          registeredByTeacherId: demoTeacherId,
-        },
-        {
-          studentId: 'FEN-2026-000021',
-          firstName: 'Amina',
-          middleName: 'Zainab',
-          surname: 'Bello',
-          gender: 'Female',
-          dateOfBirth: '2010-11-05',
-          currentClass: 'SS 2',
-          email: 'amina.bello@student.school.edu',
-          parentName: 'Alhaji Bello',
-          parentPhone: '+2348022998877',
-          school: 'Fenster International School',
-          session: '2026/2027',
-          passwordHash: defaultStudentHash,
-          schoolId,
-          registeredByTeacherId: demoTeacherId,
-        },
-      ]);
-      console.log('Seeded sample students with unique admission IDs');
+    // Purge any legacy generic/mock teachers or students to ensure clean database state
+    try {
+      // Purge generic teacher
+      const genericTeachers = await db.select().from(users).where(eq(users.email, 'teacher@school.edu'));
+      for (const gt of genericTeachers) {
+        await db.delete(teachers).where(eq(teachers.userId, gt.id));
+        await db.delete(users).where(eq(users.id, gt.id));
+      }
+      // Purge legacy generic students
+      const genericStudentIds = ['FEN-2026-000001', 'FEN-2026-000002', 'FEN-2026-000003', 'FEN-2026-000021'];
+      for (const stId of genericStudentIds) {
+        await db.delete(students).where(eq(students.studentId, stId));
+      }
+    } catch (e) {
+      console.warn('Purge generic seed items deferred:', e);
     }
   } catch (error) {
     console.error('Error during database seed:', error);

@@ -22,7 +22,7 @@ import {
   auditLogs,
   schools
 } from './src/db/schema.ts';
-import { eq, ilike, or, and, desc, sql } from 'drizzle-orm';
+import { eq, ilike, or, and, desc, sql, isNull } from 'drizzle-orm';
 import { authenticate, AuthRequest } from './src/middleware/auth.ts';
 import { seedDatabase } from './src/db/seed.ts';
 import { generateStudentId, calculateGrade, calculateWaecGrade } from './src/lib/id-generator.ts';
@@ -2101,7 +2101,16 @@ app.delete('/api/admin/teachers/:id', authenticate, async (req: AuthRequest, res
       return res.status(404).json({ error: 'Teacher not found' });
     }
 
-    // Delete teacher and user
+    // Safely decouple academic assets so they are preserved for reallocation
+    const adminTch = await db.select().from(teachers).where(eq(teachers.schoolId, 1)).limit(1);
+    const fallbackTchId = adminTch[0]?.id || 1;
+    try { await db.update(assessments).set({ teacherId: null }).where(eq(assessments.teacherId, targetTeacher.id)); } catch (_) {}
+    try { await db.update(ss3MockScores).set({ recordedByTeacherId: null }).where(eq(ss3MockScores.recordedByTeacherId, targetTeacher.id)); } catch (_) {}
+    try { await db.update(questions).set({ createdByTeacherId: null }).where(eq(questions.createdByTeacherId, targetTeacher.id)); } catch (_) {}
+    try { await db.update(quizzes).set({ createdByTeacherId: fallbackTchId }).where(eq(quizzes.createdByTeacherId, targetTeacher.id)); } catch (_) {}
+    try { await db.update(students).set({ registeredByTeacherId: null }).where(eq(students.registeredByTeacherId, targetTeacher.id)); } catch (_) {}
+
+    // Delete teacher and user records
     await db.delete(teachers).where(eq(teachers.id, targetTeacher.id));
     if (targetTeacher.userId) {
       await db.delete(users).where(eq(users.id, targetTeacher.userId));
@@ -2123,6 +2132,79 @@ app.delete('/api/admin/teachers/:id', authenticate, async (req: AuthRequest, res
   } catch (error: any) {
     console.error('Delete teacher error:', error);
     return res.status(500).json({ error: error.message || 'Failed to delete teacher' });
+  }
+});
+
+// Super Admin: Reallocate Departed / Unassigned Teacher Assets to Another Teacher
+app.post('/api/admin/reallocate-teacher-assets', authenticate, async (req: AuthRequest, res) => {
+  try {
+    if (req.appUser?.role !== 'super_admin') {
+      return res.status(403).json({ error: 'Access denied: Super Admin authorization required' });
+    }
+
+    const { fromTeacherId, toTeacherId } = req.body;
+    if (!toTeacherId) {
+      return res.status(400).json({ error: 'Target active teacher ID is required for reallocation' });
+    }
+
+    // Resolve target teacher
+    let targetTeacher: any = null;
+    if (!isNaN(Number(toTeacherId))) {
+      const found = await db.select().from(teachers).where(eq(teachers.id, Number(toTeacherId))).limit(1);
+      targetTeacher = found[0];
+    } else {
+      const found = await db.select().from(teachers).where(eq(teachers.teacherId, String(toTeacherId).toUpperCase().trim())).limit(1);
+      targetTeacher = found[0];
+    }
+
+    if (!targetTeacher) {
+      return res.status(404).json({ error: 'Target active teacher not found' });
+    }
+
+    const newTeacherDbId = targetTeacher.id;
+
+    // Resolve source teacher if provided
+    let fromDbId: number | null = null;
+    if (fromTeacherId) {
+      if (!isNaN(Number(fromTeacherId))) {
+        fromDbId = Number(fromTeacherId);
+      } else {
+        const found = await db.select().from(teachers).where(eq(teachers.teacherId, String(fromTeacherId).toUpperCase().trim())).limit(1);
+        if (found.length > 0) fromDbId = found[0].id;
+      }
+    }
+
+    // Reallocate assessments, mock scores, questions, quizzes, students
+    if (fromDbId) {
+      await db.update(assessments).set({ teacherId: newTeacherDbId }).where(eq(assessments.teacherId, fromDbId));
+      await db.update(ss3MockScores).set({ recordedByTeacherId: newTeacherDbId }).where(eq(ss3MockScores.recordedByTeacherId, fromDbId));
+      await db.update(questions).set({ createdByTeacherId: newTeacherDbId }).where(eq(questions.createdByTeacherId, fromDbId));
+      await db.update(quizzes).set({ createdByTeacherId: newTeacherDbId }).where(eq(quizzes.createdByTeacherId, fromDbId));
+      await db.update(students).set({ registeredByTeacherId: newTeacherDbId }).where(eq(students.registeredByTeacherId, fromDbId));
+    } else {
+      await db.update(assessments).set({ teacherId: newTeacherDbId }).where(isNull(assessments.teacherId));
+      await db.update(ss3MockScores).set({ recordedByTeacherId: newTeacherDbId }).where(isNull(ss3MockScores.recordedByTeacherId));
+      await db.update(questions).set({ createdByTeacherId: newTeacherDbId }).where(isNull(questions.createdByTeacherId));
+      await db.update(quizzes).set({ createdByTeacherId: newTeacherDbId }).where(isNull(quizzes.createdByTeacherId));
+    }
+
+    await db.insert(auditLogs).values({
+      actorName: `${req.appUser?.firstName} ${req.appUser?.lastName}`,
+      actorRole: 'super_admin',
+      action: 'TEACHER_ASSETS_REALLOCATED',
+      targetEntity: 'teachers',
+      details: `Reallocated academic assets to teacher ${targetTeacher.teacherId}`,
+      schoolId: req.appUser?.schoolId || 1,
+    });
+
+    return res.json({
+      success: true,
+      message: `All academic assessments, scores, quizzes, and questions have been successfully allocated to ${targetTeacher.teacherId}.`,
+      targetTeacherId: targetTeacher.teacherId,
+    });
+  } catch (error: any) {
+    console.error('Reallocation error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to reallocate teacher assets' });
   }
 });
 

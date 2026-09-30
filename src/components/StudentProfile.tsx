@@ -18,6 +18,8 @@ import {
   Loader2
 } from 'lucide-react';
 import { Student, AssessmentRecord } from '../types/index.ts';
+import { getLocalStudents, getInstitutionalVault } from '../lib/schoolStore.ts';
+import { supabase } from '../supabaseConfig.ts';
 
 interface StudentProfileProps {
   studentIdOrId: string | number;
@@ -77,130 +79,64 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
         return;
       }
 
-      // Seamless fallback academic record for active student session
-      const studentIdStr = String(studentIdOrId || user?.studentId || 'FEN-2026-000005');
-      const isChiamaka = studentIdStr.includes('000005') || user?.email?.includes('chiamaka') || user?.studentId === 'FEN-2026-000005';
+      // Real lookup from local store and institutional vault
+      const allLocal = getLocalStudents();
+      const vaultStudents = getInstitutionalVault().students;
+      const combined = [...allLocal, ...vaultStudents];
+      const match = combined.find(
+        (s) => String(s.id) === String(studentIdOrId) || String(s.studentId).toUpperCase() === String(studentIdOrId).toUpperCase()
+      );
 
-      const fallbackStudent: Student = {
-        id: (user as any)?.id || 5,
-        studentId: user?.studentId || (studentIdStr.startsWith('FEN') ? studentIdStr : 'FEN-2026-000005'),
-        firstName: user?.firstName || (isChiamaka ? 'Chiamaka' : 'Student'),
-        middleName: isChiamaka ? 'Blessing' : undefined,
-        surname: (user as any)?.surname || user?.lastName || (isChiamaka ? 'Eze' : 'Scholar'),
-        gender: isChiamaka ? 'Female' : 'Male',
-        currentClass: (user as any)?.currentClass || 'SS 3',
-        school: user?.schoolName || 'Fenster International School',
-        session: '2025/2026',
-        dateOfBirth: '2008-04-15',
-        parentName: 'Chief & Mrs. O. Eze',
-        parentPhone: '+234 803 111 2233',
-        email: user?.email || 'chiamaka.eze@student.school.edu',
-        createdAt: new Date().toISOString(),
-      };
+      if (match) {
+        setStudent(match);
+        let realAssessments: AssessmentRecord[] = [];
+        try {
+          const { data: supaA } = await supabase
+            .from('assessments')
+            .select('*, subjects(*)')
+            .eq('student_id', match.id);
+          if (supaA && supaA.length > 0) {
+            realAssessments = supaA.map((a: any) => ({
+              id: a.id,
+              studentId: match.studentId,
+              subjectId: a.subject_id,
+              subjectName: a.subjects?.name || 'Subject',
+              subjectCode: a.subjects?.code || 'SUB',
+              assessmentTitle: a.assessment_title || 'Continuous Assessment',
+              assessmentType: a.assessment_type || 'test',
+              score: Number(a.score),
+              maxScore: Number(a.max_score || 100),
+              percentage: Number(a.percentage || a.score),
+              grade: a.grade || 'A',
+              session: a.session || match.session,
+              term: a.term || 'First Term',
+              teacherComment: a.teacher_comment || '',
+              createdAt: a.created_at,
+            }));
+          }
+        } catch (_) {}
 
-      const fallbackAssessments: AssessmentRecord[] = [
-        {
-          id: 1,
-          studentId: fallbackStudent.studentId,
-          subjectId: 1,
-          subjectName: 'Mathematics',
-          subjectCode: 'MTH101',
-          assessmentTitle: 'SS3 Mock Examination',
-          assessmentType: 'mock',
-          score: 88,
-          maxScore: 100,
-          percentage: 88,
-          grade: 'A1',
-          session: '2025/2026',
-          term: 'Second Term',
-          teacherComment: 'Excellent analytical and problem-solving capability.',
-          createdAt: new Date().toISOString(),
-        },
-        {
-          id: 2,
-          studentId: fallbackStudent.studentId,
-          subjectId: 2,
-          subjectName: 'English Language',
-          subjectCode: 'ENG101',
-          assessmentTitle: 'SS3 Mock Examination',
-          assessmentType: 'mock',
-          score: 84,
-          maxScore: 100,
-          percentage: 84,
-          grade: 'B2',
-          session: '2025/2026',
-          term: 'Second Term',
-          teacherComment: 'Very strong composition, comprehension, and grammar.',
-          createdAt: new Date().toISOString(),
-        },
-        {
-          id: 3,
-          studentId: fallbackStudent.studentId,
-          subjectId: 3,
-          subjectName: 'Physics',
-          subjectCode: 'PHY101',
-          assessmentTitle: 'SS3 Mock Examination',
-          assessmentType: 'mock',
-          score: 91,
-          maxScore: 100,
-          percentage: 91,
-          grade: 'A1',
-          session: '2025/2026',
-          term: 'Second Term',
-          teacherComment: 'Distinction performance in theoretical and practical mechanics.',
-          createdAt: new Date().toISOString(),
-        },
-        {
-          id: 4,
-          studentId: fallbackStudent.studentId,
-          subjectId: 4,
-          subjectName: 'Chemistry',
-          subjectCode: 'CHM101',
-          assessmentTitle: 'SS3 Mock Examination',
-          assessmentType: 'mock',
-          score: 85,
-          maxScore: 100,
-          percentage: 85,
-          grade: 'B2',
-          session: '2025/2026',
-          term: 'Second Term',
-          teacherComment: 'Commendable laboratory proficiency and stoichiometry.',
-          createdAt: new Date().toISOString(),
-        },
-        {
-          id: 5,
-          studentId: fallbackStudent.studentId,
-          subjectId: 5,
-          subjectName: 'Biology',
-          subjectCode: 'BIO101',
-          assessmentTitle: 'SS3 Mock Examination',
-          assessmentType: 'mock',
-          score: 89,
-          maxScore: 100,
-          percentage: 89,
-          grade: 'A1',
-          session: '2025/2026',
-          term: 'Second Term',
-          teacherComment: 'Great depth in genetics, ecology, and physiology.',
-          createdAt: new Date().toISOString(),
-        },
-      ];
+        setAssessments(realAssessments);
+        if (realAssessments.length > 0) {
+          const scores = realAssessments.map((a) => Number(a.percentage));
+          setStats({
+            totalAssessments: realAssessments.length,
+            averageScore: Number((scores.reduce((a, b) => a + b, 0) / realAssessments.length).toFixed(1)),
+            highestScore: Math.max(...scores),
+            lowestScore: Math.min(...scores),
+          });
+        } else {
+          setStats({
+            totalAssessments: 0,
+            averageScore: 0,
+            highestScore: 0,
+            lowestScore: 0,
+          });
+        }
+        return;
+      }
 
-      setStudent(fallbackStudent);
-      setAssessments(fallbackAssessments);
-      setStats({
-        totalAssessments: 5,
-        averageScore: 87.4,
-        highestScore: 91,
-        lowestScore: 84,
-      });
-      setSubjectPerformance({
-        Mathematics: [fallbackAssessments[0]],
-        'English Language': [fallbackAssessments[1]],
-        Physics: [fallbackAssessments[2]],
-        Chemistry: [fallbackAssessments[3]],
-        Biology: [fallbackAssessments[4]],
-      });
+      setError('Student scholar record not found in system or active registry.');
     } catch (err: any) {
       setError(err.message || 'Error loading student profile');
     } finally {
