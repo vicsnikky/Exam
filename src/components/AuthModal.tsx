@@ -145,29 +145,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
         return;
       }
 
-      // Emergency direct authentication for Demo / SS3 Students
-      const trimmedId = emailOrId.trim().toUpperCase();
-      if (
-        (trimmedId === 'FEN-2026-000005' || trimmedId === 'FEN2026000005') &&
-        (password === 'student123' || password === 'Alo.13071996')
-      ) {
-        const studentUser = {
-          id: 5,
-          email: 'chiamaka.eze@student.school.edu',
-          firstName: 'Chiamaka',
-          lastName: 'Eze',
-          studentId: 'FEN-2026-000005',
-          role: 'student' as const,
-          classLevel: 'SS 3',
-          arm: 'Science',
-          schoolName: 'Fenster International School',
-        };
-        const token = 'fis_student_session_' + Date.now();
-        login(token, studentUser);
-        onSuccess?.();
-        return;
-      }
-
       throw new Error(backendErrorMsg || 'Invalid Student ID or password. Please verify your credentials.');
     } catch (err: any) {
       setError(extractErrorMessage(err, 'Student login failed. Please verify your Student ID and password.'));

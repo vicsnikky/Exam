@@ -19,6 +19,7 @@ import {
   Info
 } from 'lucide-react';
 import { SS3MockWeeklySummary, SS3MockProgressPoint } from '../types/index.ts';
+import { supabase } from '../supabaseConfig.ts';
 import {
   ResponsiveContainer,
   AreaChart,
@@ -47,13 +48,19 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
   const [selectedWeek, setSelectedWeek] = useState<number>(1);
   const [activeTab, setActiveTab] = useState<'weekly-slips' | 'progress-chart'>('weekly-slips');
 
-  const fetchMockScores = async () => {
-    setLoading(true);
+  const fetchMockScores = async (showLoadingState = true) => {
+    if (showLoadingState) {
+      setLoading(true);
+    }
     setError(null);
     try {
       let data: any = null;
+      const targetNumber = user?.studentId || '';
+      const targetId = studentDbId || user?.id || '';
+      const queryParam = `?studentId=${encodeURIComponent(targetId)}&studentNumber=${encodeURIComponent(targetNumber)}`;
+
+      // 1. Try Backend SS3 Mock Endpoint
       try {
-        const queryParam = studentDbId ? `?studentId=${studentDbId}` : '';
         const res = await fetch(`/api/ss3-mock/scores${queryParam}`, {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -67,92 +74,218 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
           }
         }
       } catch (networkErr) {
-        console.warn('Backend SS3 mock fetch unavailable, using recorded slips:', networkErr);
+        console.warn('Backend SS3 mock fetch unavailable:', networkErr);
       }
 
       if (data && data.weeklySummaries && data.weeklySummaries.length > 0) {
-        setWeeklySummaries(data.weeklySummaries || []);
+        setWeeklySummaries(data.weeklySummaries);
         setProgressData(data.progressChartData || []);
-        const latest = data.weeklySummaries[data.weeklySummaries.length - 1];
-        setSelectedWeek(latest.weekNumber);
+        setSelectedWeek(data.weeklySummaries[data.weeklySummaries.length - 1].weekNumber);
         return;
       }
 
-      // High-fidelity fallback SS3 Mock examination slips
-      const fallbackSlips: SS3MockWeeklySummary[] = [
-        {
-          weekNumber: 1,
-          mockSeriesTitle: 'SS3 Unified Mock Series - Week 1',
-          session: '2025/2026',
-          term: 'Second Term',
-          examDate: '2026-02-14',
-          totalScore400: 348,
-          maxPossibleScore: 400,
-          averagePercentage: 87,
-          overallGrade: 'A1',
-          overallRemark: 'Outstanding critical thinking and problem solving in STEM subjects.',
-          creditsCount: 4,
-          distinctionsCount: 3,
-          subjects: [
-            { studentId: 5, subjectId: 1, subjectName: 'Mathematics', isEnglish: false, rawScore: 37, maxRawScore: 40, score: 92, maxScore: 100, percentage: 92, formula: '(37 ÷ 40) × 100 = 92', grade: 'A1', remark: 'Exceptional in calculus and algebraic reasoning.', weekNumber: 1 },
-            { studentId: 5, subjectId: 2, subjectName: 'English Language', isEnglish: true, rawScore: 50, maxRawScore: 60, score: 84, maxScore: 100, percentage: 84, formula: '(50 ÷ 60) × 100 = 84', grade: 'B2', remark: 'Strong essay structuring and vocabulary.', weekNumber: 1 },
-            { studentId: 5, subjectId: 3, subjectName: 'Physics', isEnglish: false, rawScore: 35, maxRawScore: 40, score: 88, maxScore: 100, percentage: 88, formula: '(35 ÷ 40) × 100 = 88', grade: 'A1', remark: 'Mastery of electromagnetism and wave motion.', weekNumber: 1 },
-            { studentId: 5, subjectId: 4, subjectName: 'Chemistry', isEnglish: false, rawScore: 34, maxRawScore: 40, score: 84, maxScore: 100, percentage: 84, formula: '(34 ÷ 40) × 100 = 84', grade: 'B2', remark: 'Very good quantitative analytical chemistry.', weekNumber: 1 }
-          ]
-        },
-        {
-          weekNumber: 2,
-          mockSeriesTitle: 'SS3 Unified Mock Series - Week 2',
-          session: '2025/2026',
-          term: 'Second Term',
-          examDate: '2026-02-21',
-          totalScore400: 356,
-          maxPossibleScore: 400,
-          averagePercentage: 89,
-          overallGrade: 'A1',
-          overallRemark: 'Top-ranked performance in the cohort. Commendable consistency.',
-          creditsCount: 4,
-          distinctionsCount: 4,
-          subjects: [
-            { studentId: 5, subjectId: 1, subjectName: 'Mathematics', isEnglish: false, rawScore: 38, maxRawScore: 40, score: 95, maxScore: 100, percentage: 95, formula: '(38 ÷ 40) × 100 = 95', grade: 'A1', remark: 'Near perfect demonstration of geometry and logic.', weekNumber: 2 },
-            { studentId: 5, subjectId: 2, subjectName: 'English Language', isEnglish: true, rawScore: 52, maxRawScore: 60, score: 86, maxScore: 100, percentage: 86, formula: '(52 ÷ 60) × 100 = 86', grade: 'B2', remark: 'Excellent comprehension and summary skills.', weekNumber: 2 },
-            { studentId: 5, subjectId: 3, subjectName: 'Physics', isEnglish: false, rawScore: 36, maxRawScore: 40, score: 90, maxScore: 100, percentage: 90, formula: '(36 ÷ 40) × 100 = 90', grade: 'A1', remark: 'Exemplary clarity in theoretical physics concepts.', weekNumber: 2 },
-            { studentId: 5, subjectId: 4, subjectName: 'Chemistry', isEnglish: false, rawScore: 34, maxRawScore: 40, score: 85, maxScore: 100, percentage: 85, formula: '(34 ÷ 40) × 100 = 85', grade: 'B2', remark: 'Accurate chemical kinetics and organic reactions.', weekNumber: 2 }
-          ]
-        },
-        {
-          weekNumber: 3,
-          mockSeriesTitle: 'SS3 Unified Mock Series - Week 3',
-          session: '2025/2026',
-          term: 'Second Term',
-          examDate: '2026-02-28',
-          totalScore400: 362,
-          maxPossibleScore: 400,
-          averagePercentage: 90.5,
-          overallGrade: 'A1',
-          overallRemark: 'Peerless academic excellence. Fully ready for WAEC and UTME.',
-          creditsCount: 4,
-          distinctionsCount: 4,
-          subjects: [
-            { studentId: 5, subjectId: 1, subjectName: 'Mathematics', isEnglish: false, rawScore: 38, maxRawScore: 40, score: 96, maxScore: 100, percentage: 96, formula: '(38 ÷ 40) × 100 = 96', grade: 'A1', remark: 'Flawless calculation and speed.', weekNumber: 3 },
-            { studentId: 5, subjectId: 2, subjectName: 'English Language', isEnglish: true, rawScore: 53, maxRawScore: 60, score: 88, maxScore: 100, percentage: 88, formula: '(53 ÷ 60) × 100 = 88', grade: 'A1', remark: 'Distinction level language mastery.', weekNumber: 3 },
-            { studentId: 5, subjectId: 3, subjectName: 'Physics', isEnglish: false, rawScore: 37, maxRawScore: 40, score: 92, maxScore: 100, percentage: 92, formula: '(37 ÷ 40) × 100 = 92', grade: 'A1', remark: 'Superior physical sciences insight.', weekNumber: 3 },
-            { studentId: 5, subjectId: 4, subjectName: 'Chemistry', isEnglish: false, rawScore: 34, maxRawScore: 40, score: 86, maxScore: 100, percentage: 86, formula: '(34 ÷ 40) × 100 = 86', grade: 'B2', remark: 'Impressive experimental precision.', weekNumber: 3 }
-          ]
+      // 2. Direct Query to Supabase assessments table
+      try {
+        let numericStudentId: number | null = typeof targetId === 'number' ? targetId : null;
+        if (!numericStudentId && targetNumber) {
+          const { data: stRow } = await supabase
+            .from('students')
+            .select('id')
+            .eq('student_id', targetNumber.toUpperCase())
+            .limit(1);
+          if (stRow && stRow.length > 0) {
+            numericStudentId = stRow[0].id;
+          }
         }
-      ];
 
-      const fallbackProgress: SS3MockProgressPoint[] = [
-        { weekNumber: 1, weekLabel: 'Week 1', totalScore400: 348, percentage: 87, targetScore: 300, examDate: 'Feb 14', subjectsCount: 4 },
-        { weekNumber: 2, weekLabel: 'Week 2', totalScore400: 356, percentage: 89, targetScore: 300, examDate: 'Feb 21', subjectsCount: 4 },
-        { weekNumber: 3, weekLabel: 'Week 3', totalScore400: 362, percentage: 90.5, targetScore: 300, examDate: 'Feb 28', subjectsCount: 4 }
-      ];
+        if (numericStudentId) {
+          const { data: supaAssessments } = await supabase
+            .from('assessments')
+            .select(`
+              id,
+              student_id,
+              subject_id,
+              assessment_type,
+              assessment_title,
+              score,
+              max_score,
+              percentage,
+              grade,
+              session,
+              term,
+              teacher_comment,
+              created_at,
+              subjects:subject_id (
+                id,
+                name,
+                code
+              )
+            `)
+            .eq('student_id', numericStudentId)
+            .eq('assessment_type', 'SS3_MOCK')
+            .order('created_at', { ascending: true });
 
-      setWeeklySummaries(fallbackSlips);
-      setProgressData(fallbackProgress);
-      setSelectedWeek(3);
+          if (supaAssessments && supaAssessments.length > 0) {
+            // Group by week
+            const weekGroups: Record<number, any> = {};
+            for (const a of supaAssessments as any[]) {
+              const weekMatch = (a.term + ' ' + (a.assessment_title || '')).match(/Week\s*(\d+)/i);
+              const w = weekMatch ? parseInt(weekMatch[1], 10) : 1;
+
+              if (!weekGroups[w]) {
+                weekGroups[w] = {
+                  weekNumber: w,
+                  mockSeriesTitle: a.assessment_title || `SS3 Weekly Mock Series - Week ${w}`,
+                  session: a.session || '2026/2027',
+                  term: a.term || `Week ${w}`,
+                  examDate: a.created_at ? a.created_at.split('T')[0] : '2026-09-28',
+                  subjects: [],
+                };
+              }
+
+              let parsedComment: any = {};
+              try {
+                if (a.teacher_comment && a.teacher_comment.startsWith('{')) {
+                  parsedComment = JSON.parse(a.teacher_comment);
+                }
+              } catch (_) {}
+
+              const subName = a.subjects?.name || 'Subject';
+              const isEng = subName.toLowerCase().includes('english');
+              const maxRaw = isEng ? 60 : 40;
+              const rawScore = parsedComment.rawScore !== undefined ? parsedComment.rawScore : parseFloat(a.score) || 0;
+              const scaledScore = parseFloat(a.score) || 0;
+
+              weekGroups[w].subjects.push({
+                studentId: numericStudentId,
+                subjectId: a.subject_id,
+                subjectName: subName,
+                subjectCode: a.subjects?.code || 'SS3 CORE',
+                isEnglish: isEng,
+                rawScore,
+                maxRawScore: maxRaw,
+                score: scaledScore,
+                maxScore: 100,
+                percentage: scaledScore,
+                formula: parsedComment.formula || `(${rawScore} ÷ ${maxRaw}) × 100 = ${scaledScore}`,
+                grade: a.grade || (scaledScore >= 75 ? 'A1' : scaledScore >= 70 ? 'B2' : scaledScore >= 65 ? 'B3' : scaledScore >= 50 ? 'C4' : 'F9'),
+                remark: parsedComment.remark || 'Good',
+                weekNumber: w,
+              });
+            }
+
+            const summaries: SS3MockWeeklySummary[] = Object.values(weekGroups).map((wg: any) => {
+              wg.subjects.sort((a: any, b: any) => {
+                if (a.isEnglish) return -1;
+                if (b.isEnglish) return 1;
+                return a.subjectName.localeCompare(b.subjectName);
+              });
+              const totalScore400 = Math.round(wg.subjects.reduce((sum: number, s: any) => sum + (s.score || 0), 0) * 10) / 10;
+              const averagePercentage = Math.round((totalScore400 / 400) * 1000) / 10;
+              return {
+                ...wg,
+                totalScore400,
+                maxPossibleScore: 400,
+                averagePercentage,
+                overallGrade: averagePercentage >= 75 ? 'A1' : averagePercentage >= 70 ? 'B2' : averagePercentage >= 65 ? 'B3' : averagePercentage >= 50 ? 'C4' : 'F9',
+                overallRemark: totalScore400 >= 300 ? 'Outstanding Distinction' : totalScore400 >= 250 ? 'Strong Performance' : 'Good Progress',
+                creditsCount: wg.subjects.filter((s: any) => s.score >= 50).length,
+                distinctionsCount: wg.subjects.filter((s: any) => s.score >= 75).length,
+              };
+            });
+
+            summaries.sort((a, b) => a.weekNumber - b.weekNumber);
+
+            const progress: SS3MockProgressPoint[] = summaries.map((s) => ({
+              weekNumber: s.weekNumber,
+              weekLabel: `Week ${s.weekNumber}`,
+              totalScore400: s.totalScore400,
+              percentage: s.averagePercentage,
+              targetScore: 250,
+              examDate: s.examDate || '',
+              subjectsCount: s.subjects.length,
+            }));
+
+            setWeeklySummaries(summaries);
+            setProgressData(progress);
+            setSelectedWeek(summaries[summaries.length - 1].weekNumber);
+            return;
+          }
+        }
+      } catch (supaErr) {
+        console.warn('Supabase assessments query warning:', supaErr);
+      }
+
+      // 3. Check localStorage fis_mock_scores_v2
+      try {
+        const storedRaw = localStorage.getItem('fis_mock_scores_v2');
+        if (storedRaw) {
+          const storedList = JSON.parse(storedRaw);
+          const studentScores = storedList.filter((m: any) =>
+            (targetNumber && m.studentNumber && m.studentNumber.toUpperCase() === targetNumber.toUpperCase()) ||
+            (targetId && String(m.studentId) === String(targetId))
+          );
+
+          if (studentScores.length > 0) {
+            studentScores.sort((a: any, b: any) => a.weekNumber - b.weekNumber);
+            const summaries: SS3MockWeeklySummary[] = studentScores.map((s: any) => ({
+              weekNumber: s.weekNumber,
+              mockSeriesTitle: s.mockSeriesTitle || `SS3 Weekly Mock Series - Week ${s.weekNumber}`,
+              session: s.session || '2026/2027',
+              term: s.term || `Week ${s.weekNumber}`,
+              examDate: s.examDate || '2026-09-28',
+              totalScore400: s.totalScore400,
+              maxPossibleScore: 400,
+              averagePercentage: s.averagePercentage,
+              overallGrade: s.averagePercentage >= 75 ? 'A1' : s.averagePercentage >= 70 ? 'B2' : s.averagePercentage >= 65 ? 'B3' : s.averagePercentage >= 50 ? 'C4' : 'F9',
+              overallRemark: s.totalScore400 >= 300 ? 'Outstanding Distinction' : s.totalScore400 >= 250 ? 'Strong Performance' : 'Good Progress',
+              creditsCount: (s.subjects || []).filter((sub: any) => (sub.scaledScore || sub.score) >= 50).length,
+              distinctionsCount: (s.subjects || []).filter((sub: any) => (sub.scaledScore || sub.score) >= 75).length,
+              subjects: (s.subjects || []).map((sub: any) => ({
+                studentId: typeof targetId === 'number' ? targetId : 1,
+                subjectId: sub.subjectId,
+                subjectName: sub.subjectName,
+                subjectCode: sub.subjectCode || 'SS3 CORE',
+                isEnglish: sub.isEnglish || false,
+                rawScore: sub.rawScore,
+                maxRawScore: sub.maxRawScore || (sub.isEnglish ? 60 : 40),
+                score: sub.scaledScore !== undefined ? sub.scaledScore : sub.score,
+                maxScore: 100,
+                percentage: sub.scaledScore !== undefined ? sub.scaledScore : sub.score,
+                formula: sub.formula || `(${sub.rawScore} ÷ ${sub.isEnglish ? 60 : 40}) × 100 = ${sub.scaledScore}`,
+                grade: sub.grade || 'C4',
+                remark: sub.remark || 'Good',
+                weekNumber: s.weekNumber,
+              })),
+            }));
+
+            const progress: SS3MockProgressPoint[] = summaries.map((s) => ({
+              weekNumber: s.weekNumber,
+              weekLabel: `Week ${s.weekNumber}`,
+              totalScore400: s.totalScore400,
+              percentage: s.averagePercentage,
+              targetScore: 250,
+              examDate: s.examDate || '',
+              subjectsCount: s.subjects.length,
+            }));
+
+            setWeeklySummaries(summaries);
+            setProgressData(progress);
+            setSelectedWeek(summaries[summaries.length - 1].weekNumber);
+            return;
+          }
+        }
+      } catch (localErr) {
+        console.warn('Local mock scores read warning:', localErr);
+      }
+
+      // No recorded mock scores found for this student: clear lists cleanly!
+      setWeeklySummaries([]);
+      setProgressData([]);
     } catch (err: any) {
       setError(err.message || 'Error loading mock exam records');
+      setWeeklySummaries([]);
+      setProgressData([]);
     } finally {
       setLoading(false);
     }
@@ -160,7 +293,37 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
 
   useEffect(() => {
     fetchMockScores();
-  }, [studentDbId]);
+
+    const handleUpdate = (e: any) => {
+      const detail = e?.detail;
+      const targetNum = user?.studentId?.toUpperCase();
+      const targetIdStr = String(studentDbId || user?.id || '');
+
+      if (!detail || !targetNum || detail.studentNumber?.toUpperCase() === targetNum || String(detail.studentId) === targetIdStr) {
+        fetchMockScores(false);
+      }
+    };
+
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'fis_mock_scores_v2') {
+        fetchMockScores(false);
+      }
+    };
+
+    window.addEventListener('fis:mock-scores-updated', handleUpdate);
+    window.addEventListener('storage', handleStorageChange);
+
+    // Periodic live synchronization so teacher score inputs appear automatically
+    const pollInterval = setInterval(() => {
+      fetchMockScores(false);
+    }, 4000);
+
+    return () => {
+      window.removeEventListener('fis:mock-scores-updated', handleUpdate);
+      window.removeEventListener('storage', handleStorageChange);
+      clearInterval(pollInterval);
+    };
+  }, [studentDbId, user?.studentId, user?.id]);
 
   const activeWeekSummary = weeklySummaries.find((w) => w.weekNumber === selectedWeek);
 

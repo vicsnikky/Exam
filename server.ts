@@ -624,6 +624,104 @@ app.delete('/api/students/:id', authenticate, async (req: AuthRequest, res) => {
   }
 });
 
+// UPDATE Student (Super Admin & Staff)
+app.put('/api/students/:id', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const rawId = req.params.id;
+    if (req.appUser?.role !== 'super_admin' && req.appUser?.role !== 'teacher') {
+      return res.status(403).json({ error: 'Access denied: Super Admin or Faculty privileges required' });
+    }
+
+    let targetStudent;
+    if (!isNaN(Number(rawId))) {
+      const found = await db.select().from(students).where(eq(students.id, Number(rawId))).limit(1);
+      targetStudent = found[0];
+    } else {
+      const found = await db.select().from(students).where(eq(students.studentId, rawId.toUpperCase().trim())).limit(1);
+      targetStudent = found[0];
+    }
+
+    if (!targetStudent) {
+      return res.status(404).json({ error: 'Student not found in database' });
+    }
+
+    const {
+      firstName,
+      middleName,
+      surname,
+      gender,
+      dateOfBirth,
+      currentClass,
+      email,
+      parentName,
+      parentPhone,
+      school,
+      session,
+      password,
+    } = req.body;
+
+    const updateFields: any = {};
+    if (firstName !== undefined) updateFields.firstName = firstName.trim();
+    if (middleName !== undefined) updateFields.middleName = middleName ? middleName.trim() : null;
+    if (surname !== undefined) updateFields.surname = surname.trim();
+    if (gender !== undefined) updateFields.gender = gender;
+    if (dateOfBirth !== undefined) updateFields.dateOfBirth = dateOfBirth;
+    if (currentClass !== undefined) updateFields.currentClass = currentClass.trim();
+    if (email !== undefined) updateFields.email = email ? email.trim().toLowerCase() : null;
+    if (parentName !== undefined) updateFields.parentName = parentName ? parentName.trim() : null;
+    if (parentPhone !== undefined) updateFields.parentPhone = parentPhone ? parentPhone.trim() : null;
+    if (school !== undefined) updateFields.school = school.trim();
+    if (session !== undefined) updateFields.session = session.trim();
+
+    if (password && password.trim().length > 0) {
+      const salt = await bcrypt.genSalt(10);
+      updateFields.passwordHash = await bcrypt.hash(password.trim(), salt);
+    }
+
+    const [updatedStudent] = await db
+      .update(students)
+      .set(updateFields)
+      .where(eq(students.id, targetStudent.id))
+      .returning();
+
+    // If student has corresponding user account in users table, keep it synchronized
+    try {
+      const oldEmail = targetStudent.email?.toLowerCase().trim();
+      const newEmail = email ? email.toLowerCase().trim() : oldEmail;
+      if (oldEmail || newEmail) {
+        const userUpdates: any = {};
+        if (firstName) userUpdates.firstName = firstName.trim();
+        if (surname) userUpdates.lastName = surname.trim();
+        if (newEmail) userUpdates.email = newEmail;
+        if (updateFields.passwordHash) userUpdates.passwordHash = updateFields.passwordHash;
+
+        if (oldEmail) {
+          await db.update(users).set(userUpdates).where(eq(users.email, oldEmail));
+        }
+      }
+    } catch (_) {}
+
+    // Audit log
+    await db.insert(auditLogs).values({
+      actorName: `${req.appUser?.firstName} ${req.appUser?.lastName}`,
+      actorRole: req.appUser?.role || 'admin',
+      action: 'STUDENT_UPDATED',
+      targetEntity: 'students',
+      details: `Student details updated: ${updatedStudent.firstName} ${updatedStudent.surname} (${updatedStudent.studentId}) by ${req.appUser?.firstName} ${req.appUser?.lastName}`,
+      schoolId: req.appUser?.schoolId || 1,
+    });
+
+    return res.json({
+      success: true,
+      message: `Student ${updatedStudent.firstName} ${updatedStudent.surname} (${updatedStudent.studentId}) details updated successfully.`,
+      student: updatedStudent,
+    });
+  } catch (error: any) {
+    console.error('Update student error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to update student' });
+  }
+});
+
 // ----------------------------------------------------
 // 4. SUBJECT MANAGEMENT
 // ----------------------------------------------------
@@ -921,11 +1019,36 @@ app.get('/api/ss3-mock/scores', authenticate, async (req: AuthRequest, res) => {
   try {
     const isStudent = req.appUser?.role === 'student';
     let targetStudentId = req.query.studentId ? Number(req.query.studentId) : null;
+    const studentNumberParam = (req.query.studentNumber as string || req.query.studentId as string || '').trim().toUpperCase();
     const weekNumber = req.query.weekNumber ? Number(req.query.weekNumber) : null;
 
     // Enforce student privacy: students can only see their own mock results
-    if (isStudent) {
-      targetStudentId = req.appUser?.id || null;
+    if (isStudent && req.appUser) {
+      targetStudentId = null;
+      if (req.appUser.studentProfile?.id) {
+        targetStudentId = req.appUser.studentProfile.id;
+      }
+      if (!targetStudentId && req.appUser.uid) {
+        const found = await db.select().from(students).where(eq(students.studentId, req.appUser.uid.toUpperCase())).limit(1);
+        if (found.length > 0) targetStudentId = found[0].id;
+      }
+      if (!targetStudentId && studentNumberParam) {
+        const found = await db.select().from(students).where(eq(students.studentId, studentNumberParam.toUpperCase())).limit(1);
+        if (found.length > 0) targetStudentId = found[0].id;
+      }
+      if (!targetStudentId && req.appUser.email) {
+        const found = await db.select().from(students).where(eq(students.email, req.appUser.email.toLowerCase())).limit(1);
+        if (found.length > 0) targetStudentId = found[0].id;
+      }
+      if (!targetStudentId && req.appUser.id) {
+        const found = await db.select().from(students).where(eq(students.id, req.appUser.id)).limit(1);
+        if (found.length > 0) targetStudentId = found[0].id;
+      }
+    } else {
+      if (!targetStudentId && studentNumberParam) {
+        const found = await db.select().from(students).where(eq(students.studentId, studentNumberParam.toUpperCase())).limit(1);
+        if (found.length > 0) targetStudentId = found[0].id;
+      }
     }
 
     // Query assessments where assessmentType = 'SS3_MOCK'
@@ -1225,7 +1348,39 @@ app.post('/api/ss3-mock/scores', authenticate, async (req: AuthRequest, res) => 
       return res.status(400).json({ error: 'Student ID, week number, and at least one subject score are required' });
     }
 
-    const resolvedStudent = await db.select().from(students).where(eq(students.id, Number(studentId))).limit(1);
+    const studentIdParam = req.body.studentId;
+    const studentNumberParam = (req.body.studentNumber as string || '').trim().toUpperCase();
+
+    let resolvedStudent: any[] = [];
+    if (!isNaN(Number(studentIdParam))) {
+      resolvedStudent = await db.select().from(students).where(eq(students.id, Number(studentIdParam))).limit(1);
+    }
+    if (resolvedStudent.length === 0 && studentNumberParam) {
+      resolvedStudent = await db.select().from(students).where(eq(students.studentId, studentNumberParam)).limit(1);
+    }
+    if (resolvedStudent.length === 0 && typeof studentIdParam === 'string' && isNaN(Number(studentIdParam))) {
+      resolvedStudent = await db.select().from(students).where(eq(students.studentId, studentIdParam.trim().toUpperCase())).limit(1);
+    }
+
+    if (resolvedStudent.length === 0) {
+      const cleanStudentId = studentNumberParam || (typeof studentIdParam === 'string' ? studentIdParam.trim().toUpperCase() : `FEN-2026-${studentIdParam}`);
+      const [newSt] = await db.insert(students).values({
+        studentId: cleanStudentId,
+        firstName: req.body.firstName || 'Student',
+        surname: req.body.surname || 'Scholar',
+        gender: req.body.gender || 'Other',
+        currentClass: 'SS 3',
+        school: 'Fenster International School',
+        session: session || '2026/2027',
+        schoolId: req.appUser?.schoolId || 1,
+      }).onConflictDoNothing().returning();
+      if (newSt) {
+        resolvedStudent = [newSt];
+      } else {
+        resolvedStudent = await db.select().from(students).where(eq(students.studentId, cleanStudentId)).limit(1);
+      }
+    }
+
     if (resolvedStudent.length === 0) {
       return res.status(404).json({ error: 'SS3 Student not found' });
     }
@@ -2132,6 +2287,91 @@ app.delete('/api/admin/teachers/:id', authenticate, async (req: AuthRequest, res
   } catch (error: any) {
     console.error('Delete teacher error:', error);
     return res.status(500).json({ error: error.message || 'Failed to delete teacher' });
+  }
+});
+
+// Super Admin: Update Teacher Details
+app.put('/api/admin/teachers/:id', authenticate, async (req: AuthRequest, res) => {
+  try {
+    if (req.appUser?.role !== 'super_admin') {
+      return res.status(403).json({ error: 'Access denied: Super Admin authorization required' });
+    }
+
+    const rawId = req.params.id;
+    let targetTeacher: any = null;
+    if (!isNaN(Number(rawId))) {
+      const found = await db.select().from(teachers).where(eq(teachers.id, Number(rawId))).limit(1);
+      targetTeacher = found[0];
+    } else {
+      const found = await db.select().from(teachers).where(eq(teachers.teacherId, rawId.toUpperCase().trim())).limit(1);
+      targetTeacher = found[0];
+    }
+
+    if (!targetTeacher) {
+      return res.status(404).json({ error: 'Teacher not found' });
+    }
+
+    const { firstName, lastName, email, phone, schoolName, password } = req.body;
+
+    // Update teachers table
+    const teacherUpdates: any = {};
+    if (phone !== undefined) teacherUpdates.phone = phone ? phone.trim() : null;
+    if (schoolName !== undefined) teacherUpdates.schoolName = schoolName.trim();
+
+    if (Object.keys(teacherUpdates).length > 0) {
+      await db.update(teachers).set(teacherUpdates).where(eq(teachers.id, targetTeacher.id));
+    }
+
+    // Update users table
+    if (targetTeacher.userId) {
+      const userUpdates: any = {};
+      if (firstName !== undefined) userUpdates.firstName = firstName.trim();
+      if (lastName !== undefined) userUpdates.lastName = lastName.trim();
+      if (email !== undefined) userUpdates.email = email.toLowerCase().trim();
+
+      if (password && password.trim().length > 0) {
+        const salt = await bcrypt.genSalt(10);
+        userUpdates.passwordHash = await bcrypt.hash(password.trim(), salt);
+      }
+
+      if (Object.keys(userUpdates).length > 0) {
+        await db.update(users).set(userUpdates).where(eq(users.id, targetTeacher.userId));
+      }
+    }
+
+    // Audit log
+    await db.insert(auditLogs).values({
+      actorName: `${req.appUser?.firstName} ${req.appUser?.lastName}`,
+      actorRole: 'super_admin',
+      action: 'TEACHER_UPDATED_BY_ADMIN',
+      targetEntity: 'teachers',
+      details: `Super Admin updated faculty record: ${firstName || ''} ${lastName || ''} (${targetTeacher.teacherId})`,
+      schoolId: 1,
+    });
+
+    // Fetch updated record
+    const updatedUser = targetTeacher.userId
+      ? (await db.select().from(users).where(eq(users.id, targetTeacher.userId)).limit(1))[0]
+      : null;
+    const freshTeacher = (await db.select().from(teachers).where(eq(teachers.id, targetTeacher.id)).limit(1))[0];
+
+    return res.json({
+      success: true,
+      message: `Teacher ${freshTeacher.teacherId} updated successfully.`,
+      teacher: {
+        id: freshTeacher.id,
+        userId: freshTeacher.userId,
+        teacherId: freshTeacher.teacherId,
+        firstName: updatedUser?.firstName || firstName,
+        lastName: updatedUser?.lastName || lastName,
+        email: updatedUser?.email || email,
+        phone: freshTeacher.phone,
+        schoolName: freshTeacher.schoolName,
+      },
+    });
+  } catch (error: any) {
+    console.error('Update teacher error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to update teacher' });
   }
 });
 

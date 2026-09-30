@@ -23,6 +23,7 @@ import {
   Table,
   Server,
   Trash2,
+  Pencil,
   Share2,
   Archive,
   RefreshCw,
@@ -48,6 +49,8 @@ import { safeFetchJson } from '../lib/api.ts';
 import { Student } from '../types/index.ts';
 import { RegistrationSuccessCard } from './RegistrationSuccessCard.tsx';
 import { DeleteConfirmModal } from './DeleteConfirmModal.tsx';
+import { EditStudentModal } from './EditStudentModal.tsx';
+import { EditTeacherModal } from './EditTeacherModal.tsx';
 
 export const SuperAdminDashboard: React.FC = () => {
   const { token, user } = useAuth();
@@ -113,6 +116,53 @@ export const SuperAdminDashboard: React.FC = () => {
   });
 
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Edit Modals state
+  const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+  const [editingTeacher, setEditingTeacher] = useState<TeacherRecord | null>(null);
+
+  const handleEditUser = (u: any) => {
+    if (u.role === 'student') {
+      const match = studentsList.find((s) => s.id === u.id || s.email === u.email || s.studentId === u.email);
+      if (match) {
+        setEditingStudent(match);
+      } else {
+        setEditingStudent({
+          id: u.id,
+          studentId: u.email?.startsWith('FEN-') || u.email?.startsWith('FIS-') ? u.email : `FEN-2026-${String(u.id).padStart(6, '0')}`,
+          firstName: u.firstName,
+          middleName: null,
+          surname: u.lastName,
+          gender: 'Female',
+          dateOfBirth: '2008-01-01',
+          currentClass: 'SS 3',
+          email: u.email,
+          parentName: null,
+          parentPhone: null,
+          school: 'Fenster International School',
+          session: '2026/2027',
+          password: 'student123',
+        });
+      }
+    } else {
+      const match = teachersList.find((t) => t.id === u.id || t.email === u.email);
+      if (match) {
+        setEditingTeacher(match);
+      } else {
+        setEditingTeacher({
+          id: u.id,
+          teacherId: `TCH-2026-${String(u.id).padStart(4, '0')}`,
+          firstName: u.firstName,
+          lastName: u.lastName,
+          email: u.email,
+          phone: null,
+          schoolName: 'Fenster International School',
+          password: '',
+          role: u.role || 'teacher',
+        });
+      }
+    }
+  };
 
   const fetchAdminData = async () => {
     // 1. Always load local baseline immediately
@@ -476,6 +526,34 @@ export const SuperAdminDashboard: React.FC = () => {
         onClose={() => setDeleteModal({ isOpen: false, type: 'teacher', title: '', name: '', identifier: '', targetId: '' })}
       />
 
+      {/* Edit Student Modal */}
+      <EditStudentModal
+        isOpen={!!editingStudent}
+        student={editingStudent}
+        onClose={() => setEditingStudent(null)}
+        onSaved={(updated) => {
+          setNotification({
+            type: 'success',
+            message: `Student ${updated.firstName} ${updated.surname} (${updated.studentId}) updated successfully.`,
+          });
+          fetchAdminData();
+        }}
+      />
+
+      {/* Edit Teacher Modal */}
+      <EditTeacherModal
+        isOpen={!!editingTeacher}
+        teacher={editingTeacher}
+        onClose={() => setEditingTeacher(null)}
+        onSaved={(updated) => {
+          setNotification({
+            type: 'success',
+            message: `Faculty member ${updated.firstName} ${updated.lastName} (${updated.teacherId}) updated successfully.`,
+          });
+          fetchAdminData();
+        }}
+      />
+
       {/* Global Real System KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-6 gap-3.5">
         <div className="bg-slate-800/80 border border-slate-700 p-4 rounded-2xl">
@@ -731,10 +809,17 @@ export const SuperAdminDashboard: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center gap-1.5 shrink-0">
                       <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400">
                         Active
                       </span>
+                      <button
+                        onClick={() => setEditingTeacher(t)}
+                        className="p-1.5 rounded-lg text-purple-400 hover:text-white hover:bg-purple-600/30 border border-purple-500/20 hover:border-purple-500 transition cursor-pointer"
+                        title="Edit faculty member details"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
                       {t.role !== 'super_admin' && t.email !== 'victoralo1862@gmail.com' && (
                         <button
                           onClick={() => promptDeleteTeacher(t)}
@@ -948,7 +1033,7 @@ export const SuperAdminDashboard: React.FC = () => {
                     </span>
                     <span className="text-slate-400 text-[11px]">{u.email}</span>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5">
                     <span
                       className={`px-2 py-0.5 rounded font-mono text-[10px] font-bold uppercase ${
                         u.role === 'super_admin'
@@ -960,6 +1045,13 @@ export const SuperAdminDashboard: React.FC = () => {
                     >
                       {u.role}
                     </span>
+                    <button
+                      onClick={() => handleEditUser(u)}
+                      className="p-1.5 rounded-lg text-indigo-400 hover:text-white hover:bg-indigo-600/30 border border-indigo-500/20 hover:border-indigo-500 transition cursor-pointer"
+                      title="Edit user details"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
                     {u.role !== 'super_admin' && u.email !== 'victoralo1862@gmail.com' && (
                       <button
                         onClick={() => promptDeleteUser(u)}
@@ -1065,7 +1157,14 @@ export const SuperAdminDashboard: React.FC = () => {
                               <td className="py-2 px-2.5 text-slate-300">{s.currentClass}</td>
                               <td className="py-2 px-2.5 text-slate-400">{s.gender}</td>
                               <td className="py-2 px-2.5 text-slate-400">{s.parentPhone || '—'}</td>
-                              <td className="py-2 px-2.5 text-right">
+                              <td className="py-2 px-2.5 text-right flex items-center justify-end gap-1">
+                                <button
+                                  onClick={() => setEditingStudent(s)}
+                                  className="text-amber-400 hover:text-amber-300 hover:bg-amber-500/20 p-1.5 rounded transition cursor-pointer"
+                                  title="Edit student details"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
                                 <button
                                   onClick={() => promptDeleteStudent(s)}
                                   className="text-rose-400 hover:text-rose-300 hover:bg-rose-500/20 p-1.5 rounded transition cursor-pointer"
@@ -1101,7 +1200,14 @@ export const SuperAdminDashboard: React.FC = () => {
                             <td className="py-2 px-2.5 text-white">{t.firstName} {t.lastName}</td>
                             <td className="py-2 px-2.5 text-slate-300">{t.email}</td>
                             <td className="py-2 px-2.5 text-slate-400">{t.phone || '—'}</td>
-                            <td className="py-2 px-2.5 text-right">
+                            <td className="py-2 px-2.5 text-right flex items-center justify-end gap-1">
+                              <button
+                                onClick={() => setEditingTeacher(t)}
+                                className="text-purple-400 hover:text-purple-300 hover:bg-purple-500/20 p-1.5 rounded transition cursor-pointer"
+                                title="Edit faculty member details"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
                               {t.role !== 'super_admin' && (
                                 <button
                                   onClick={() => promptDeleteTeacher(t)}

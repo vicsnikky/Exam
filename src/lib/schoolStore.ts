@@ -544,6 +544,101 @@ export async function deleteStudent(
   };
 }
 
+export async function updateStudent(
+  token: string | null,
+  data: Partial<Student> & { studentId: string }
+): Promise<{ success: boolean; student: Student; message: string }> {
+  const currentStudents = getLocalStudents();
+  const index = currentStudents.findIndex(
+    (s) => s.studentId === data.studentId || (data.id !== undefined && String(s.id) === String(data.id))
+  );
+
+  if (index === -1) {
+    throw new Error('Student record not found in system');
+  }
+
+  const existing = currentStudents[index];
+  const updatedStudent: Student = {
+    ...existing,
+    ...data,
+    firstName: (data.firstName || existing.firstName).trim(),
+    middleName: data.middleName !== undefined ? (data.middleName ? data.middleName.trim() : null) : existing.middleName,
+    surname: (data.surname || existing.surname).trim(),
+    gender: data.gender || existing.gender || 'Female',
+    dateOfBirth: data.dateOfBirth || existing.dateOfBirth || '2008-01-01',
+    currentClass: (data.currentClass || existing.currentClass || 'SS 3').trim(),
+    email: data.email !== undefined ? (data.email ? data.email.trim() : null) : existing.email,
+    parentName: data.parentName !== undefined ? (data.parentName ? data.parentName.trim() : null) : existing.parentName,
+    parentPhone: data.parentPhone !== undefined ? (data.parentPhone ? data.parentPhone.trim() : null) : existing.parentPhone,
+    school: (data.school || existing.school || 'Fenster International School').trim(),
+    session: (data.session || existing.session || '2026/2027').trim(),
+    password: data.password ? data.password.trim() : existing.password,
+  };
+
+  // 1. Immediately persist locally & institutional vault
+  const updatedList = [...currentStudents];
+  updatedList[index] = updatedStudent;
+  saveLocalStudents(updatedList);
+  mirrorToInstitutionalVault('student', updatedStudent);
+
+  // 2. Direct Sync to Supabase Database
+  try {
+    const supaUpdates: any = {
+      first_name: updatedStudent.firstName,
+      middle_name: updatedStudent.middleName,
+      surname: updatedStudent.surname,
+      gender: updatedStudent.gender,
+      date_of_birth: updatedStudent.dateOfBirth,
+      current_class: updatedStudent.currentClass,
+      email: updatedStudent.email,
+      parent_name: updatedStudent.parentName,
+      parent_phone: updatedStudent.parentPhone,
+      school: updatedStudent.school,
+      session: updatedStudent.session,
+    };
+
+    if (data.password && data.password.trim().length > 0) {
+      const salt = bcrypt.genSaltSync(8);
+      supaUpdates.password_hash = bcrypt.hashSync(data.password.trim(), salt);
+    }
+
+    await supabase
+      .from('students')
+      .update(supaUpdates)
+      .eq('student_id', updatedStudent.studentId);
+  } catch (supaErr) {
+    console.warn('Direct Supabase student update exception:', supaErr);
+  }
+
+  // 3. Call backend safely
+  if (token) {
+    try {
+      await safeFetchJson(`/api/students/${encodeURIComponent(updatedStudent.studentId)}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(data),
+      });
+    } catch (e) {
+      console.warn('Backend update student deferred, saved locally:', e);
+    }
+  }
+
+  window.dispatchEvent(
+    new CustomEvent('fis:students-updated', {
+      detail: updatedStudent,
+    })
+  );
+
+  return {
+    success: true,
+    student: updatedStudent,
+    message: `Student ${updatedStudent.firstName} ${updatedStudent.surname} (${updatedStudent.studentId}) updated successfully.`,
+  };
+}
+
 // ----------------------------------------------------
 // TEACHER MANAGEMENT
 // ----------------------------------------------------
@@ -744,6 +839,98 @@ export async function deleteTeacher(
   return {
     success: true,
     message: 'Teacher account deleted successfully from faculty chamber',
+  };
+}
+
+export async function updateTeacher(
+  token: string | null,
+  data: Partial<TeacherRecord> & { teacherId: string }
+): Promise<{ success: boolean; teacher: TeacherRecord; message: string }> {
+  const currentTeachers = getLocalTeachers();
+  const index = currentTeachers.findIndex(
+    (t) => t.teacherId === data.teacherId || (data.id !== undefined && String(t.id) === String(data.id))
+  );
+
+  if (index === -1) {
+    throw new Error('Teacher record not found in system');
+  }
+
+  const existing = currentTeachers[index];
+  const updatedTeacher: TeacherRecord = {
+    ...existing,
+    ...data,
+    firstName: (data.firstName || existing.firstName).trim(),
+    lastName: (data.lastName || existing.lastName).trim(),
+    email: (data.email || existing.email).toLowerCase().trim(),
+    phone: data.phone !== undefined ? (data.phone ? data.phone.trim() : null) : existing.phone,
+    schoolName: (data.schoolName || existing.schoolName || 'Fenster International School').trim(),
+    password: data.password ? data.password.trim() : existing.password,
+    role: data.role || existing.role || 'teacher',
+  };
+
+  // 1. Immediately persist locally & institutional vault
+  const updatedList = [...currentTeachers];
+  updatedList[index] = updatedTeacher;
+  saveLocalTeachers(updatedList);
+  mirrorToInstitutionalVault('teacher', updatedTeacher);
+
+  // 2. Direct Sync to Supabase Database
+  try {
+    const { data: supaTeacher } = await supabase
+      .from('teachers')
+      .select('id, user_id')
+      .eq('teacher_id', updatedTeacher.teacherId)
+      .limit(1);
+
+    const supaUpdates: any = {
+      phone: updatedTeacher.phone,
+      school_name: updatedTeacher.schoolName,
+    };
+    await supabase.from('teachers').update(supaUpdates).eq('teacher_id', updatedTeacher.teacherId);
+
+    const supaUserId = supaTeacher && supaTeacher[0] ? supaTeacher[0].user_id : null;
+    if (supaUserId) {
+      const userUpdates: any = {
+        first_name: updatedTeacher.firstName,
+        last_name: updatedTeacher.lastName,
+        email: updatedTeacher.email,
+      };
+      if (data.password && data.password.trim().length > 0) {
+        const salt = bcrypt.genSaltSync(8);
+        userUpdates.password_hash = bcrypt.hashSync(data.password.trim(), salt);
+      }
+      await supabase.from('users').update(userUpdates).eq('id', supaUserId);
+    }
+  } catch (supaErr) {
+    console.warn('Direct Supabase teacher update exception:', supaErr);
+  }
+
+  // 3. Call backend safely
+  if (token) {
+    try {
+      await safeFetchJson(`/api/admin/teachers/${encodeURIComponent(updatedTeacher.teacherId)}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(data),
+      });
+    } catch (e) {
+      console.warn('Backend update teacher deferred, saved locally:', e);
+    }
+  }
+
+  window.dispatchEvent(
+    new CustomEvent('fis:teachers-updated', {
+      detail: updatedTeacher,
+    })
+  );
+
+  return {
+    success: true,
+    teacher: updatedTeacher,
+    message: `Faculty member ${updatedTeacher.firstName} ${updatedTeacher.lastName} (${updatedTeacher.teacherId}) updated successfully.`,
   };
 }
 
@@ -1000,11 +1187,27 @@ export async function authenticateLocalTeacher(identifier: string, passwordAttem
 export async function authenticateLocalStudent(identifier: string, passwordAttempt: string) {
   const clean = identifier.trim().toUpperCase();
   const students = getLocalStudents();
-  const student = students.find(
+  let student = students.find(
     (s) =>
       s.studentId.toUpperCase() === clean ||
       (s.email && s.email.toLowerCase() === identifier.trim().toLowerCase())
   );
+
+  if (!student) {
+    const vault = getInstitutionalVault();
+    const vaultStudent = vault.students.find(
+      (s) =>
+        s.studentId.toUpperCase() === clean ||
+        (s.email && s.email.toLowerCase() === identifier.trim().toLowerCase())
+    );
+    if (vaultStudent) {
+      student = vaultStudent;
+      const currentList = getLocalStudents();
+      if (!currentList.some((s) => s.id === vaultStudent.id || s.studentId === vaultStudent.studentId)) {
+        saveLocalStudents([vaultStudent, ...currentList]);
+      }
+    }
+  }
 
   if (student) {
     const isMatch =

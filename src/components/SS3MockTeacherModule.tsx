@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { Student, Subject } from '../types/index.ts';
 import { getLocalStudents } from '../lib/schoolStore.ts';
+import { supabase } from '../supabaseConfig.ts';
 
 export const SS3MockTeacherModule: React.FC = () => {
   const { user, token } = useAuth();
@@ -35,7 +36,7 @@ export const SS3MockTeacherModule: React.FC = () => {
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Form State
-  const [selectedStudentId, setSelectedStudentId] = useState<number | ''>('');
+  const [selectedStudentId, setSelectedStudentId] = useState<number | string>('');
   const [selectedWeek, setSelectedWeek] = useState<number>(1);
   const [examDate, setExamDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [session, setSession] = useState<string>('2026/2027');
@@ -284,8 +285,14 @@ export const SS3MockTeacherModule: React.FC = () => {
     setStatusMessage(null);
 
     try {
+      const candidateStudentId = selectedStudentObj?.id || selectedStudentId;
+      const candidateStudentNumber = selectedStudentObj?.studentId || (typeof selectedStudentId === 'string' && selectedStudentId.startsWith('FEN-') ? selectedStudentId : '');
+
       const payload = {
-        studentId: Number(selectedStudentId),
+        studentId: candidateStudentId,
+        studentNumber: candidateStudentNumber,
+        firstName: selectedStudentObj?.firstName,
+        surname: selectedStudentObj?.surname,
         weekNumber: selectedWeek,
         session,
         term,
@@ -298,9 +305,9 @@ export const SS3MockTeacherModule: React.FC = () => {
         })),
       };
 
-      let savedOk = false;
+      // 1. Send to Backend API
       try {
-        const res = await fetch('/api/ss3-mock/scores', {
+        await fetch('/api/ss3-mock/scores', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -308,27 +315,120 @@ export const SS3MockTeacherModule: React.FC = () => {
           },
           body: JSON.stringify(payload),
         });
-
-        if (res.ok) {
-          const text = await res.text();
-          if (text && (text.startsWith('{') || text.startsWith('['))) {
-            savedOk = true;
-          }
-        }
       } catch (netErr) {
-        console.warn('Backend save unavailable, saved to local session:', netErr);
+        console.warn('Backend save deferred:', netErr);
       }
 
-      // Persist locally so work is never lost
+      // 2. Direct Sync to Supabase assessments table
       try {
+        let supaStudentId: number | null = typeof candidateStudentId === 'number' ? candidateStudentId : null;
+        if (!supaStudentId && candidateStudentNumber) {
+          const { data: stRow } = await supabase
+            .from('students')
+            .select('id')
+            .eq('student_id', candidateStudentNumber)
+            .limit(1);
+          if (stRow && stRow.length > 0) {
+            supaStudentId = stRow[0].id;
+          }
+        }
+
+        if (supaStudentId) {
+          for (const item of subjectEntries) {
+            const rawNum = item.rawScore !== '' ? parseFloat(item.rawScore) : 0;
+            const maxRaw = item.isEnglish ? 60 : 40;
+            const scaled = Math.round(((rawNum / maxRaw) * 100) * 10) / 10;
+            const grade = scaled >= 75 ? 'A1' : scaled >= 70 ? 'B2' : scaled >= 65 ? 'B3' : scaled >= 50 ? 'C4' : 'F9';
+            const comment = JSON.stringify({
+              rawScore: rawNum,
+              maxRawScore: maxRaw,
+              formula: `(${rawNum} ÷ ${maxRaw}) × 100 = ${scaled}`,
+              scaledScore: scaled,
+              remark: item.remark || 'Good',
+            });
+
+            // Clean up previous entry for same student, week, and subject
+            try {
+              await supabase
+                .from('assessments')
+                .delete()
+                .eq('student_id', supaStudentId)
+                .eq('assessment_type', 'SS3_MOCK')
+                .eq('term', `Week ${selectedWeek}`)
+                .eq('subject_id', item.subjectId);
+            } catch (_) {}
+
+            await supabase.from('assessments').insert([{
+              student_id: supaStudentId,
+              subject_id: item.subjectId,
+              assessment_type: 'SS3_MOCK',
+              assessment_title: `SS3 Weekly Mock Series - Week ${selectedWeek}`,
+              score: scaled,
+              max_score: 100,
+              percentage: scaled,
+              grade,
+              session,
+              term: `Week ${selectedWeek}`,
+              teacher_comment: comment,
+              school_id: 1,
+            }]);
+          }
+        }
+      } catch (supaErr) {
+        console.warn('Direct Supabase mock score sync deferred:', supaErr);
+      }
+
+      // 3. Persist locally to unified mock scores registry
+      try {
+        const storedScoresRaw = localStorage.getItem('fis_mock_scores_v2');
+        const storedScores = storedScoresRaw ? JSON.parse(storedScoresRaw) : [];
+        const filtered = storedScores.filter(
+          (m: any) =>
+            !(
+              (String(m.studentId) === String(candidateStudentId) || m.studentNumber === candidateStudentNumber) &&
+              m.weekNumber === selectedWeek
+            )
+        );
+        filtered.push({
+          studentId: candidateStudentId,
+          studentNumber: candidateStudentNumber,
+          studentName: selectedStudentObj ? `${selectedStudentObj.firstName} ${selectedStudentObj.surname}` : 'Student',
+          weekNumber: selectedWeek,
+          session,
+          term,
+          examDate,
+          mockSeriesTitle: `SS3 Weekly Mock Series - Week ${selectedWeek}`,
+          subjects: subjectEntries.map((item) => ({
+            ...item,
+            rawScore: item.rawScore !== '' ? parseFloat(item.rawScore) : 0,
+            formula: `(${item.rawScore || 0} ÷ ${item.isEnglish ? 60 : 40}) × 100 = ${item.scaledScore}`,
+            grade: item.scaledScore >= 75 ? 'A1' : item.scaledScore >= 70 ? 'B2' : item.scaledScore >= 65 ? 'B3' : item.scaledScore >= 50 ? 'C4' : 'F9',
+          })),
+          totalScore400: roundedGrandTotal,
+          averagePercentage,
+        });
+        localStorage.setItem('fis_mock_scores_v2', JSON.stringify(filtered));
+
+        // Legacy student-week key
         const localKey = `fis_mock_${selectedStudentId}_week_${selectedWeek}`;
         localStorage.setItem(localKey, JSON.stringify(subjectEntries));
       } catch (_) {}
 
+      // 4. Dispatch event so any student dashboard updates automatically
+      window.dispatchEvent(
+        new CustomEvent('fis:mock-scores-updated', {
+          detail: {
+            studentId: candidateStudentId,
+            studentNumber: candidateStudentNumber,
+            weekNumber: selectedWeek,
+          },
+        })
+      );
+
       const candidateName = selectedStudentObj ? `${selectedStudentObj.firstName} ${selectedStudentObj.surname}` : 'Student';
       setStatusMessage({
         type: 'success',
-        text: `Successfully recorded Week ${selectedWeek} mock scores for ${candidateName}! Grand Total: ${roundedGrandTotal} / 400`,
+        text: `Successfully recorded Week ${selectedWeek} mock scores for ${candidateName}! Grand Total: ${roundedGrandTotal} / 400. Automatically published to student's dashboard.`,
       });
 
       // Refresh broadsheet if active
@@ -449,7 +549,9 @@ export const SS3MockTeacherModule: React.FC = () => {
       s.studentId.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const selectedStudentObj = ss3Students.find((s) => s.id === Number(selectedStudentId));
+  const selectedStudentObj = ss3Students.find(
+    (s) => String(s.id) === String(selectedStudentId) || s.studentId === String(selectedStudentId)
+  );
 
   return (
     <div className="space-y-6">

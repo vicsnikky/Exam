@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext.tsx';
 import { Student } from '../types/index.ts';
 import { getLocalStudents, deleteStudent } from '../lib/schoolStore.ts';
 import { DeleteConfirmModal } from './DeleteConfirmModal.tsx';
+import { EditStudentModal } from './EditStudentModal.tsx';
 import {
   Search,
   Filter,
@@ -13,6 +14,7 @@ import {
   AlertCircle,
   Loader2,
   Trash2,
+  Pencil,
   CheckCircle,
 } from 'lucide-react';
 
@@ -42,6 +44,8 @@ export const StudentSearch: React.FC<StudentSearchProps> = ({
     isOpen: false,
     student: null,
   });
+
+  const [editingStudent, setEditingStudent] = useState<Student | null>(null);
 
   const [toastMsg, setToastMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -324,13 +328,22 @@ export const StudentSearch: React.FC<StudentSearchProps> = ({
                   </span>
 
                   {isSuperAdmin && (
-                    <button
-                      onClick={(e) => promptDeleteStudent(e, st)}
-                      className="p-1.5 rounded-lg text-rose-400 hover:text-white hover:bg-rose-600/30 border border-rose-500/20 hover:border-rose-500 transition cursor-pointer ml-1"
-                      title="Permanently Delete Student"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center gap-1 ml-1" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={() => setEditingStudent(st)}
+                        className="p-1.5 rounded-lg text-amber-400 hover:text-white hover:bg-amber-600/30 border border-amber-500/20 hover:border-amber-500 transition cursor-pointer"
+                        title="Edit Student Details"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={(e) => promptDeleteStudent(e, st)}
+                        className="p-1.5 rounded-lg text-rose-400 hover:text-white hover:bg-rose-600/30 border border-rose-500/20 hover:border-rose-500 transition cursor-pointer"
+                        title="Permanently Delete Student"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
@@ -349,6 +362,22 @@ export const StudentSearch: React.FC<StudentSearchProps> = ({
           identifier={deleteModal.student.studentId}
           onConfirm={handleConfirmDelete}
           onClose={() => setDeleteModal({ isOpen: false, student: null })}
+        />
+      )}
+
+      {/* Edit Student Modal */}
+      {editingStudent && (
+        <EditStudentModal
+          isOpen={!!editingStudent}
+          student={editingStudent}
+          onClose={() => setEditingStudent(null)}
+          onSaved={(updated) => {
+            setToastMsg({
+              type: 'success',
+              text: `Student ${updated.firstName} ${updated.surname} (${updated.studentId}) updated successfully.`,
+            });
+            fetchStudents();
+          }}
         />
       )}
     </div>
