@@ -321,6 +321,88 @@ export function saveLocalStudents(students: Student[]) {
   } catch (_) {}
 }
 
+export async function fetchAllStudentsUnified(token?: string | null): Promise<Student[]> {
+  const localList = getLocalStudents();
+  const mergedMap = new Map<string, Student>();
+
+  // 1. Add local baseline immediately
+  for (const s of localList) {
+    if (s.studentId) mergedMap.set(s.studentId.toUpperCase(), s);
+  }
+
+  // 2. Query Supabase directly
+  try {
+    const { data: supaStudents } = await supabase
+      .from('students')
+      .select('*')
+      .order('surname', { ascending: true });
+
+    if (supaStudents && supaStudents.length > 0) {
+      for (const st of supaStudents) {
+        const sId = (st.student_id || '').toUpperCase();
+        if (sId) {
+          const existing = mergedMap.get(sId);
+          mergedMap.set(sId, {
+            id: st.id,
+            studentId: sId,
+            firstName: st.first_name || existing?.firstName || 'Student',
+            middleName: st.middle_name || existing?.middleName || null,
+            surname: st.surname || existing?.surname || 'Scholar',
+            gender: st.gender || existing?.gender || 'Female',
+            dateOfBirth: st.date_of_birth || existing?.dateOfBirth || '2008-01-01',
+            currentClass: st.current_class || existing?.currentClass || 'SS 3',
+            email: st.email || existing?.email || null,
+            password: existing?.password || 'student123',
+            parentName: st.parent_name || existing?.parentName || null,
+            parentPhone: st.parent_phone || existing?.parentPhone || null,
+            school: st.school || existing?.school || 'Fenster International School',
+            session: st.session || existing?.session || '2026/2027',
+            createdAt: st.created_at || existing?.createdAt || new Date().toISOString(),
+          });
+        }
+      }
+    }
+  } catch (supaErr) {
+    console.warn('Supabase students fetch deferred:', supaErr);
+  }
+
+  // 3. Query Backend API
+  try {
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch('/api/students?limit=500', { headers });
+    if (res.ok) {
+      const text = await res.text();
+      if (text && (text.startsWith('{') || text.startsWith('['))) {
+        const data = JSON.parse(text);
+        const serverStudents: Student[] = data.students || [];
+        for (const st of serverStudents) {
+          const sId = (st.studentId || '').toUpperCase();
+          if (sId) {
+            const existing = mergedMap.get(sId);
+            mergedMap.set(sId, {
+              ...existing,
+              ...st,
+              studentId: sId,
+            });
+          }
+        }
+      }
+    }
+  } catch (backendErr) {
+    console.warn('Backend students fetch deferred:', backendErr);
+  }
+
+  const merged = Array.from(mergedMap.values());
+  // Save to local cache so all components have complete roster
+  try {
+    localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(merged));
+    window.dispatchEvent(new CustomEvent('fis:students-updated', { detail: merged }));
+  } catch (_) {}
+
+  return merged;
+}
+
 export function getLocalTeachers(): TeacherRecord[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.TEACHERS);
@@ -894,6 +976,7 @@ export async function updateTeacher(
         first_name: updatedTeacher.firstName,
         last_name: updatedTeacher.lastName,
         email: updatedTeacher.email,
+        role: updatedTeacher.role,
       };
       if (data.password && data.password.trim().length > 0) {
         const salt = bcrypt.genSaltSync(8);

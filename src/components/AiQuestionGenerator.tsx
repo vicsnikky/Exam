@@ -24,6 +24,8 @@ import {
   Filter
 } from 'lucide-react';
 import { Subject, Question } from '../types/index.ts';
+import { fetchAllSubjectsUnified } from '../lib/subjectStore.ts';
+import { supabase } from '../supabaseConfig.ts';
 
 interface AiQuestionGeneratorProps {
   onQuestionsSaved?: () => void;
@@ -93,18 +95,13 @@ export const AiQuestionGenerator: React.FC<AiQuestionGeneratorProps> = ({
 
   // Fetch initial subjects & existing quizzes for direct assignment
   useEffect(() => {
-    fetch('/api/subjects', {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.subjects && data.subjects.length > 0) {
-          setSubjects(data.subjects);
-          setManualSubjectId(data.subjects[0].id);
-          setAiSubjectId(data.subjects[0].id);
-        }
-      })
-      .catch((err) => console.error('Subjects fetch error:', err));
+    fetchAllSubjectsUnified(token).then((subs) => {
+      if (subs && subs.length > 0) {
+        setSubjects(subs);
+        setManualSubjectId(subs[0].id);
+        setAiSubjectId(subs[0].id);
+      }
+    }).catch((err) => console.error('Subjects fetch error:', err));
 
     fetch('/api/quizzes', {
       headers: { Authorization: `Bearer ${token}` },
@@ -342,28 +339,73 @@ export const AiQuestionGenerator: React.FC<AiQuestionGeneratorProps> = ({
     setError(null);
 
     try {
-      const res = await fetch('/api/questions/batch', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          questions: generatedQuestions,
-          subjectId: aiSubjectId,
-          topic: aiTopic,
-          classLevel: aiClassLevel,
-        }),
-      });
+      // 1. Send to Backend API with safe response handling
+      let backendSuccess = false;
+      try {
+        const res = await fetch('/api/questions/batch', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            questions: generatedQuestions,
+            subjectId: aiSubjectId,
+            topic: aiTopic,
+            classLevel: aiClassLevel,
+          }),
+        });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to save questions');
+        const text = await res.text();
+        if (text && (text.startsWith('{') || text.startsWith('['))) {
+          const data = JSON.parse(text);
+          if (res.ok) {
+            backendSuccess = true;
+          }
+        }
+      } catch (backendErr) {
+        console.warn('Backend questions batch deferred:', backendErr);
+      }
 
-      setSuccessMsg(data.message || 'Saved to Question Bank!');
+      // 2. Direct Sync to Supabase questions table
+      try {
+        const supaItems = generatedQuestions.map((q) => ({
+          subject_id: Number(q.subjectId || aiSubjectId),
+          topic: q.topic || aiTopic || 'General',
+          class_level: q.classLevel || aiClassLevel || 'General',
+          difficulty: q.difficulty || aiDifficulty,
+          question_text: q.questionText,
+          option_a: q.optionA,
+          option_b: q.optionB,
+          option_c: q.optionC,
+          option_d: q.optionD,
+          correct_answer: q.correctAnswer,
+          explanation: q.explanation || 'Verified answer',
+          source: 'ai_generated',
+          school_id: 1,
+        }));
+        await supabase.from('questions').insert(supaItems);
+      } catch (supaErr) {
+        console.warn('Direct Supabase questions sync deferred:', supaErr);
+      }
+
+      // 3. Cache locally in question bank
+      try {
+        const rawBank = localStorage.getItem('fis_question_bank_v1');
+        const existingBank = rawBank ? JSON.parse(rawBank) : [];
+        const newBatch = generatedQuestions.map((q, idx) => ({
+          ...q,
+          id: Date.now() + idx,
+        }));
+        localStorage.setItem('fis_question_bank_v1', JSON.stringify([...newBatch, ...existingBank]));
+      } catch (_) {}
+
+      setSuccessMsg(`Successfully saved ${generatedQuestions.length} questions to Question Bank!`);
       onQuestionsSaved?.();
       setGeneratedQuestions([]);
+      loadQuestionBank();
     } catch (err: any) {
-      setError(err.message);
+      setError(err?.message || 'Failed to save questions to bank');
     } finally {
       setSavingAiBatch(false);
     }

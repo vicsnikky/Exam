@@ -60,7 +60,7 @@ export default function App() {
   }
 
   const isStudent = user.role === 'student';
-  const isSuperAdmin = user.role === 'super_admin';
+  const isSuperAdmin = user.role === 'super_admin' || user.role === 'admin';
 
   const navigateToStudentProfile = (st: Student) => {
     setSelectedStudent(st);
@@ -122,11 +122,13 @@ export default function App() {
       case 'quizzes':
         return <QuizBuilder onQuizCreated={() => setActiveTab('results')} />;
       case 'add-score':
-        return (
+        return !isStudent ? (
           <AddScoreModal
             preselectedStudent={selectedStudent}
             onScoreSaved={() => setActiveTab('results')}
           />
+        ) : (
+          <SS3MockStudentDashboard />
         );
       case 'results':
         return <ResultsView />;

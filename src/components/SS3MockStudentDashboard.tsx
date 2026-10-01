@@ -84,10 +84,10 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
         return;
       }
 
-      // 2. Direct Query to Supabase assessments table
+      // 2. Direct Query to Supabase assessments & ss3_mock_scores tables
       try {
-        let numericStudentId: number | null = typeof targetId === 'number' ? targetId : null;
-        if (!numericStudentId && targetNumber) {
+        let numericStudentId: number | null = null;
+        if (targetNumber) {
           const { data: stRow } = await supabase
             .from('students')
             .select('id')
@@ -97,9 +97,13 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
             numericStudentId = stRow[0].id;
           }
         }
+        if (!numericStudentId && typeof targetId === 'number' && targetId < 1000000) {
+          numericStudentId = targetId;
+        }
 
         if (numericStudentId) {
-          const { data: supaAssessments } = await supabase
+          let supaAssessments: any[] = [];
+          const { data: aData } = await supabase
             .from('assessments')
             .select(`
               id,
@@ -125,7 +129,57 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
             .eq('assessment_type', 'SS3_MOCK')
             .order('created_at', { ascending: true });
 
-          if (supaAssessments && supaAssessments.length > 0) {
+          if (aData && aData.length > 0) {
+            supaAssessments = aData;
+          } else {
+            // Also check ss3_mock_scores table in Supabase
+            const { data: mockData } = await supabase
+              .from('ss3_mock_scores')
+              .select(`
+                id,
+                student_id,
+                subject_id,
+                week_number,
+                mock_series_title,
+                score,
+                max_score,
+                percentage,
+                grade,
+                remark,
+                session,
+                term,
+                exam_date,
+                created_at,
+                subjects:subject_id (
+                  id,
+                  name,
+                  code
+                )
+              `)
+              .eq('student_id', numericStudentId)
+              .order('created_at', { ascending: true });
+
+            if (mockData && mockData.length > 0) {
+              supaAssessments = mockData.map((m: any) => ({
+                id: m.id,
+                student_id: m.student_id,
+                subject_id: m.subject_id,
+                assessment_type: 'SS3_MOCK',
+                assessment_title: m.mock_series_title,
+                score: m.score,
+                max_score: m.max_score,
+                percentage: m.percentage,
+                grade: m.grade,
+                session: m.session,
+                term: `Week ${m.week_number}`,
+                teacher_comment: JSON.stringify({ remark: m.remark, rawScore: m.score, scaledScore: m.score }),
+                created_at: m.created_at,
+                subjects: m.subjects,
+              }));
+            }
+          }
+
+          if (supaAssessments.length > 0) {
             // Group by week
             const weekGroups: Record<number, any> = {};
             for (const a of supaAssessments as any[]) {
@@ -154,7 +208,7 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
               const isEng = subName.toLowerCase().includes('english');
               const maxRaw = isEng ? 60 : 40;
               const rawScore = parsedComment.rawScore !== undefined ? parsedComment.rawScore : parseFloat(a.score) || 0;
-              const scaledScore = parseFloat(a.score) || 0;
+              const scaledScore = Math.min(100, Math.ceil(parseFloat(a.score) || 0));
 
               weekGroups[w].subjects.push({
                 studentId: numericStudentId,
@@ -162,12 +216,12 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
                 subjectName: subName,
                 subjectCode: a.subjects?.code || 'SS3 CORE',
                 isEnglish: isEng,
-                rawScore,
+                rawScore: Math.round(rawScore),
                 maxRawScore: maxRaw,
                 score: scaledScore,
                 maxScore: 100,
                 percentage: scaledScore,
-                formula: parsedComment.formula || `(${rawScore} ÷ ${maxRaw}) × 100 = ${scaledScore}`,
+                formula: parsedComment.formula || `(${Math.round(rawScore)} ÷ ${maxRaw}) × 100 = ${scaledScore}`,
                 grade: a.grade || (scaledScore >= 75 ? 'A1' : scaledScore >= 70 ? 'B2' : scaledScore >= 65 ? 'B3' : scaledScore >= 50 ? 'C4' : 'F9'),
                 remark: parsedComment.remark || 'Good',
                 weekNumber: w,
@@ -180,7 +234,7 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
                 if (b.isEnglish) return 1;
                 return a.subjectName.localeCompare(b.subjectName);
               });
-              const totalScore400 = Math.round(wg.subjects.reduce((sum: number, s: any) => sum + (s.score || 0), 0) * 10) / 10;
+              const totalScore400 = Math.round(wg.subjects.reduce((sum: number, s: any) => sum + (s.score || 0), 0));
               const averagePercentage = Math.round((totalScore400 / 400) * 1000) / 10;
               return {
                 ...wg,

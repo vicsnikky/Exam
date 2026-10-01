@@ -142,6 +142,7 @@ export const SuperAdminDashboard: React.FC = () => {
           school: 'Fenster International School',
           session: '2026/2027',
           password: 'student123',
+          createdAt: new Date().toISOString(),
         });
       }
     } else {
@@ -159,6 +160,7 @@ export const SuperAdminDashboard: React.FC = () => {
           schoolName: 'Fenster International School',
           password: '',
           role: u.role || 'teacher',
+          createdAt: new Date().toISOString(),
         });
       }
     }

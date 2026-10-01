@@ -446,7 +446,7 @@ app.get('/api/students', authenticate, async (req: AuthRequest, res) => {
     const query = (req.query.q as string || '').trim();
     const classFilter = (req.query.class as string || '').trim();
     const page = parseInt((req.query.page as string) || '1', 10);
-    const limit = parseInt((req.query.limit as string) || '20', 10);
+    const limit = parseInt((req.query.limit as string) || '500', 10);
     const offset = (page - 1) * limit;
 
     const conditions = [];
@@ -741,26 +741,47 @@ app.post('/api/subjects', authenticate, async (req: AuthRequest, res) => {
       return res.status(400).json({ error: 'Subject name and code are required' });
     }
 
+    const cleanName = name.trim();
+    const cleanCode = code.trim().toUpperCase();
+
+    // Check if subject with code or name already exists
+    const existing = await db
+      .select()
+      .from(subjects)
+      .where(or(eq(subjects.code, cleanCode), ilike(subjects.name, cleanName)))
+      .limit(1);
+
+    if (existing.length > 0) {
+      return res.status(200).json({ subject: existing[0], message: 'Subject already exists' });
+    }
+
+    let validSchoolId = req.appUser?.schoolId || 1;
+    const sch = await db.select().from(schools).limit(1);
+    if (sch.length > 0) validSchoolId = sch[0].id;
+
     const [newSubject] = await db.insert(subjects).values({
-      name: name.trim(),
-      code: code.trim().toUpperCase(),
+      name: cleanName,
+      code: cleanCode,
       description: description ? description.trim() : null,
       status: 'active',
-      schoolId: req.appUser?.schoolId || 1,
+      schoolId: validSchoolId,
     }).returning();
 
-    await db.insert(auditLogs).values({
-      actorName: `${req.appUser?.firstName} ${req.appUser?.lastName}`,
-      actorRole: 'teacher',
-      action: 'SUBJECT_CREATED',
-      targetEntity: 'subjects',
-      details: `Subject created: ${newSubject.name} (${newSubject.code})`,
-      schoolId: req.appUser?.schoolId || 1,
-    });
+    try {
+      await db.insert(auditLogs).values({
+        actorName: `${req.appUser?.firstName || 'Faculty'} ${req.appUser?.lastName || 'Member'}`,
+        actorRole: req.appUser?.role || 'teacher',
+        action: 'SUBJECT_CREATED',
+        targetEntity: 'subjects',
+        details: `Subject created: ${newSubject.name} (${newSubject.code})`,
+        schoolId: validSchoolId,
+      });
+    } catch (_) {}
 
     return res.status(201).json({ subject: newSubject });
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    console.error('Subject creation error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to create subject' });
   }
 });
 
@@ -991,10 +1012,10 @@ function calculateMockSubjectValues(subjectName: string, rawScoreInput?: any, sc
 
   if (rawScoreInput !== undefined && rawScoreInput !== null && rawScoreInput !== '' && !isNaN(Number(rawScoreInput))) {
     rawScore = Math.min(Math.max(0, Number(rawScoreInput)), maxRawScore);
-    scaledScore = Math.round(((rawScore / maxRawScore) * 100) * 10) / 10;
+    scaledScore = Math.round((rawScore / maxRawScore) * 100);
   } else if (scaledScoreInput !== undefined && scaledScoreInput !== null && scaledScoreInput !== '' && !isNaN(Number(scaledScoreInput))) {
-    scaledScore = Math.min(Math.max(0, Number(scaledScoreInput)), 100);
-    rawScore = Math.round(((scaledScore / 100) * maxRawScore) * 10) / 10;
+    scaledScore = Math.round(Math.min(Math.max(0, Number(scaledScoreInput)), 100));
+    rawScore = Math.round((scaledScore / 100) * maxRawScore);
   }
 
   const formula = isEnglish
@@ -1393,24 +1414,40 @@ app.post('/api/ss3-mock/scores', authenticate, async (req: AuthRequest, res) => 
 
     // Fetch all active subjects to verify names and English rules
     const allSubjects = await db.select().from(subjects);
+    const defaultSubjectId = allSubjects[0]?.id || 1;
+
+    let validTeacherId: number | null = null;
+    if (req.appUser?.teacherProfile?.id) {
+      const tchFound = await db.select().from(teachers).where(eq(teachers.id, req.appUser.teacherProfile.id)).limit(1);
+      if (tchFound.length > 0) validTeacherId = tchFound[0].id;
+    }
+
+    let validSchoolId = req.appUser?.schoolId || 1;
+    const schFound = await db.select().from(schools).limit(1);
+    if (schFound.length > 0) validSchoolId = schFound[0].id;
 
     const savedResults: any[] = [];
 
     for (const item of scores) {
-      if (!item.subjectId) continue;
-      const sub = allSubjects.find((s) => s.id === Number(item.subjectId));
-      const subName = sub ? sub.name : 'Subject';
+      // Find subject by ID or by name
+      let sub = allSubjects.find((s) => s.id === Number(item.subjectId));
+      if (!sub && item.subjectName) {
+        sub = allSubjects.find((s) => s.name.toLowerCase() === item.subjectName.toLowerCase().trim());
+      }
+      const targetSubjectId = sub ? sub.id : defaultSubjectId;
+      const subName = sub ? sub.name : (item.subjectName || 'Subject');
 
-      // Apply the user-specified rule:
+      // Apply the user-specified rule with WHOLE NUMBER rounding:
       // English: whatever you scored divided by 60 multiplied by 100
-      // Mathematics and all other subjects: whatever you scored divided by 40 multiplied by 100
+      // Other subjects: whatever you scored divided by 40 multiplied by 100
       const calc = calculateMockSubjectValues(subName, item.rawScore, item.score);
+      const roundedScaledScore = Math.round(calc.scaledScore);
 
       const commentPayload = JSON.stringify({
-        rawScore: calc.rawScore,
+        rawScore: Math.round(calc.rawScore * 10) / 10,
         maxRawScore: calc.maxRawScore,
-        formula: calc.formula,
-        scaledScore: calc.scaledScore,
+        formula: `(${Math.round(calc.rawScore * 10) / 10} ÷ ${calc.maxRawScore}) × 100 = ${roundedScaledScore}`,
+        scaledScore: roundedScaledScore,
         remark: item.remark?.trim() || calc.remark,
       });
 
@@ -1421,7 +1458,7 @@ app.post('/api/ss3-mock/scores', authenticate, async (req: AuthRequest, res) => 
         .where(
           and(
             eq(assessments.studentId, currentStudent.id),
-            eq(assessments.subjectId, Number(item.subjectId)),
+            eq(assessments.subjectId, targetSubjectId),
             eq(assessments.assessmentType, 'SS3_MOCK'),
             eq(assessments.term, `Week ${weekNumber}`)
           )
@@ -1432,14 +1469,14 @@ app.post('/api/ss3-mock/scores', authenticate, async (req: AuthRequest, res) => 
         const [updated] = await db
           .update(assessments)
           .set({
-            score: calc.scaledScore.toString(),
+            score: roundedScaledScore.toString(),
             maxScore: '100',
-            percentage: calc.scaledScore.toString(),
+            percentage: roundedScaledScore.toString(),
             grade: calc.grade,
             teacherComment: commentPayload,
             session: targetSession,
             assessmentTitle: seriesTitle,
-            teacherId: req.appUser?.teacherProfile?.id || null,
+            teacherId: validTeacherId,
           })
           .where(eq(assessments.id, existing[0].id))
           .returning();
@@ -1449,18 +1486,18 @@ app.post('/api/ss3-mock/scores', authenticate, async (req: AuthRequest, res) => 
           .insert(assessments)
           .values({
             studentId: currentStudent.id,
-            subjectId: Number(item.subjectId),
+            subjectId: targetSubjectId,
             assessmentType: 'SS3_MOCK',
             assessmentTitle: seriesTitle,
-            score: calc.scaledScore.toString(),
+            score: roundedScaledScore.toString(),
             maxScore: '100',
-            percentage: calc.scaledScore.toString(),
+            percentage: roundedScaledScore.toString(),
             grade: calc.grade,
             session: targetSession,
             term: `Week ${weekNumber}`,
             teacherComment: commentPayload,
-            teacherId: req.appUser?.teacherProfile?.id || null,
-            schoolId: req.appUser?.schoolId || 1,
+            teacherId: validTeacherId,
+            schoolId: validSchoolId,
           })
           .returning();
         savedResults.push(inserted);
@@ -1784,30 +1821,51 @@ app.post('/api/questions/batch', authenticate, async (req: AuthRequest, res) => 
       return res.status(400).json({ error: 'No questions provided for saving' });
     }
 
+    const allSubs = await db.select().from(subjects);
+    const defaultSubId = allSubs[0]?.id || 1;
+
+    let validTeacherId: number | null = null;
+    if (req.appUser?.teacherProfile?.id) {
+      const tchFound = await db.select().from(teachers).where(eq(teachers.id, req.appUser.teacherProfile.id)).limit(1);
+      if (tchFound.length > 0) validTeacherId = tchFound[0].id;
+    }
+
+    let validSchoolId = req.appUser?.schoolId || 1;
+    const schFound = await db.select().from(schools).limit(1);
+    if (schFound.length > 0) validSchoolId = schFound[0].id;
+
     const insertedRows = [];
     for (const q of items) {
       if (!q.questionText || !q.optionA || !q.optionB || !q.optionC || !q.optionD || !q.correctAnswer) {
         continue;
       }
 
-      const [newQ] = await db.insert(questions).values({
-        subjectId: Number(q.subjectId || subjectId),
-        topic: q.topic || topic || 'General',
-        classLevel: q.classLevel || classLevel || 'General',
-        difficulty: q.difficulty || 'Medium',
-        questionText: q.questionText.trim(),
-        optionA: q.optionA.trim(),
-        optionB: q.optionB.trim(),
-        optionC: q.optionC.trim(),
-        optionD: q.optionD.trim(),
-        correctAnswer: q.correctAnswer.toUpperCase().trim(),
-        explanation: q.explanation ? q.explanation.trim() : 'Correct answer verified.',
-        source: q.source || 'ai_generated',
-        createdByTeacherId: req.appUser?.teacherProfile?.id || null,
-        schoolId: req.appUser?.schoolId || 1,
-      }).returning();
+      const rawSubId = Number(q.subjectId || subjectId);
+      const matchedSub = allSubs.find((s) => s.id === rawSubId);
+      const targetSubId = matchedSub ? matchedSub.id : defaultSubId;
 
-      insertedRows.push(newQ);
+      try {
+        const [newQ] = await db.insert(questions).values({
+          subjectId: targetSubId,
+          topic: q.topic || topic || 'General',
+          classLevel: q.classLevel || classLevel || 'General',
+          difficulty: q.difficulty || 'Medium',
+          questionText: q.questionText.trim(),
+          optionA: q.optionA.trim(),
+          optionB: q.optionB.trim(),
+          optionC: q.optionC.trim(),
+          optionD: q.optionD.trim(),
+          correctAnswer: q.correctAnswer.toUpperCase().trim(),
+          explanation: q.explanation ? q.explanation.trim() : 'Correct answer verified.',
+          source: q.source || 'ai_generated',
+          createdByTeacherId: validTeacherId,
+          schoolId: validSchoolId,
+        }).returning();
+
+        insertedRows.push(newQ);
+      } catch (insertErr) {
+        console.warn('Single question insert skipped:', insertErr);
+      }
     }
 
     return res.status(201).json({
@@ -2311,7 +2369,7 @@ app.put('/api/admin/teachers/:id', authenticate, async (req: AuthRequest, res) =
       return res.status(404).json({ error: 'Teacher not found' });
     }
 
-    const { firstName, lastName, email, phone, schoolName, password } = req.body;
+    const { firstName, lastName, email, phone, schoolName, password, role } = req.body;
 
     // Update teachers table
     const teacherUpdates: any = {};
@@ -2328,6 +2386,9 @@ app.put('/api/admin/teachers/:id', authenticate, async (req: AuthRequest, res) =
       if (firstName !== undefined) userUpdates.firstName = firstName.trim();
       if (lastName !== undefined) userUpdates.lastName = lastName.trim();
       if (email !== undefined) userUpdates.email = email.toLowerCase().trim();
+      if (role !== undefined) {
+        userUpdates.role = (role === 'admin' || role === 'super_admin') ? 'super_admin' : 'teacher';
+      }
 
       if (password && password.trim().length > 0) {
         const salt = await bcrypt.genSalt(10);

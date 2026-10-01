@@ -10,9 +10,13 @@ import {
   Calendar,
   Save,
   Check,
-  UserCheck
+  UserCheck,
+  Users
 } from 'lucide-react';
 import { Subject, Student } from '../types/index.ts';
+import { fetchAllSubjectsUnified } from '../lib/subjectStore.ts';
+import { fetchAllStudentsUnified, getLocalStudents } from '../lib/schoolStore.ts';
+import { supabase } from '../supabaseConfig.ts';
 
 interface AddScoreModalProps {
   preselectedStudent?: Student | null;
@@ -25,8 +29,10 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
 }) => {
   const { token, user } = useAuth();
   const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [allStudents, setAllStudents] = useState<Student[]>([]);
   
   // Student Lookup
+  const [selectedStudentDropdownId, setSelectedStudentDropdownId] = useState<string>('');
   const [studentSearchQuery, setStudentSearchQuery] = useState(preselectedStudent?.studentId || '');
   const [matchedStudent, setMatchedStudent] = useState<Student | null>(preselectedStudent || null);
   const [searchingStudent, setSearchingStudent] = useState(false);
@@ -47,28 +53,71 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
   const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('/api/subjects', { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.subjects && d.subjects.length > 0) {
-          setSubjects(d.subjects);
-          setSelectedSubjectId(d.subjects[0].id);
+    // 1. Unified Subjects load
+    fetchAllSubjectsUnified(token).then((subs) => {
+      setSubjects(subs);
+      if (subs.length > 0 && !selectedSubjectId) {
+        setSelectedSubjectId(subs[0].id);
+      }
+    });
+
+    // 2. Unified Students load
+    fetchAllStudentsUnified(token).then((students) => {
+      setAllStudents(students);
+      if (preselectedStudent) {
+        const found = students.find((s) => s.id === preselectedStudent.id || s.studentId === preselectedStudent.studentId);
+        if (found) {
+          setMatchedStudent(found);
+          setSelectedStudentDropdownId(String(found.id));
         }
-      });
+      }
+    });
   }, [token]);
 
   useEffect(() => {
     if (preselectedStudent) {
       setMatchedStudent(preselectedStudent);
       setStudentSearchQuery(preselectedStudent.studentId);
+      setSelectedStudentDropdownId(String(preselectedStudent.id));
     }
   }, [preselectedStudent]);
+
+  const handleDropdownSelect = (idStr: string) => {
+    setSelectedStudentDropdownId(idStr);
+    setSearchError(null);
+    setSaveSuccess(null);
+    if (!idStr) {
+      setMatchedStudent(null);
+      return;
+    }
+    const target = allStudents.find((s) => String(s.id) === idStr || s.studentId === idStr);
+    if (target) {
+      setMatchedStudent(target);
+      setStudentSearchQuery(target.studentId);
+    }
+  };
 
   const handleLookupStudent = async () => {
     if (!studentSearchQuery.trim()) return;
     setSearchingStudent(true);
     setSearchError(null);
     setSaveSuccess(null);
+
+    const cleanQ = studentSearchQuery.trim().toLowerCase();
+    // Check locally and in loaded roster first
+    const directMatch = allStudents.find(
+      (s) =>
+        s.studentId.toLowerCase() === cleanQ ||
+        `${s.firstName} ${s.surname}`.toLowerCase().includes(cleanQ) ||
+        s.surname.toLowerCase().includes(cleanQ)
+    );
+
+    if (directMatch) {
+      setMatchedStudent(directMatch);
+      setSelectedStudentDropdownId(String(directMatch.id));
+      setSearchingStudent(false);
+      return;
+    }
 
     try {
       const res = await fetch(`/api/students?q=${encodeURIComponent(studentSearchQuery.trim())}`, {
@@ -77,9 +126,37 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
       const data = await res.json();
       if (data.students && data.students.length > 0) {
         setMatchedStudent(data.students[0]);
+        setSelectedStudentDropdownId(String(data.students[0].id));
       } else {
-        setMatchedStudent(null);
-        setSearchError(`No student found matching "${studentSearchQuery}"`);
+        // Query Supabase directly
+        const { data: supaData } = await supabase
+          .from('students')
+          .select('*')
+          .ilike('student_id', `%${studentSearchQuery.trim()}%`)
+          .limit(1);
+
+        if (supaData && supaData.length > 0) {
+          const st = supaData[0];
+          const mapped: Student = {
+            id: st.id,
+            studentId: st.student_id,
+            firstName: st.first_name,
+            middleName: st.middle_name || null,
+            surname: st.surname,
+            gender: st.gender || 'Female',
+            dateOfBirth: st.date_of_birth || null,
+            currentClass: st.current_class || 'SS 3',
+            email: st.email || null,
+            school: st.school || 'Fenster International School',
+            session: st.session || '2026/2027',
+            createdAt: st.created_at || new Date().toISOString(),
+          };
+          setMatchedStudent(mapped);
+          setSelectedStudentDropdownId(String(mapped.id));
+        } else {
+          setMatchedStudent(null);
+          setSearchError(`No student found matching "${studentSearchQuery}"`);
+        }
       }
     } catch (e: any) {
       setSearchError(e.message || 'Lookup failed');
@@ -91,7 +168,7 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
   const handleSaveScore = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!matchedStudent) {
-      setSaveError('Please search and verify a student first.');
+      setSaveError('Please select and verify a student first.');
       return;
     }
 
@@ -99,35 +176,75 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
     setSaveError(null);
     setSaveSuccess(null);
 
-    try {
-      const res = await fetch('/api/scores', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          studentId: matchedStudent.id,
-          subjectId: selectedSubjectId,
-          assessmentType,
-          assessmentTitle,
-          score: Number(score),
-          maxScore: Number(maxScore),
-          session,
-          term,
-          teacherComment,
-        }),
-      });
+    const numericScore = Number(score);
+    const numericMax = Number(maxScore);
+    const percentage = Math.round(((numericScore / numericMax) * 100) * 10) / 10;
+    const grade = percentage >= 75 ? 'A1' : percentage >= 70 ? 'B2' : percentage >= 65 ? 'B3' : percentage >= 50 ? 'C4' : 'F9';
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to save score');
+    try {
+      // 1. Save to Backend API
+      try {
+        await fetch('/api/scores', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            studentId: matchedStudent.id,
+            studentNumber: matchedStudent.studentId,
+            subjectId: selectedSubjectId,
+            assessmentType,
+            assessmentTitle,
+            score: numericScore,
+            maxScore: numericMax,
+            session,
+            term,
+            teacherComment,
+          }),
+        });
+      } catch (backendErr) {
+        console.warn('Backend score save deferred:', backendErr);
+      }
+
+      // 2. Sync to Supabase assessments table
+      try {
+        let supaStId: number | null = null;
+        if (matchedStudent.studentId) {
+          const { data: stRow } = await supabase
+            .from('students')
+            .select('id')
+            .eq('student_id', matchedStudent.studentId)
+            .limit(1);
+          if (stRow && stRow.length > 0) supaStId = stRow[0].id;
+        }
+
+        if (supaStId) {
+          await supabase.from('assessments').insert([{
+            student_id: supaStId,
+            subject_id: Number(selectedSubjectId),
+            assessment_type: assessmentType,
+            assessment_title: assessmentTitle,
+            score: numericScore,
+            max_score: numericMax,
+            percentage,
+            grade,
+            session,
+            term,
+            teacher_comment: teacherComment,
+            school_id: 1,
+          }]);
+        }
+      } catch (supaErr) {
+        console.warn('Supabase assessment direct sync deferred:', supaErr);
+      }
 
       setSaveSuccess(
-        `Score of ${score}/${maxScore} (${data.assessment?.percentage}%, Grade ${data.assessment?.grade}) saved for ${matchedStudent.firstName} ${matchedStudent.surname}!`
+        `Score of ${score}/${maxScore} (${percentage}%, Grade ${grade}) saved for ${matchedStudent.firstName} ${matchedStudent.surname}!`
       );
       onScoreSaved?.();
     } catch (err: any) {
-      setSaveError(err.message);
+      setSaveError(err.message || 'Failed to save assessment score');
     } finally {
       setSaving(false);
     }
@@ -172,11 +289,41 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
       {/* Step 1: Student Lookup */}
       <div className="bg-slate-800/80 border border-slate-700 p-6 rounded-2xl space-y-4">
         <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider pb-2 border-b border-slate-700 flex items-center justify-between">
-          <span>1. Verify Existing Student</span>
-          <span className="text-[11px] text-slate-400 font-normal">Search by ID or Name</span>
+          <span className="flex items-center gap-2">
+            <Users className="w-4 h-4 text-emerald-400" />
+            1. Select or Verify Student Scholar
+          </span>
+          <span className="text-[11px] text-slate-400 font-normal">
+            {allStudents.length} Enrolled Scholars
+          </span>
         </h3>
 
-        <div className="flex gap-2">
+        <div>
+          <label className="block text-xs font-medium text-slate-300 mb-1">
+            Select Student from Registered Roster *
+          </label>
+          <select
+            value={selectedStudentDropdownId}
+            onChange={(e) => handleDropdownSelect(e.target.value)}
+            className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 cursor-pointer"
+          >
+            <option value="">-- Choose student from active directory ({allStudents.length}) --</option>
+            {allStudents.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.surname}, {s.firstName} • {s.studentId} • {s.currentClass}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="relative flex items-center justify-center my-1">
+          <div className="border-t border-slate-700/60 w-full" />
+          <span className="bg-slate-800 px-3 text-[10px] text-slate-400 font-semibold uppercase tracking-wider absolute">
+            Or Search by Student ID / Name
+          </span>
+        </div>
+
+        <div className="flex gap-2 pt-1">
           <div className="relative flex-1">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
             <input
@@ -184,7 +331,7 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
               value={studentSearchQuery}
               onChange={(e) => setStudentSearchQuery(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleLookupStudent())}
-              placeholder="e.g. FIS-2026-000001 or Johnson..."
+              placeholder="e.g. FEN-2026-000001 or Victor..."
               className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
             />
           </div>

@@ -14,6 +14,8 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { Subject, Question, Student } from '../types/index.ts';
+import { fetchAllSubjectsUnified } from '../lib/subjectStore.ts';
+import { fetchAllStudentsUnified } from '../lib/schoolStore.ts';
 
 interface QuizBuilderProps {
   onQuizCreated?: () => void;

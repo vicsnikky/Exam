@@ -22,7 +22,8 @@ import {
   Info
 } from 'lucide-react';
 import { Student, Subject } from '../types/index.ts';
-import { getLocalStudents } from '../lib/schoolStore.ts';
+import { getLocalStudents, fetchAllStudentsUnified } from '../lib/schoolStore.ts';
+import { fetchAllSubjectsUnified } from '../lib/subjectStore.ts';
 import { supabase } from '../supabaseConfig.ts';
 
 export const SS3MockTeacherModule: React.FC = () => {
@@ -75,70 +76,23 @@ export const SS3MockTeacherModule: React.FC = () => {
   const fetchInitialData = async () => {
     setLoading(true);
     try {
-      let studentsList: Student[] = [];
-      let subs: Subject[] = [];
-
-      // 1. Fetch SS3 students safely
-      try {
-        const studRes = await fetch('/api/ss3-mock/students', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (studRes.ok) {
-          const text = await studRes.text();
-          if (text && (text.startsWith('{') || text.startsWith('['))) {
-            const studData = JSON.parse(text);
-            studentsList = studData.students || [];
-          }
-        }
-      } catch (e) {
-        console.warn('Backend student list unavailable:', e);
+      // 1. Unified multi-source students fetch (LocalStorage, Supabase & PostgreSQL)
+      const allStudents = await fetchAllStudentsUnified(token);
+      let ss3List = allStudents.filter(
+        (s) =>
+          (s.currentClass || '').toUpperCase().includes('SS 3') ||
+          (s.currentClass || '').toUpperCase().includes('SS3')
+      );
+      if (ss3List.length === 0) {
+        ss3List = allStudents;
+      }
+      setSs3Students(ss3List);
+      if (selectedStudentId === '' && ss3List.length > 0) {
+        setSelectedStudentId(ss3List[0].id);
       }
 
-      // Local persistent SS3 candidate roster
-      const localList = getLocalStudents();
-      if (studentsList.length === 0) {
-        studentsList = localList;
-      } else {
-        const ids = new Set(studentsList.map((s) => s.studentId));
-        for (const ls of localList) {
-          if (!ids.has(ls.studentId)) {
-            studentsList.push(ls);
-            ids.add(ls.studentId);
-          }
-        }
-      }
-      setSs3Students(studentsList);
-      if (selectedStudentId === '' && studentsList.length > 0) {
-        setSelectedStudentId(studentsList[0].id);
-      }
-
-      // 2. Fetch subjects safely
-      try {
-        const subRes = await fetch('/api/subjects', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (subRes.ok) {
-          const text = await subRes.text();
-          if (text && (text.startsWith('{') || text.startsWith('['))) {
-            const subData = JSON.parse(text);
-            subs = subData.subjects || [];
-          }
-        }
-      } catch (e) {
-        console.warn('Backend subjects unavailable:', e);
-      }
-
-      if (subs.length === 0) {
-        subs = [
-          { id: 1, name: 'Mathematics', code: 'MTH', description: 'Core mathematics', status: 'active' },
-          { id: 2, name: 'English Language', code: 'ENG', description: 'Core English', status: 'active' },
-          { id: 3, name: 'Physics', code: 'PHY', description: 'Science physics', status: 'active' },
-          { id: 4, name: 'Chemistry', code: 'CHM', description: 'Science chemistry', status: 'active' },
-          { id: 5, name: 'Biology', code: 'BIO', description: 'Science biology', status: 'active' },
-          { id: 6, name: 'Economics', code: 'ECN', description: 'Commercial economics', status: 'active' },
-          { id: 7, name: 'Civic Education', code: 'CIV', description: 'General civic education', status: 'active' },
-        ];
-      }
+      // 2. Unified subjects fetch (Baseline, Custom, Supabase & Backend)
+      const subs = await fetchAllSubjectsUnified(token);
       setAvailableSubjects(subs);
       setupDepartmentPreset('science', subs);
     } catch (err: any) {
@@ -225,7 +179,8 @@ export const SS3MockTeacherModule: React.FC = () => {
     const num = parseFloat(val);
     if (!isNaN(num) && num >= 0) {
       const clamped = Math.min(Math.max(0, num), item.maxRawScore);
-      item.scaledScore = Math.round(((clamped / item.maxRawScore) * 100) * 10) / 10;
+      // Whole numbers rounded up for JAMB mock as requested
+      item.scaledScore = Math.min(100, Math.ceil((clamped / item.maxRawScore) * 100));
     } else {
       item.scaledScore = 0;
     }
@@ -251,7 +206,7 @@ export const SS3MockTeacherModule: React.FC = () => {
     const num = parseFloat(updated[index].rawScore);
     if (!isNaN(num)) {
       const clamped = Math.min(Math.max(0, num), updated[index].maxRawScore);
-      updated[index].scaledScore = Math.round(((clamped / updated[index].maxRawScore) * 100) * 10) / 10;
+      updated[index].scaledScore = Math.min(100, Math.ceil((clamped / updated[index].maxRawScore) * 100));
     }
 
     setSubjectEntries(updated);
@@ -263,9 +218,9 @@ export const SS3MockTeacherModule: React.FC = () => {
     setSubjectEntries(updated);
   };
 
-  // Compute live grand total over 400
-  const grandTotal400 = subjectEntries.reduce((sum, item) => sum + (item.scaledScore || 0), 0);
-  const roundedGrandTotal = Math.round(grandTotal400 * 10) / 10;
+  // Compute live grand total over 400 (whole numbers)
+  const grandTotal400 = Math.round(subjectEntries.reduce((sum, item) => sum + (item.scaledScore || 0), 0));
+  const roundedGrandTotal = grandTotal400;
   const averagePercentage = Math.round((roundedGrandTotal / 400) * 1000) / 10;
 
   // Save Mock Scores to Backend
@@ -300,7 +255,9 @@ export const SS3MockTeacherModule: React.FC = () => {
         mockSeriesTitle: `SS3 Weekly Mock Series - Week ${selectedWeek}`,
         scores: subjectEntries.map((item) => ({
           subjectId: item.subjectId,
+          subjectName: item.subjectName,
           rawScore: item.rawScore !== '' ? parseFloat(item.rawScore) : 0,
+          score: item.scaledScore,
           remark: item.remark,
         })),
       };
@@ -319,10 +276,10 @@ export const SS3MockTeacherModule: React.FC = () => {
         console.warn('Backend save deferred:', netErr);
       }
 
-      // 2. Direct Sync to Supabase assessments table
+      // 2. Direct Sync to Supabase assessments & ss3_mock_scores tables
       try {
-        let supaStudentId: number | null = typeof candidateStudentId === 'number' ? candidateStudentId : null;
-        if (!supaStudentId && candidateStudentNumber) {
+        let supaStudentId: number | null = null;
+        if (candidateStudentNumber) {
           const { data: stRow } = await supabase
             .from('students')
             .select('id')
@@ -332,22 +289,48 @@ export const SS3MockTeacherModule: React.FC = () => {
             supaStudentId = stRow[0].id;
           }
         }
+        if (!supaStudentId && typeof candidateStudentId === 'number' && candidateStudentId < 1000000) {
+          const { data: stRow } = await supabase
+            .from('students')
+            .select('id')
+            .eq('id', candidateStudentId)
+            .limit(1);
+          if (stRow && stRow.length > 0) {
+            supaStudentId = stRow[0].id;
+          }
+        }
+
+        // If student not yet created in Supabase, provision them now
+        if (!supaStudentId && candidateStudentNumber) {
+          const { data: newSt } = await supabase.from('students').insert([{
+            student_id: candidateStudentNumber,
+            first_name: selectedStudentObj?.firstName || 'Student',
+            surname: selectedStudentObj?.surname || 'Scholar',
+            gender: selectedStudentObj?.gender || 'Female',
+            current_class: selectedStudentObj?.currentClass || 'SS 3',
+            school: selectedStudentObj?.school || 'Fenster International School',
+            session: session || '2026/2027',
+            school_id: 1,
+          }]).select('id').single();
+          if (newSt) supaStudentId = newSt.id;
+        }
 
         if (supaStudentId) {
           for (const item of subjectEntries) {
             const rawNum = item.rawScore !== '' ? parseFloat(item.rawScore) : 0;
             const maxRaw = item.isEnglish ? 60 : 40;
-            const scaled = Math.round(((rawNum / maxRaw) * 100) * 10) / 10;
+            // Rounding up to whole integer as requested
+            const scaled = Math.min(100, Math.ceil((rawNum / maxRaw) * 100));
             const grade = scaled >= 75 ? 'A1' : scaled >= 70 ? 'B2' : scaled >= 65 ? 'B3' : scaled >= 50 ? 'C4' : 'F9';
             const comment = JSON.stringify({
-              rawScore: rawNum,
+              rawScore: Math.round(rawNum),
               maxRawScore: maxRaw,
-              formula: `(${rawNum} ÷ ${maxRaw}) × 100 = ${scaled}`,
+              formula: `(${Math.round(rawNum)} ÷ ${maxRaw}) × 100 = ${scaled}`,
               scaledScore: scaled,
-              remark: item.remark || 'Good',
+              remark: item.remark || (scaled >= 75 ? 'Distinction' : scaled >= 50 ? 'Credit' : 'Needs Support'),
             });
 
-            // Clean up previous entry for same student, week, and subject
+            // Write to assessments table
             try {
               await supabase
                 .from('assessments')
@@ -356,22 +339,52 @@ export const SS3MockTeacherModule: React.FC = () => {
                 .eq('assessment_type', 'SS3_MOCK')
                 .eq('term', `Week ${selectedWeek}`)
                 .eq('subject_id', item.subjectId);
-            } catch (_) {}
 
-            await supabase.from('assessments').insert([{
-              student_id: supaStudentId,
-              subject_id: item.subjectId,
-              assessment_type: 'SS3_MOCK',
-              assessment_title: `SS3 Weekly Mock Series - Week ${selectedWeek}`,
-              score: scaled,
-              max_score: 100,
-              percentage: scaled,
-              grade,
-              session,
-              term: `Week ${selectedWeek}`,
-              teacher_comment: comment,
-              school_id: 1,
-            }]);
+              await supabase.from('assessments').insert([{
+                student_id: supaStudentId,
+                subject_id: item.subjectId,
+                assessment_type: 'SS3_MOCK',
+                assessment_title: `SS3 Weekly Mock Series - Week ${selectedWeek}`,
+                score: scaled,
+                max_score: 100,
+                percentage: scaled,
+                grade,
+                session,
+                term: `Week ${selectedWeek}`,
+                teacher_comment: comment,
+                school_id: 1,
+              }]);
+            } catch (aErr) {
+              console.warn('Supabase assessments table insert:', aErr);
+            }
+
+            // ALSO Write to ss3_mock_scores table in Supabase!
+            try {
+              await supabase
+                .from('ss3_mock_scores')
+                .delete()
+                .eq('student_id', supaStudentId)
+                .eq('week_number', selectedWeek)
+                .eq('subject_id', item.subjectId);
+
+              await supabase.from('ss3_mock_scores').insert([{
+                student_id: supaStudentId,
+                subject_id: item.subjectId,
+                week_number: selectedWeek,
+                mock_series_title: `SS3 Weekly Mock Series - Week ${selectedWeek}`,
+                score: scaled,
+                max_score: 100,
+                percentage: scaled,
+                grade,
+                remark: item.remark || (scaled >= 75 ? 'Distinction' : scaled >= 50 ? 'Credit' : 'Needs Support'),
+                term: 'Second Term',
+                session,
+                exam_date: examDate,
+                school_id: 1,
+              }]);
+            } catch (mErr) {
+              console.warn('Supabase ss3_mock_scores table insert:', mErr);
+            }
           }
         }
       } catch (supaErr) {

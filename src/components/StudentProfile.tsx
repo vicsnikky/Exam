@@ -184,15 +184,17 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
             Back to Directory
           </button>
         )}
-        <div className="flex items-center gap-2 ml-auto">
-          <button
-            onClick={() => onAddScoreForStudent?.(student)}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-medium flex items-center gap-2 transition shadow-lg shadow-indigo-600/30 cursor-pointer"
-          >
-            <PlusCircle className="w-4 h-4" />
-            Add Score for {student.firstName}
-          </button>
-        </div>
+        {!isStudent && onAddScoreForStudent && (
+          <div className="flex items-center gap-2 ml-auto">
+            <button
+              onClick={() => onAddScoreForStudent?.(student)}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-medium flex items-center gap-2 transition shadow-lg shadow-indigo-600/30 cursor-pointer"
+            >
+              <PlusCircle className="w-4 h-4" />
+              Add Score for {student.firstName}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Main Student Header Card */}
@@ -348,7 +350,11 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           <div className="p-12 text-center text-slate-400">
             <FileText className="w-10 h-10 mx-auto mb-2 text-slate-600" />
             <p className="text-sm font-medium text-slate-300">No assessment scores recorded yet</p>
-            <p className="text-xs mt-1">Use the "Add Score" button above to record the student's first assessment.</p>
+            <p className="text-xs mt-1">
+              {isStudent
+                ? 'Your continuous assessment grades and mock results will appear here once recorded by your teachers.'
+                : 'Use the "Add Score" button above to record the student\'s first assessment.'}
+            </p>
           </div>
         ) : (
           <div className="overflow-x-auto">

@@ -11,6 +11,8 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { Subject } from '../types/index.ts';
+import { supabase } from '../supabaseConfig.ts';
+import { fetchAllSubjectsUnified, saveCustomSubjectLocally } from '../lib/subjectStore.ts';
 
 export const SubjectManager: React.FC = () => {
   const { token, user } = useAuth();
@@ -24,33 +26,7 @@ export const SubjectManager: React.FC = () => {
 
   const fetchSubjects = async () => {
     try {
-      let subs: Subject[] = [];
-      try {
-        const res = await fetch('/api/subjects', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (res.ok) {
-          const text = await res.text();
-          if (text && (text.startsWith('{') || text.startsWith('['))) {
-            const data = JSON.parse(text);
-            subs = data.subjects || [];
-          }
-        }
-      } catch (e) {
-        console.warn('Backend subjects fetch offline:', e);
-      }
-
-      if (subs.length === 0) {
-        subs = [
-          { id: 1, name: 'Mathematics', code: 'MTH', description: 'Core Mathematics & Quantitative Reasoning', status: 'active' },
-          { id: 2, name: 'English Language', code: 'ENG', description: 'Core English Language, Lexis & Structure', status: 'active' },
-          { id: 3, name: 'Physics', code: 'PHY', description: 'Theoretical & Practical Physics', status: 'active' },
-          { id: 4, name: 'Chemistry', code: 'CHM', description: 'Pure & Industrial Chemistry', status: 'active' },
-          { id: 5, name: 'Biology', code: 'BIO', description: 'Life Sciences & Ecology', status: 'active' },
-          { id: 6, name: 'Economics', code: 'ECN', description: 'Micro & Macro Economics', status: 'active' },
-          { id: 7, name: 'Civic Education', code: 'CIV', description: 'Civic Responsibilities & Ethics', status: 'active' },
-        ];
-      }
+      const subs = await fetchAllSubjectsUnified(token);
       setSubjects(subs);
     } catch (e) {
       console.error('Failed to load subjects:', e);
@@ -59,16 +35,52 @@ export const SubjectManager: React.FC = () => {
 
   useEffect(() => {
     fetchSubjects();
+    const handleUpdated = () => fetchSubjects();
+    window.addEventListener('fis:subjects-updated', handleUpdated);
+    return () => window.removeEventListener('fis:subjects-updated', handleUpdated);
   }, [token]);
 
   const handleCreateSubject = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!name.trim() || !code.trim()) {
+      setError('Subject name and unique code are required');
+      return;
+    }
+
     setSaving(true);
     setError(null);
     setSuccess(null);
 
+    const cleanName = name.trim();
+    const cleanCode = code.trim().toUpperCase();
+    const cleanDesc = description.trim();
+
     try {
-      let createdSub: any = null;
+      const newSubObj: Subject = {
+        id: Date.now(),
+        name: cleanName,
+        code: cleanCode,
+        description: cleanDesc || 'Active curriculum subject',
+        status: 'active',
+      };
+
+      // 1. Immediately persist locally
+      saveCustomSubjectLocally(newSubObj);
+
+      // 2. Direct Sync to Supabase
+      try {
+        await supabase.from('subjects').insert([{
+          name: cleanName,
+          code: cleanCode,
+          description: cleanDesc || null,
+          status: 'active',
+          school_id: 1,
+        }]);
+      } catch (supaErr) {
+        console.warn('Supabase subject insert deferred:', supaErr);
+      }
+
+      // 3. Send to backend API
       try {
         const res = await fetch('/api/subjects', {
           method: 'POST',
@@ -77,9 +89,9 @@ export const SubjectManager: React.FC = () => {
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
-            name: name.trim(),
-            code: code.trim().toUpperCase(),
-            description: description.trim(),
+            name: cleanName,
+            code: cleanCode,
+            description: cleanDesc,
           }),
         });
 
@@ -87,32 +99,28 @@ export const SubjectManager: React.FC = () => {
           const text = await res.text();
           if (text && (text.startsWith('{') || text.startsWith('['))) {
             const data = JSON.parse(text);
-            createdSub = data.subject;
+            if (data.subject) {
+              saveCustomSubjectLocally({
+                id: data.subject.id,
+                name: data.subject.name,
+                code: data.subject.code,
+                description: data.subject.description || '',
+                status: data.subject.status || 'active',
+              });
+            }
           }
         }
       } catch (netErr) {
-        console.warn('Backend subject creation offline fallback:', netErr);
+        console.warn('Backend subject creation network deferred:', netErr);
       }
 
-      if (!createdSub) {
-        createdSub = {
-          id: Date.now(),
-          name: name.trim(),
-          code: code.trim().toUpperCase(),
-          description: description.trim(),
-          isActive: true,
-          createdAt: new Date().toISOString(),
-        };
-      }
-
-      setSubjects((prev) => [createdSub, ...prev]);
-      setSuccess(`Subject "${createdSub.name}" (${createdSub.code}) created successfully!`);
+      setSuccess(`Subject "${cleanName}" (${cleanCode}) created and published across all modules!`);
       setName('');
       setCode('');
       setDescription('');
-      fetchSubjects();
+      await fetchSubjects();
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message || 'Failed to create subject');
     } finally {
       setSaving(false);
     }

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.tsx';
 import { Student } from '../types/index.ts';
-import { getLocalStudents, deleteStudent } from '../lib/schoolStore.ts';
+import { getLocalStudents, deleteStudent, fetchAllStudentsUnified } from '../lib/schoolStore.ts';
 import { DeleteConfirmModal } from './DeleteConfirmModal.tsx';
 import { EditStudentModal } from './EditStudentModal.tsx';
 import {
@@ -28,7 +28,7 @@ export const StudentSearch: React.FC<StudentSearchProps> = ({
   initialQuery = '',
 }) => {
   const { token, user } = useAuth();
-  const isSuperAdmin = user?.role === 'super_admin';
+  const isSuperAdmin = user?.role === 'super_admin' || user?.role === 'admin';
 
   const [query, setQuery] = useState(initialQuery);
   const [selectedClass, setSelectedClass] = useState('all');
@@ -52,9 +52,9 @@ export const StudentSearch: React.FC<StudentSearchProps> = ({
   const fetchStudents = async (q = query, cls = selectedClass) => {
     setLoading(true);
     try {
-      // 1. Load local baseline immediately
-      const local = getLocalStudents();
-      let filtered = [...local];
+      // 1. Unified multi-source sync (LocalStorage + Supabase + PostgreSQL Backend)
+      const allStudents = await fetchAllStudentsUnified(token);
+      let filtered = [...allStudents];
 
       const cleanQ = q.trim().toLowerCase();
       if (cleanQ) {
@@ -72,42 +72,13 @@ export const StudentSearch: React.FC<StudentSearchProps> = ({
         filtered = filtered.filter((s) => s.currentClass === cls);
       }
 
-      // 2. Async backend fetch if token available
-      if (token) {
-        try {
-          const params = new URLSearchParams();
-          if (cleanQ) params.set('q', cleanQ);
-          if (cls && cls !== 'all') params.set('class', cls);
-
-          const res = await fetch(`/api/students?${params.toString()}`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-
-          if (res.ok) {
-            const text = await res.text();
-            if (text && (text.startsWith('{') || text.startsWith('['))) {
-              const data = JSON.parse(text);
-              const serverStudents: Student[] = data.students || [];
-
-              // Merge unique by studentId
-              const existingIds = new Set(filtered.map((s) => s.studentId));
-              for (const s of serverStudents) {
-                if (!existingIds.has(s.studentId)) {
-                  filtered.push(s);
-                  existingIds.add(s.studentId);
-                }
-              }
-            }
-          }
-        } catch (netErr) {
-          console.warn('Backend student query fallback to local roster:', netErr);
-        }
-      }
-
       setStudents(filtered);
       setTotalCount(filtered.length);
     } catch (e) {
       console.error('Failed to search students:', e);
+      const fallback = getLocalStudents();
+      setStudents(fallback);
+      setTotalCount(fallback.length);
     } finally {
       setLoading(false);
     }
