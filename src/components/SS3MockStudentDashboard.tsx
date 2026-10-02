@@ -20,6 +20,8 @@ import {
 } from 'lucide-react';
 import { SS3MockWeeklySummary, SS3MockProgressPoint } from '../types/index.ts';
 import { supabase } from '../supabaseConfig.ts';
+import { isStudentFeeLocked, getStudentFeeLockDetails } from '../lib/bursarStore.ts';
+import { FeeWithheldNotice } from './FeeWithheldNotice.tsx';
 import {
   ResponsiveContainer,
   AreaChart,
@@ -41,8 +43,10 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
   readOnly = false,
 }) => {
   const { user, token } = useAuth();
+  const isStudent = user?.role === 'student';
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [candidateStudentNumber, setCandidateStudentNumber] = useState<string>('');
   const [weeklySummaries, setWeeklySummaries] = useState<SS3MockWeeklySummary[]>([]);
   const [progressData, setProgressData] = useState<SS3MockProgressPoint[]>([]);
   const [selectedWeek, setSelectedWeek] = useState<number>(1);
@@ -78,9 +82,30 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
       }
 
       if (data && data.weeklySummaries && data.weeklySummaries.length > 0) {
-        setWeeklySummaries(data.weeklySummaries);
+        // Enforce: only subjects sat for, max 4 subjects, and target benchmark remark without student grade
+        const sanitizedSummaries = data.weeklySummaries.map((wg: any) => {
+          const satSubjects = (wg.subjects || []).filter((s: any) => {
+            const raw = s.rawScore !== undefined && s.rawScore !== null ? Number(s.rawScore) : 0;
+            const sc = s.score !== undefined && s.score !== null ? Number(s.score) : 0;
+            return raw > 0 || sc > 0;
+          });
+          satSubjects.sort((a: any, b: any) => {
+            if (a.isEnglish) return -1;
+            if (b.isEnglish) return 1;
+            return a.subjectName.localeCompare(b.subjectName);
+          });
+          const accepted = satSubjects.slice(0, 4);
+          const total400 = accepted.reduce((sum: number, s: any) => sum + (Number(s.score) || 0), 0);
+          return {
+            ...wg,
+            subjects: accepted,
+            totalScore400: total400,
+            targetBenchmarkRemark: 'Aiming for 300+ Elite Score (Benchmark: 280+)',
+          };
+        });
+        setWeeklySummaries(sanitizedSummaries);
         setProgressData(data.progressChartData || []);
-        setSelectedWeek(data.weeklySummaries[data.weeklySummaries.length - 1].weekNumber);
+        setSelectedWeek(sanitizedSummaries[sanitizedSummaries.length - 1].weekNumber);
         return;
       }
 
@@ -229,22 +254,33 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
             }
 
             const summaries: SS3MockWeeklySummary[] = Object.values(weekGroups).map((wg: any) => {
-              wg.subjects.sort((a: any, b: any) => {
+              // Only include subjects the student actually sat for (raw score > 0 or score > 0)
+              const satSubjects = (wg.subjects || []).filter((s: any) => {
+                const r = s.rawScore !== undefined && s.rawScore !== null ? Number(s.rawScore) : 0;
+                const sc = s.score !== undefined && s.score !== null ? Number(s.score) : 0;
+                return r > 0 || sc > 0;
+              });
+
+              satSubjects.sort((a: any, b: any) => {
                 if (a.isEnglish) return -1;
                 if (b.isEnglish) return 1;
                 return a.subjectName.localeCompare(b.subjectName);
               });
-              const totalScore400 = Math.round(wg.subjects.reduce((sum: number, s: any) => sum + (s.score || 0), 0));
+
+              // Total number of result accepted on JAMB mock is 4
+              const acceptedSubjects = satSubjects.slice(0, 4);
+              const totalScore400 = Math.round(acceptedSubjects.reduce((sum: number, s: any) => sum + (s.score || 0), 0));
               const averagePercentage = Math.round((totalScore400 / 400) * 1000) / 10;
               return {
                 ...wg,
+                subjects: acceptedSubjects,
                 totalScore400,
                 maxPossibleScore: 400,
                 averagePercentage,
                 overallGrade: averagePercentage >= 75 ? 'A1' : averagePercentage >= 70 ? 'B2' : averagePercentage >= 65 ? 'B3' : averagePercentage >= 50 ? 'C4' : 'F9',
                 overallRemark: totalScore400 >= 300 ? 'Outstanding Distinction' : totalScore400 >= 250 ? 'Strong Performance' : 'Good Progress',
-                creditsCount: wg.subjects.filter((s: any) => s.score >= 50).length,
-                distinctionsCount: wg.subjects.filter((s: any) => s.score >= 75).length,
+                creditsCount: acceptedSubjects.filter((s: any) => s.score >= 50).length,
+                distinctionsCount: acceptedSubjects.filter((s: any) => s.score >= 75).length,
               };
             });
 
@@ -282,20 +318,8 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
 
           if (studentScores.length > 0) {
             studentScores.sort((a: any, b: any) => a.weekNumber - b.weekNumber);
-            const summaries: SS3MockWeeklySummary[] = studentScores.map((s: any) => ({
-              weekNumber: s.weekNumber,
-              mockSeriesTitle: s.mockSeriesTitle || `SS3 Weekly Mock Series - Week ${s.weekNumber}`,
-              session: s.session || '2026/2027',
-              term: s.term || `Week ${s.weekNumber}`,
-              examDate: s.examDate || '2026-09-28',
-              totalScore400: s.totalScore400,
-              maxPossibleScore: 400,
-              averagePercentage: s.averagePercentage,
-              overallGrade: s.averagePercentage >= 75 ? 'A1' : s.averagePercentage >= 70 ? 'B2' : s.averagePercentage >= 65 ? 'B3' : s.averagePercentage >= 50 ? 'C4' : 'F9',
-              overallRemark: s.totalScore400 >= 300 ? 'Outstanding Distinction' : s.totalScore400 >= 250 ? 'Strong Performance' : 'Good Progress',
-              creditsCount: (s.subjects || []).filter((sub: any) => (sub.scaledScore || sub.score) >= 50).length,
-              distinctionsCount: (s.subjects || []).filter((sub: any) => (sub.scaledScore || sub.score) >= 75).length,
-              subjects: (s.subjects || []).map((sub: any) => ({
+            const summaries: SS3MockWeeklySummary[] = studentScores.map((s: any) => {
+              const mappedSubjects = (s.subjects || []).map((sub: any) => ({
                 studentId: typeof targetId === 'number' ? targetId : 1,
                 subjectId: sub.subjectId,
                 subjectName: sub.subjectName,
@@ -310,8 +334,42 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
                 grade: sub.grade || 'C4',
                 remark: sub.remark || 'Good',
                 weekNumber: s.weekNumber,
-              })),
-            }));
+              }));
+
+              // Only include subjects the student sat for
+              const satSubjects = mappedSubjects.filter((sub: any) => {
+                const r = sub.rawScore !== undefined && sub.rawScore !== null ? Number(sub.rawScore) : 0;
+                const sc = sub.score !== undefined && sub.score !== null ? Number(sub.score) : 0;
+                return r > 0 || sc > 0;
+              });
+
+              satSubjects.sort((a: any, b: any) => {
+                if (a.isEnglish) return -1;
+                if (b.isEnglish) return 1;
+                return a.subjectName.localeCompare(b.subjectName);
+              });
+
+              // Maximum 4 subjects accepted on JAMB mock
+              const acceptedSubjects = satSubjects.slice(0, 4);
+              const totalScore400 = Math.round(acceptedSubjects.reduce((sum: number, sub: any) => sum + (sub.score || 0), 0));
+              const averagePercentage = Math.round((totalScore400 / 400) * 1000) / 10;
+
+              return {
+                weekNumber: s.weekNumber,
+                mockSeriesTitle: s.mockSeriesTitle || `SS3 Weekly Mock Series - Week ${s.weekNumber}`,
+                session: s.session || '2026/2027',
+                term: s.term || `Week ${s.weekNumber}`,
+                examDate: s.examDate || '2026-09-28',
+                totalScore400,
+                maxPossibleScore: 400,
+                averagePercentage,
+                overallGrade: averagePercentage >= 75 ? 'A1' : averagePercentage >= 70 ? 'B2' : averagePercentage >= 65 ? 'B3' : averagePercentage >= 50 ? 'C4' : 'F9',
+                overallRemark: totalScore400 >= 300 ? 'Outstanding Distinction' : totalScore400 >= 250 ? 'Strong Performance' : 'Good Progress',
+                creditsCount: acceptedSubjects.filter((sub: any) => (sub.scaledScore || sub.score) >= 50).length,
+                distinctionsCount: acceptedSubjects.filter((sub: any) => (sub.scaledScore || sub.score) >= 75).length,
+                subjects: acceptedSubjects,
+              };
+            });
 
             const progress: SS3MockProgressPoint[] = summaries.map((s) => ({
               weekNumber: s.weekNumber,
@@ -403,6 +461,21 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
   const handlePrintSlip = () => {
     window.print();
   };
+
+  // Bursary fee lock restriction for student portal
+  const activeStudentId = candidateStudentNumber || user?.studentId || (user as any)?.studentProfile?.studentId || (user as any)?.uid || String(user?.id || '');
+  if (isStudent && isStudentFeeLocked(activeStudentId)) {
+    const lockDetails = getStudentFeeLockDetails(activeStudentId);
+    return (
+      <div className="py-6">
+        <FeeWithheldNotice
+          studentName={user ? `${user.firstName} ${user.lastName || user.surname || ''}` : 'SS3 Candidate'}
+          studentId={String(activeStudentId || '')}
+          reason={lockDetails?.reason || 'Outstanding tuition / school fees for the current academic session'}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -535,15 +608,15 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
             <ShieldCheck className="w-4 h-4 text-emerald-400" />
           </div>
           <div className="mt-3">
-            <span className="text-base font-bold text-white block truncate">
-              {latestSummary ? latestSummary.overallGrade + ' Distinction' : '250+ Target'}
+            <span className="text-base font-bold text-amber-300 block truncate">
+              Target Benchmark: 280+ / 400
             </span>
-            <span className="text-xs text-amber-300 font-medium block mt-1 line-clamp-1">
-              {latestSummary?.targetBenchmarkRemark || 'Aiming for 300+ Elite Score'}
+            <span className="text-xs text-emerald-300 font-semibold block mt-1 line-clamp-1">
+              Aiming for 300+ Elite Score
             </span>
           </div>
           <div className="mt-2 text-[11px] text-slate-400">
-            University Cut-off Standard: 200+
+            University Cut-off Standard: 200+ • Institutional Aim: 300+
           </div>
         </div>
       </div>
@@ -675,7 +748,7 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
                     Feasible Score (/100)
                   </th>
                   <th className="py-3 px-3 text-center">Grade</th>
-                  <th className="py-3 px-3">Examiner's Remark</th>
+                  <th className="py-3 px-3">Registrar's Remark</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700/60 print:divide-slate-300">
@@ -745,13 +818,10 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
                   <td className="py-4 px-3 text-center text-lg text-amber-300 print:text-emerald-900 font-black font-mono">
                     {activeWeekSummary.totalScore400} / 400
                   </td>
-                  <td className="py-4 px-3 text-center">
-                    <span className="px-2.5 py-1 rounded bg-emerald-600 text-white text-xs font-bold">
-                      {activeWeekSummary.overallGrade}
+                  <td className="py-4 px-3 text-center" colSpan={2}>
+                    <span className="text-xs text-emerald-400 print:text-emerald-800 font-bold block">
+                      Aiming for 300+ Elite Score (Benchmark: 280+)
                     </span>
-                  </td>
-                  <td className="py-4 px-3 text-xs text-emerald-400 print:text-emerald-800">
-                    {activeWeekSummary.targetBenchmarkRemark}
                   </td>
                 </tr>
               </tfoot>
@@ -772,14 +842,23 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
               </div>
             </div>
 
-            <div className="flex items-center gap-8 text-center">
+            <div className="flex items-end gap-10 text-center">
               <div>
-                <div className="w-32 border-b border-slate-600 print:border-black mb-1" />
-                <span className="text-[10px] uppercase">SS3 Mock Examiner</span>
+                <div className="w-32 border-b border-slate-600 print:border-black mb-1.5" />
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300 print:text-black block">
+                  Registrar
+                </span>
               </div>
-              <div>
-                <div className="w-32 border-b border-slate-600 print:border-black mb-1" />
-                <span className="text-[10px] uppercase">Principal / Registrar</span>
+              <div className="flex flex-col items-center">
+                <img
+                  src="https://i.ibb.co/MzHp6Yt/Whats-App-Image-2026-10-02-at-11-29-34-AM.jpg"
+                  alt="Principal Signature"
+                  className="h-12 w-auto object-contain mb-1 filter contrast-125 print:mix-blend-multiply"
+                />
+                <div className="w-36 border-b border-slate-600 print:border-black mb-1.5" />
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300 print:text-black block">
+                  Principal
+                </span>
               </div>
             </div>
           </div>

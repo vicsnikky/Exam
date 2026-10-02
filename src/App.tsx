@@ -16,6 +16,8 @@ import { ResultsView } from './components/ResultsView.tsx';
 import { SuperAdminDashboard } from './components/SuperAdminDashboard.tsx';
 import { SS3MockStudentDashboard } from './components/SS3MockStudentDashboard.tsx';
 import { SS3MockTeacherModule } from './components/SS3MockTeacherModule.tsx';
+import { BursarDashboard } from './components/BursarDashboard.tsx';
+import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import {
   GraduationCap,
   LayoutDashboard,
@@ -35,13 +37,38 @@ import {
   HelpCircle,
   Award,
   ShieldAlert,
-  PenTool
+  PenTool,
+  CreditCard,
+  Lock,
+  DollarSign
 } from 'lucide-react';
 import { Student } from './types/index.ts';
 
 export default function App() {
   const { user, token, logout, isLoading } = useAuth();
-  const [activeTab, setActiveTab] = useState<string>(() => (user?.role === 'student' ? 'ss3-mock-student' : 'dashboard'));
+
+  const isStudent = user?.role === 'student';
+  const isBursar = user?.role === 'bursar';
+  const isSuperAdmin = user?.role === 'super_admin' || user?.role === 'admin';
+  const isTeacher = !isStudent && !isBursar;
+
+  const rawClass = (
+    user?.currentClass ||
+    (user as any)?.studentProfile?.currentClass ||
+    (user as any)?.class ||
+    ''
+  ).toUpperCase().replace(/\s+/g, '');
+  const isSS3Student = isStudent && rawClass.includes('SS3');
+
+  const getInitialTab = (): string => {
+    if (user?.role === 'bursar') return 'bursar-console';
+    if (user?.role === 'student') {
+      return isSS3Student ? 'ss3-mock-student' : 'student-profile';
+    }
+    return 'dashboard';
+  };
+
+  const [activeTab, setActiveTab] = useState<string>(getInitialTab);
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [searchInitialQuery, setSearchInitialQuery] = useState('');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -49,18 +76,15 @@ export default function App() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center text-slate-400 text-sm">
-        Initializing School Assessment System...
+        Initializing Fenster International School Portal...
       </div>
     );
   }
 
   // If not authenticated, render login/register modal
   if (!token || !user) {
-    return <AuthModal onSuccess={() => setActiveTab(user?.role === 'student' ? 'ss3-mock-student' : 'dashboard')} />;
+    return <AuthModal onSuccess={() => setActiveTab(getInitialTab())} />;
   }
-
-  const isStudent = user.role === 'student';
-  const isSuperAdmin = user.role === 'super_admin' || user.role === 'admin';
 
   const navigateToStudentProfile = (st: Student) => {
     setSelectedStudent(st);
@@ -81,20 +105,22 @@ export default function App() {
     switch (activeTab) {
       case 'super-admin':
         return isSuperAdmin ? <SuperAdminDashboard /> : null;
+      case 'bursar-console':
+        return isBursar || isSuperAdmin ? <BursarDashboard /> : null;
       case 'dashboard':
-        return !isStudent ? (
+        return !isStudent && !isBursar ? (
           <DashboardHome
             onNavigate={(tab) => setActiveTab(tab)}
             onSelectStudent={navigateToStudentProfile}
           />
         ) : null;
       case 'register-student':
-        return (
+        return isSuperAdmin ? (
           <StudentRegistration
             onStudentRegistered={navigateToStudentProfile}
             onNavigateSearch={handleSearchStudents}
           />
-        );
+        ) : null;
       case 'students':
         return (
           <StudentSearch
@@ -106,46 +132,52 @@ export default function App() {
         return (
           <StudentProfile
             studentIdOrId={selectedStudent?.id || selectedStudent?.studentId || user?.studentId || 'FIS-2026-000001'}
-            onBack={() => setActiveTab(isStudent ? 'take-quiz' : 'students')}
-            onAddScoreForStudent={navigateToAddScoreForStudent}
+            initialStudent={selectedStudent || undefined}
+            onBack={() => setActiveTab(isStudent ? (isSS3Student ? 'ss3-mock-student' : 'take-quiz') : (isBursar ? 'bursar-console' : 'students'))}
+            onAddScoreForStudent={!isBursar ? navigateToAddScoreForStudent : undefined}
           />
         );
       case 'subjects':
-        return <SubjectManager />;
+        return isTeacher || isSuperAdmin ? <SubjectManager /> : null;
       case 'question-generator':
-        return (
+        return isTeacher || isSuperAdmin ? (
           <AiQuestionGenerator
             onQuestionsSaved={() => setActiveTab('quizzes')}
             onNavigateQuizBuilder={() => setActiveTab('quizzes')}
           />
-        );
+        ) : null;
       case 'quizzes':
-        return <QuizBuilder onQuizCreated={() => setActiveTab('results')} />;
+        return isTeacher || isSuperAdmin ? <QuizBuilder onQuizCreated={() => setActiveTab('results')} /> : null;
       case 'add-score':
-        return !isStudent ? (
+        return !isStudent && !isBursar ? (
           <AddScoreModal
             preselectedStudent={selectedStudent}
             onScoreSaved={() => setActiveTab('results')}
           />
-        ) : (
-          <SS3MockStudentDashboard />
-        );
+        ) : null;
       case 'results':
         return <ResultsView />;
       case 'ss3-mock-student':
-        return <SS3MockStudentDashboard />;
+        return isSS3Student || !isStudent ? <SS3MockStudentDashboard /> : <StudentProfile studentIdOrId={user?.studentId || ''} />;
       case 'ss3-mock-teacher':
-        return <SS3MockTeacherModule />;
+        return isTeacher || isSuperAdmin ? <SS3MockTeacherModule /> : null;
       case 'take-quiz':
         return <StudentQuizTaker onCompleted={() => setActiveTab('student-profile')} />;
       default:
-        return !isStudent ? (
+        if (isBursar) return <BursarDashboard />;
+        if (isStudent) {
+          return isSS3Student ? <SS3MockStudentDashboard /> : (
+            <StudentProfile
+              studentIdOrId={user?.studentId || ''}
+              onBack={() => setActiveTab('take-quiz')}
+            />
+          );
+        }
+        return (
           <DashboardHome
             onNavigate={(tab) => setActiveTab(tab)}
             onSelectStudent={navigateToStudentProfile}
           />
-        ) : (
-          <SS3MockStudentDashboard />
         );
     }
   };
@@ -163,10 +195,10 @@ export default function App() {
               {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
             <div
-              onClick={() => setActiveTab(isStudent ? 'take-quiz' : 'dashboard')}
+              onClick={() => setActiveTab(getInitialTab())}
               className="flex items-center gap-3 cursor-pointer group"
             >
-              <div className="h-11 w-11 rounded-xl bg-white p-1 flex items-center justify-center shadow-md border border-amber-400/40 group-hover:scale-105 transition">
+              <div className="h-11 w-11 rounded-xl bg-white p-1 shadow-md border border-amber-400/40 flex items-center justify-center shrink-0 group-hover:scale-105 transition">
                 <img
                   src={FIS_LOGOS.crest}
                   alt="FIS Crest"
@@ -175,15 +207,15 @@ export default function App() {
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="font-bold text-white text-base tracking-tight block leading-tight">
+                  <span className="font-bold text-white tracking-tight text-sm sm:text-base group-hover:text-amber-300 transition">
                     Fenster International School
                   </span>
                   <span className="hidden sm:inline-block px-2 py-0.5 rounded bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold">
-                    FENSTER
+                    PORTAL
                   </span>
                 </div>
                 <span className="text-[11px] text-amber-300/90 font-medium block leading-tight">
-                  Academic Assessment & Examination Portal
+                  Academic Assessment & Bursary Clearance System
                 </span>
               </div>
             </div>
@@ -199,14 +231,24 @@ export default function App() {
                     SUPER ADMIN
                   </span>
                 )}
+                {isBursar && (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                    BURSAR
+                  </span>
+                )}
                 {isStudent && (
                   <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300">
-                    STUDENT
+                    STUDENT ({user.currentClass || 'Scholar'})
+                  </span>
+                )}
+                {isTeacher && !isSuperAdmin && (
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-500/20 text-indigo-300">
+                    FACULTY TEACHER
                   </span>
                 )}
               </span>
               <span className="text-[10px] text-slate-400 font-mono">
-                {isStudent ? `ID: ${user.studentId}` : isSuperAdmin ? 'Full System Authority' : `Faculty: ${user.teacherId || user.email}`}
+                {isStudent ? `ID: ${user.studentId}` : isBursar ? 'Bursary Fee Clearance & Locks' : isSuperAdmin ? 'Full System Authority' : `Faculty: ${user.teacherId || user.email}`}
               </span>
             </div>
 
@@ -227,32 +269,110 @@ export default function App() {
         <aside className="hidden lg:block w-64 shrink-0 space-y-6">
           <nav className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-3 space-y-1 relative shadow-sm">
             
-            {/* If Teacher or Super Admin */}
-            {!isStudent && (
+            {/* 1. BURSAR NAVIGATION (NO TEACHER PRIVILEGES) */}
+            {isBursar && (
+              <>
+                <div className="px-3 py-1.5 mb-1 text-[11px] font-bold text-rose-400 uppercase tracking-wider flex items-center gap-1.5 border-b border-slate-700/60">
+                  <CreditCard className="w-3.5 h-3.5" />
+                  Bursary Governance
+                </div>
+
+                <motion.button
+                  whileHover={{ x: 2 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => setActiveTab('bursar-console')}
+                  className={`w-full relative flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
+                    activeTab === 'bursar-console' ? 'text-white' : 'text-slate-300 hover:text-white hover:bg-slate-700/40'
+                  }`}
+                >
+                  {activeTab === 'bursar-console' && (
+                    <motion.div
+                      layoutId="activeSidebarIndicator"
+                      className="absolute inset-0 bg-rose-700 rounded-xl shadow-md shadow-rose-950/40 border border-rose-600/40 z-0"
+                      transition={{ type: 'spring', stiffness: 450, damping: 32 }}
+                    />
+                  )}
+                  <span className="relative z-10 flex items-center gap-3">
+                    <Lock className="w-4 h-4 shrink-0 text-amber-300" />
+                    School Fees & Result Lock
+                  </span>
+                </motion.button>
+
+                <motion.button
+                  whileHover={{ x: 2 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => setActiveTab('students')}
+                  className={`w-full relative flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition-colors cursor-pointer ${
+                    activeTab === 'students' ? 'text-white' : 'text-slate-300 hover:text-white hover:bg-slate-700/40'
+                  }`}
+                >
+                  {activeTab === 'students' && (
+                    <motion.div
+                      layoutId="activeSidebarIndicator"
+                      className="absolute inset-0 bg-emerald-700 rounded-xl shadow-md shadow-emerald-900/40 border border-emerald-600/40 z-0"
+                      transition={{ type: 'spring', stiffness: 450, damping: 32 }}
+                    />
+                  )}
+                  <span className="relative z-10 flex items-center gap-3">
+                    <Users className="w-4 h-4 shrink-0" />
+                    Students Directory
+                  </span>
+                </motion.button>
+              </>
+            )}
+
+            {/* 2. SUPER ADMIN / TEACHER NAVIGATION */}
+            {!isStudent && !isBursar && (
               <>
                 {isSuperAdmin && (
-                  <motion.button
-                    whileHover={{ x: 2 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={() => setActiveTab('super-admin')}
-                    className={`w-full relative flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-colors cursor-pointer mb-2 ${
-                      activeTab === 'super-admin'
-                        ? 'text-slate-950 font-bold'
-                        : 'bg-amber-500/10 text-amber-300 border border-amber-500/30 hover:bg-amber-500/20'
-                    }`}
-                  >
-                    {activeTab === 'super-admin' && (
-                      <motion.div
-                        layoutId="activeSidebarIndicator"
-                        className="absolute inset-0 bg-amber-500 rounded-xl shadow-md shadow-amber-500/20 z-0"
-                        transition={{ type: 'spring', stiffness: 450, damping: 32 }}
-                      />
-                    )}
-                    <span className="relative z-10 flex items-center gap-3">
-                      <ShieldAlert className={`w-4 h-4 shrink-0 ${activeTab === 'super-admin' ? 'text-slate-950' : 'text-amber-400'}`} />
-                      Super Admin Console
-                    </span>
-                  </motion.button>
+                  <>
+                    <motion.button
+                      whileHover={{ x: 2 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => setActiveTab('super-admin')}
+                      className={`w-full relative flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-colors cursor-pointer mb-2 ${
+                        activeTab === 'super-admin'
+                          ? 'text-slate-950 font-bold'
+                          : 'bg-amber-500/10 text-amber-300 border border-amber-500/30 hover:bg-amber-500/20'
+                      }`}
+                    >
+                      {activeTab === 'super-admin' && (
+                        <motion.div
+                          layoutId="activeSidebarIndicator"
+                          className="absolute inset-0 bg-amber-500 rounded-xl shadow-md shadow-amber-500/20 z-0"
+                          transition={{ type: 'spring', stiffness: 450, damping: 32 }}
+                        />
+                      )}
+                      <span className="relative z-10 flex items-center gap-3">
+                        <ShieldAlert className={`w-4 h-4 shrink-0 ${activeTab === 'super-admin' ? 'text-slate-950' : 'text-amber-400'}`} />
+                        Super Admin Console
+                      </span>
+                    </motion.button>
+
+                    {/* Super Admin can also access Bursar Console to lock/unlock students */}
+                    <motion.button
+                      whileHover={{ x: 2 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => setActiveTab('bursar-console')}
+                      className={`w-full relative flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-colors cursor-pointer mb-2 ${
+                        activeTab === 'bursar-console'
+                          ? 'text-white'
+                          : 'bg-rose-950/40 text-rose-300 border border-rose-500/30 hover:bg-rose-950/70'
+                      }`}
+                    >
+                      {activeTab === 'bursar-console' && (
+                        <motion.div
+                          layoutId="activeSidebarIndicator"
+                          className="absolute inset-0 bg-rose-700 rounded-xl shadow-md shadow-rose-950/40 border border-rose-600/40 z-0"
+                          transition={{ type: 'spring', stiffness: 450, damping: 32 }}
+                        />
+                      )}
+                      <span className="relative z-10 flex items-center gap-3">
+                        <CreditCard className="w-4 h-4 shrink-0 text-rose-400" />
+                        Bursary Fees & Lock
+                      </span>
+                    </motion.button>
+                  </>
                 )}
 
                 <motion.button
@@ -473,31 +593,33 @@ export default function App() {
               </>
             )}
 
-            {/* If Student */}
+            {/* 3. STUDENT NAVIGATION (MOCK MODULE ONLY SHOWN FOR SS3 STUDENTS) */}
             {isStudent && (
               <>
-                <motion.button
-                  whileHover={{ x: 2 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => setActiveTab('ss3-mock-student')}
-                  className={`w-full relative flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-colors cursor-pointer ${
-                    activeTab === 'ss3-mock-student'
-                      ? 'text-slate-950 font-bold'
-                      : 'text-amber-300 font-bold bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20'
-                  }`}
-                >
-                  {activeTab === 'ss3-mock-student' && (
-                    <motion.div
-                      layoutId="activeSidebarIndicatorStudent"
-                      className="absolute inset-0 bg-amber-500 rounded-xl shadow-md shadow-amber-500/20 z-0"
-                      transition={{ type: 'spring', stiffness: 450, damping: 32 }}
-                    />
-                  )}
-                  <span className="relative z-10 flex items-center gap-3">
-                    <Award className={`w-4 h-4 shrink-0 ${activeTab === 'ss3-mock-student' ? 'text-slate-950' : 'text-amber-400'}`} />
-                    Check SS3 Mock Result
-                  </span>
-                </motion.button>
+                {isSS3Student && (
+                  <motion.button
+                    whileHover={{ x: 2 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => setActiveTab('ss3-mock-student')}
+                    className={`w-full relative flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-colors cursor-pointer ${
+                      activeTab === 'ss3-mock-student'
+                        ? 'text-slate-950 font-bold'
+                        : 'text-amber-300 font-bold bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20'
+                    }`}
+                  >
+                    {activeTab === 'ss3-mock-student' && (
+                      <motion.div
+                        layoutId="activeSidebarIndicatorStudent"
+                        className="absolute inset-0 bg-amber-500 rounded-xl shadow-md shadow-amber-500/20 z-0"
+                        transition={{ type: 'spring', stiffness: 450, damping: 32 }}
+                      />
+                    )}
+                    <span className="relative z-10 flex items-center gap-3">
+                      <Award className={`w-4 h-4 shrink-0 ${activeTab === 'ss3-mock-student' ? 'text-slate-950' : 'text-amber-400'}`} />
+                      Check SS3 Mock Result
+                    </span>
+                  </motion.button>
+                )}
 
                 <motion.button
                   whileHover={{ x: 2 }}
@@ -578,19 +700,52 @@ export default function App() {
                   </button>
                 </div>
 
-                {!isStudent ? (
+                {isBursar && (
+                  <>
+                    <button
+                      onClick={() => { setActiveTab('bursar-console'); setMobileMenuOpen(false); }}
+                      className={`w-full text-left px-3 py-2 text-xs rounded-lg font-bold border transition ${
+                        activeTab === 'bursar-console' ? 'bg-rose-700 text-white border-rose-500' : 'bg-slate-900 text-rose-300 border-slate-700'
+                      }`}
+                    >
+                      Bursary Fees & Result Lock
+                    </button>
+                    <button
+                      onClick={() => { setActiveTab('students'); setMobileMenuOpen(false); }}
+                      className={`w-full text-left px-3 py-2 text-xs rounded-lg transition ${
+                        activeTab === 'students' ? 'bg-emerald-700 text-white font-semibold' : 'text-slate-300 hover:bg-slate-700'
+                      }`}
+                    >
+                      Students Directory
+                    </button>
+                  </>
+                )}
+
+                {!isStudent && !isBursar && (
                   <>
                     {isSuperAdmin && (
-                      <button
-                        onClick={() => { setActiveTab('super-admin'); setMobileMenuOpen(false); }}
-                        className={`w-full text-left px-3 py-2 text-xs rounded-lg font-bold border transition ${
-                          activeTab === 'super-admin'
-                            ? 'bg-amber-500 text-slate-950 border-amber-400'
-                            : 'bg-purple-950/60 text-purple-300 border-purple-800'
-                        }`}
-                      >
-                        Super Admin Console
-                      </button>
+                      <>
+                        <button
+                          onClick={() => { setActiveTab('super-admin'); setMobileMenuOpen(false); }}
+                          className={`w-full text-left px-3 py-2 text-xs rounded-lg font-bold border transition ${
+                            activeTab === 'super-admin'
+                              ? 'bg-amber-500 text-slate-950 border-amber-400'
+                              : 'bg-purple-950/60 text-purple-300 border-purple-800'
+                          }`}
+                        >
+                          Super Admin Console
+                        </button>
+                        <button
+                          onClick={() => { setActiveTab('bursar-console'); setMobileMenuOpen(false); }}
+                          className={`w-full text-left px-3 py-2 text-xs rounded-lg font-bold border transition ${
+                            activeTab === 'bursar-console'
+                              ? 'bg-rose-700 text-white border-rose-500'
+                              : 'bg-rose-950/60 text-rose-300 border-rose-800'
+                          }`}
+                        >
+                          Bursary Fees & Lock
+                        </button>
+                      </>
                     )}
                     <button
                       onClick={() => { setActiveTab('dashboard'); setMobileMenuOpen(false); }}
@@ -675,16 +830,20 @@ export default function App() {
                       Student Exam Simulator
                     </button>
                   </>
-                ) : (
+                )}
+
+                {isStudent && (
                   <>
-                    <button
-                      onClick={() => { setActiveTab('ss3-mock-student'); setMobileMenuOpen(false); }}
-                      className={`w-full text-left px-3 py-2 text-xs rounded-lg font-bold transition ${
-                        activeTab === 'ss3-mock-student' ? 'bg-amber-500 text-slate-950' : 'text-amber-300 hover:bg-slate-700'
-                      }`}
-                    >
-                      Check SS3 Mock Result (Over 400)
-                    </button>
+                    {isSS3Student && (
+                      <button
+                        onClick={() => { setActiveTab('ss3-mock-student'); setMobileMenuOpen(false); }}
+                        className={`w-full text-left px-3 py-2 text-xs rounded-lg font-bold transition ${
+                          activeTab === 'ss3-mock-student' ? 'bg-amber-500 text-slate-950' : 'text-amber-300 hover:bg-slate-700'
+                        }`}
+                      >
+                        Check SS3 Mock Result (Over 400)
+                      </button>
+                    )}
                     <button
                       onClick={() => { setActiveTab('take-quiz'); setMobileMenuOpen(false); }}
                       className={`w-full text-left px-3 py-2 text-xs rounded-lg transition ${
@@ -703,7 +862,7 @@ export default function App() {
                         activeTab === 'student-profile' ? 'bg-emerald-700 text-white font-semibold' : 'text-slate-300 hover:bg-slate-700'
                       }`}
                     >
-                      My Academic Record
+                      My Academic Record & Transcript
                     </button>
                   </>
                 )}
@@ -712,20 +871,22 @@ export default function App() {
           )}
         </AnimatePresence>
 
-        {/* Dynamic Main Workspace Area with Framer Motion Tab Transitions */}
+        {/* Dynamic Main Workspace Area with Error Boundary and Tab Transitions */}
         <main className="flex-1 min-w-0">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={activeTab + (activeTab === 'student-profile' ? `-${selectedStudent?.id || ''}` : '')}
-              initial={{ opacity: 0, y: 10, filter: 'blur(2px)' }}
-              animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-              exit={{ opacity: 0, y: -8, filter: 'blur(2px)' }}
-              transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-              className="w-full min-w-0"
-            >
-              {renderActiveTabContent()}
-            </motion.div>
-          </AnimatePresence>
+          <ErrorBoundary fallbackTitle="Portal Workspace Area">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeTab + (activeTab === 'student-profile' ? `-${selectedStudent?.id || ''}` : '')}
+                initial={{ opacity: 0, y: 10, filter: 'blur(2px)' }}
+                animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+                exit={{ opacity: 0, y: -8, filter: 'blur(2px)' }}
+                transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                className="w-full min-w-0"
+              >
+                {renderActiveTabContent()}
+              </motion.div>
+            </AnimatePresence>
+          </ErrorBoundary>
         </main>
       </div>
     </div>

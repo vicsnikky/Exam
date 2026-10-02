@@ -4,7 +4,7 @@ export interface User {
   firstName: string;
   lastName?: string;
   surname?: string;
-  role: 'teacher' | 'student' | 'admin' | 'super_admin';
+  role: 'teacher' | 'student' | 'admin' | 'super_admin' | 'bursar';
   teacherId?: string;
   studentId?: string;
   schoolName?: string;
@@ -29,6 +29,18 @@ export interface Student {
   school: string;
   session: string;
   createdAt: string;
+  feeLocked?: boolean;
+  feeLockReason?: string | null;
+}
+
+export interface FeeLockRecord {
+  studentId: string;
+  studentDbId?: number;
+  locked: boolean;
+  reason?: string;
+  balance?: string;
+  updatedBy: string;
+  updatedAt: string;
 }
 
 export interface Subject {

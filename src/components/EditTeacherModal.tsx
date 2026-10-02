@@ -36,7 +36,7 @@ export const EditTeacherModal: React.FC<EditTeacherModalProps> = ({
   const [phone, setPhone] = useState('');
   const [schoolName, setSchoolName] = useState('Fenster International School');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<'teacher' | 'super_admin'>('teacher');
+  const [role, setRole] = useState<'teacher' | 'bursar' | 'admin' | 'super_admin'>('teacher');
 
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -187,10 +187,12 @@ export const EditTeacherModal: React.FC<EditTeacherModalProps> = ({
               <select
                 value={role}
                 onChange={(e) => setRole(e.target.value as any)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500"
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500 font-semibold"
               >
-                <option value="teacher">Academic Faculty</option>
-                <option value="super_admin">Super Administrator</option>
+                <option value="teacher">Academic Faculty (Class Teacher / Examiner)</option>
+                <option value="bursar">Bursar (School Fees Clearance & Result Lock)</option>
+                <option value="admin">Administrator (Faculty & Student Governance)</option>
+                <option value="super_admin">Super Administrator (Supreme Master Privileges)</option>
               </select>
             </div>
           </div>

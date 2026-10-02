@@ -36,6 +36,7 @@ import {
   getLocalTeachers,
   getLocalStudents,
   registerNewTeacher,
+  updateTeacher,
   deleteTeacher,
   deleteStudent,
   reallocateTeacherAssets,
@@ -86,6 +87,7 @@ export const SuperAdminDashboard: React.FC = () => {
   const [phone, setPhone] = useState('');
   const [schoolName, setSchoolName] = useState('Fenster International School');
   const [password, setPassword] = useState('');
+  const [teacherRole, setTeacherRole] = useState<'teacher' | 'bursar' | 'admin' | 'super_admin'>('teacher');
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -287,13 +289,21 @@ export const SuperAdminDashboard: React.FC = () => {
         phone,
         schoolName,
         password,
+        role: teacherRole,
       });
 
       if (result.success) {
         setRegisteredSuccess({
           name: `${result.teacher.firstName} ${result.teacher.lastName}`,
           uniqueId: result.teacher.teacherId,
-          roleOrClass: 'Senior Academic Faculty',
+          roleOrClass:
+            teacherRole === 'bursar'
+              ? 'Bursar & Accounts Officer'
+              : teacherRole === 'admin'
+              ? 'Institutional Administrator'
+              : teacherRole === 'super_admin'
+              ? 'Super Administrator'
+              : 'Senior Academic Faculty',
           email: result.teacher.email,
           password: result.password,
         });
@@ -303,6 +313,7 @@ export const SuperAdminDashboard: React.FC = () => {
         setEmail('');
         setPhone('');
         setPassword('');
+        setTeacherRole('teacher');
         fetchAdminData();
       } else {
         setErrorMsg('Failed to complete teacher registration');
@@ -311,6 +322,25 @@ export const SuperAdminDashboard: React.FC = () => {
       setErrorMsg(err.message || 'Error provisioning teacher account');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handlePromoteRole = async (teacher: TeacherRecord, newRole: string) => {
+    try {
+      await updateTeacher(token, {
+        id: teacher.id,
+        teacherId: teacher.teacherId,
+        role: newRole,
+      });
+      setNotification({
+        type: 'success',
+        message: `${teacher.firstName} ${teacher.lastName} (${teacher.teacherId}) role updated to ${newRole.toUpperCase()}!`,
+      });
+      setTimeout(() => setNotification(null), 4000);
+      fetchAdminData();
+    } catch (err: any) {
+      setNotification({ type: 'error', message: 'Failed to update faculty role: ' + (err.message || 'Error') });
+      setTimeout(() => setNotification(null), 4000);
     }
   };
 
@@ -677,6 +707,20 @@ export const SuperAdminDashboard: React.FC = () => {
             </div>
 
             <div>
+              <label className="block text-[11px] font-medium text-slate-300 mb-1">Faculty Role / Designation *</label>
+              <select
+                value={teacherRole}
+                onChange={(e) => setTeacherRole(e.target.value as any)}
+                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500 font-semibold"
+              >
+                <option value="teacher">Academic Faculty (Class Teacher / Examiner)</option>
+                <option value="bursar">Bursar (School Fees Clearance & Result Lock)</option>
+                <option value="admin">Administrator (Faculty & Student Governance)</option>
+                <option value="super_admin">Super Administrator (Supreme Master Privileges)</option>
+              </select>
+            </div>
+
+            <div>
               <label className="block text-[11px] font-medium text-slate-300 mb-1">Assigned Institution</label>
               <div className="relative">
                 <School className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
@@ -797,9 +841,21 @@ export const SuperAdminDashboard: React.FC = () => {
                           <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-indigo-300 border border-slate-700">
                             {t.teacherId}
                           </span>
-                          {t.role === 'super_admin' && (
+                          {t.role === 'super_admin' ? (
                             <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 uppercase">
-                              Super Admin
+                              🌟 Super Admin
+                            </span>
+                          ) : t.role === 'admin' ? (
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30 uppercase">
+                              🛡️ Admin
+                            </span>
+                          ) : t.role === 'bursar' ? (
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 uppercase">
+                              💳 Bursar
+                            </span>
+                          ) : (
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 uppercase">
+                              🎓 Faculty
                             </span>
                           )}
                         </div>
@@ -811,10 +867,20 @@ export const SuperAdminDashboard: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400">
-                        Active
-                      </span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {t.email !== 'victoralo1862@gmail.com' && (
+                        <select
+                          value={t.role || 'teacher'}
+                          onChange={(e) => handlePromoteRole(t, e.target.value)}
+                          className="bg-slate-950 border border-slate-700 text-slate-200 text-[10px] font-bold rounded-lg px-2 py-1 focus:outline-none focus:border-purple-500 cursor-pointer"
+                          title="Change staff authority & role"
+                        >
+                          <option value="teacher">Role: Faculty</option>
+                          <option value="bursar">Role: Bursar (Fees Lock)</option>
+                          <option value="admin">Role: Admin</option>
+                          <option value="super_admin">Role: Super Admin</option>
+                        </select>
+                      )}
                       <button
                         onClick={() => setEditingTeacher(t)}
                         className="p-1.5 rounded-lg text-purple-400 hover:text-white hover:bg-purple-600/30 border border-purple-500/20 hover:border-purple-500 transition cursor-pointer"

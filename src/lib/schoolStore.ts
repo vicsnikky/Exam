@@ -733,6 +733,7 @@ export async function registerNewTeacher(
     phone?: string;
     schoolName?: string;
     password: string;
+    role?: string;
   }
 ): Promise<{ success: boolean; teacher: TeacherRecord; password: string; message: string }> {
   const currentTeachers = getLocalTeachers();
@@ -740,6 +741,7 @@ export async function registerNewTeacher(
   const nextNum = Math.floor(1000 + Math.random() * 9000);
   const teacherId = `TCH-${year}-${nextNum}`;
   const newId = Date.now();
+  const designatedRole = data.role || 'teacher';
 
   const newTeacher: TeacherRecord = {
     id: newId,
@@ -751,7 +753,7 @@ export async function registerNewTeacher(
     password: data.password.trim(),
     phone: data.phone ? data.phone.trim() : null,
     schoolName: data.schoolName || 'Fenster International School',
-    role: 'teacher',
+    role: designatedRole,
     createdAt: new Date().toISOString(),
   };
 
@@ -776,7 +778,7 @@ export async function registerNewTeacher(
         password_hash: hash,
         first_name: data.firstName.trim(),
         last_name: data.lastName.trim(),
-        role: 'teacher',
+        role: designatedRole,
         school_id: 1,
       }]).select();
       if (newUser && newUser[0]) {
@@ -787,6 +789,7 @@ export async function registerNewTeacher(
         password_hash: hash,
         first_name: data.firstName.trim(),
         last_name: data.lastName.trim(),
+        role: designatedRole,
       }).eq('id', supaUserId);
     }
 

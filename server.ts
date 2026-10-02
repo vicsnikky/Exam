@@ -788,8 +788,54 @@ app.post('/api/subjects', authenticate, async (req: AuthRequest, res) => {
 // ----------------------------------------------------
 // 5. SCORE ENTRY & RECORDING (Multi-subject, existing student never re-registered)
 // ----------------------------------------------------
+// BURSARY FEE LOCK ENDPOINTS (Bursar & Super Admin)
+// ----------------------------------------------------
+const inMemoryFeeLocks: Record<string, any> = {};
+
+app.get('/api/bursar/locks', authenticate, async (_req: AuthRequest, res) => {
+  try {
+    return res.json({ locks: inMemoryFeeLocks });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/bursar/lock-student', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const role = req.appUser?.role;
+    if (role !== 'bursar' && role !== 'admin' && role !== 'super_admin') {
+      return res.status(403).json({ error: 'Permission denied. Only Bursars and Administrators can modify student fee clearance locks.' });
+    }
+
+    const { studentId, locked, reason, balance } = req.body;
+    if (!studentId) {
+      return res.status(400).json({ error: 'Student ID is required' });
+    }
+
+    const cleanId = String(studentId).trim().toUpperCase();
+    const lockRecord = {
+      studentId: cleanId,
+      locked: Boolean(locked),
+      reason: reason || (locked ? 'Outstanding school fees for current term' : 'Cleared by Bursary'),
+      balance: balance || '',
+      updatedBy: `${req.appUser?.firstName || 'Staff'} (${req.appUser?.role || 'Bursary'})`,
+      updatedAt: new Date().toISOString(),
+    };
+
+    inMemoryFeeLocks[cleanId] = lockRecord;
+    return res.json({ success: true, record: lockRecord });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ----------------------------------------------------
 app.post('/api/scores', authenticate, async (req: AuthRequest, res) => {
   try {
+    if (req.appUser?.role === 'student' || req.appUser?.role === 'bursar') {
+      return res.status(403).json({ error: 'Permission denied. Academic faculty only. Bursars and students cannot enter scores.' });
+    }
+
     const {
       studentId, // numeric ID or unique student string
       subjectId,
@@ -1178,40 +1224,43 @@ app.get('/api/ss3-mock/scores', authenticate, async (req: AuthRequest, res) => {
 
     // Compute overall performance summary for each week
     const weeklySummaries = Object.values(weekGroups).map((wg: any) => {
-      // Sort subjects: English Language first, then others alphabetically
-      wg.subjects.sort((a: any, b: any) => {
+      // 1. Filter out subjects the student did not sit for (raw score must be > 0 or scaled score > 0)
+      const satSubjects = (wg.subjects || []).filter((s: any) => {
+        const raw = s.rawScore !== undefined && s.rawScore !== null ? Number(s.rawScore) : 0;
+        const sc = s.score !== undefined && s.score !== null ? Number(s.score) : 0;
+        return raw > 0 || sc > 0;
+      });
+
+      // Sort subjects: English Language (compulsory) first, then others alphabetically
+      satSubjects.sort((a: any, b: any) => {
         if (a.isEnglish) return -1;
         if (b.isEnglish) return 1;
         return a.subjectName.localeCompare(b.subjectName);
       });
 
+      // 2. JAMB mock accepts exactly 4 subjects
+      const acceptedSubjects = satSubjects.slice(0, 4);
+
       // Sum of 4 subjects scaled scores = Total out of 400
-      const totalScore400 = wg.subjects.reduce((sum: number, s: any) => sum + (Number(s.score) || 0), 0);
+      const totalScore400 = acceptedSubjects.reduce((sum: number, s: any) => sum + (Number(s.score) || 0), 0);
       const roundedTotal400 = Math.round(totalScore400 * 10) / 10;
       const averagePercentage = Math.round((roundedTotal400 / 400) * 1000) / 10;
       const waec = calculateWaecGrade(averagePercentage, 100);
 
-      let targetBenchmarkRemark = 'Good Effort';
-      if (roundedTotal400 >= 300) {
-        targetBenchmarkRemark = 'Outstanding - Elite Distinction (300+ Benchmark Achieved)';
-      } else if (roundedTotal400 >= 250) {
-        targetBenchmarkRemark = 'Strong - Competitive University Benchmark (250+)';
-      } else if (roundedTotal400 >= 200) {
-        targetBenchmarkRemark = 'Passed - Minimum UTME Admission Threshold (200+)';
-      } else {
-        targetBenchmarkRemark = 'Requires Intensive Remedial Study (< 200)';
-      }
+      // Admission Benchmark: Remove student grade and leave only what we are aiming for
+      const targetBenchmarkRemark = 'Aiming for 300+ Elite Score (Benchmark: 280+)';
 
       return {
         ...wg,
+        subjects: acceptedSubjects,
         totalScore400: roundedTotal400,
         maxPossibleScore: 400,
         averagePercentage,
         overallGrade: waec.grade,
         overallRemark: waec.remark,
         targetBenchmarkRemark,
-        creditsCount: wg.subjects.filter((s: any) => Number(s.score) >= 50).length,
-        distinctionsCount: wg.subjects.filter((s: any) => Number(s.score) >= 75).length,
+        creditsCount: acceptedSubjects.filter((s: any) => Number(s.score) >= 50).length,
+        distinctionsCount: acceptedSubjects.filter((s: any) => Number(s.score) >= 75).length,
       };
     });
 
@@ -1351,8 +1400,8 @@ app.get('/api/ss3-mock/broadsheet', authenticate, async (req: AuthRequest, res) 
 app.post('/api/ss3-mock/scores', authenticate, async (req: AuthRequest, res) => {
   try {
     // Only Teachers and Super Admin can record mock scores (Super Admin is also a teacher)
-    if (req.appUser?.role === 'student') {
-      return res.status(403).json({ error: 'Permission denied. Only faculty and administrators can record mock scores.' });
+    if (req.appUser?.role === 'student' || req.appUser?.role === 'bursar') {
+      return res.status(403).json({ error: 'Permission denied. Only academic faculty and administrators can record mock scores. Bursars cannot enter scores.' });
     }
 
     const {
