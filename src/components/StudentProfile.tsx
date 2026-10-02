@@ -210,6 +210,10 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           }
         } catch (_) {}
 
+        // Filter out subjects the student did not sit for (score must be > 0 or percentage > 0)
+        realAssessments = realAssessments.filter((a) => (Number(a.score) > 0 || Number(a.percentage) > 0));
+        realMockScores = realMockScores.filter((m) => (Number(m.score) > 0 || Number(m.percentage) > 0));
+
         setAssessments(realAssessments);
         setMockScores(realMockScores);
 
@@ -287,30 +291,10 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
   if (!student) return null;
 
-  // Fee Lock Check
+  // Fee Lock Check (Applies to terminal continuous assessments & report slips. JAMB mock results do not need clearing)
   const studentKey = student.studentId || String(student.id || studentIdOrId);
   const isLockedForFees = isStudentFeeLocked(studentKey) || isStudentFeeLocked(student.id) || isStudentFeeLocked(student.email);
-  if (isStudent && isLockedForFees) {
-    const lockDetails = getStudentFeeLockDetails(studentKey) || getStudentFeeLockDetails(student.id);
-    return (
-      <div className="space-y-6">
-        {onBack && (
-          <button
-            onClick={onBack}
-            className="inline-flex items-center gap-2 text-xs text-slate-400 hover:text-white transition cursor-pointer"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Back
-          </button>
-        )}
-        <FeeWithheldNotice
-          studentName={`${student.firstName} ${student.surname}`}
-          studentId={student.studentId}
-          reason={lockDetails?.reason || 'Outstanding tuition / school fees for the current academic session'}
-        />
-      </div>
-    );
-  }
+  const lockDetails = isLockedForFees ? (getStudentFeeLockDetails(studentKey) || getStudentFeeLockDetails(student.id)) : null;
 
   const isSS3 = (student.currentClass || '').toUpperCase().includes('SS 3') || (student.currentClass || '').toUpperCase().includes('SS3');
 
@@ -491,6 +475,29 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
         {/* TAB 1: CONTINUOUS ASSESSMENTS */}
         {profileTab === 'assessments' && (
+          isStudent && isLockedForFees ? (
+            <div className="space-y-4">
+              <FeeWithheldNotice
+                studentName={`${student.firstName} ${student.surname}`}
+                studentId={student.studentId}
+                reason={lockDetails?.reason || 'Outstanding tuition / school fees for the current academic session'}
+              />
+              {isSS3 && (
+                <div className="p-4 bg-emerald-950/40 border border-emerald-500/40 rounded-2xl text-center text-xs text-emerald-300 space-y-2">
+                  <p className="font-semibold">
+                    💡 Official Notice: SS3 JAMB Mock Examination Results do not require bursary clearance and are exempt from fee restriction.
+                  </p>
+                  <button
+                    onClick={() => setProfileTab('mock-results')}
+                    className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold transition cursor-pointer inline-flex items-center gap-1.5 shadow-md shadow-emerald-950"
+                  >
+                    <Award className="w-3.5 h-3.5 text-amber-300" />
+                    Switch to SS3 Mock Results Tab
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
           <div className="space-y-6">
             {/* Subject-Wise Breakdown */}
             {Object.keys(subjectPerformance).length > 0 && (
@@ -623,6 +630,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
               )}
             </div>
           </div>
+          )
         )}
 
         {/* TAB 2: SS3 MOCK RESULTS */}
@@ -694,6 +702,15 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
         {/* TAB 3: OFFICIAL PRINTABLE RESULT SLIP */}
         {profileTab === 'printable-slip' && (
+          isStudent && isLockedForFees ? (
+            <div className="space-y-4">
+              <FeeWithheldNotice
+                studentName={`${student.firstName} ${student.surname}`}
+                studentId={student.studentId}
+                reason={lockDetails?.reason || 'Outstanding tuition / school fees for the current academic session'}
+              />
+            </div>
+          ) : (
           <div className="bg-slate-900 border-2 border-slate-700 rounded-3xl p-8 sm:p-12 shadow-2xl relative overflow-hidden print:p-0 print:border-none print:shadow-none print:bg-white print:text-black">
             {/* Header with Crest */}
             <div className="flex flex-col items-center text-center pb-6 border-b-2 border-emerald-600 print:border-black">
@@ -819,6 +836,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
               </div>
             </div>
           </div>
+          )
         )}
       </div>
     </ErrorBoundary>

@@ -462,21 +462,6 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
     window.print();
   };
 
-  // Bursary fee lock restriction for student portal
-  const activeStudentId = candidateStudentNumber || user?.studentId || (user as any)?.studentProfile?.studentId || (user as any)?.uid || String(user?.id || '');
-  if (isStudent && isStudentFeeLocked(activeStudentId)) {
-    const lockDetails = getStudentFeeLockDetails(activeStudentId);
-    return (
-      <div className="py-6">
-        <FeeWithheldNotice
-          studentName={user ? `${user.firstName} ${user.lastName || user.surname || ''}` : 'SS3 Candidate'}
-          studentId={String(activeStudentId || '')}
-          reason={lockDetails?.reason || 'Outstanding tuition / school fees for the current academic session'}
-        />
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
       {/* Top Banner / Student Identity Bar */}
