@@ -20,7 +20,8 @@ import {
   gradingRules,
   academicSessions,
   auditLogs,
-  schools
+  schools,
+  complaints
 } from './src/db/schema.ts';
 import { eq, ilike, or, and, desc, sql, isNull } from 'drizzle-orm';
 import { authenticate, AuthRequest } from './src/middleware/auth.ts';
@@ -38,14 +39,33 @@ const port = parseInt(process.env.PORT || '3000', 10);
 
 app.use(express.json({ limit: '10mb' }));
 
-// Initialize DB tables and seed data
-let pool: any = null;
-if (!process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
-  pool = createPool();
-  ensureTablesExist(pool)
-    .then(() => seedDatabase())
-    .catch((err) => console.error('DB init/seed error:', err));
+// Resilient DB initialization & table ensuring for both local and serverless (Vercel)
+let dbInitPromise: Promise<void> | null = null;
+export async function ensureDbReady(): Promise<void> {
+  if (!dbInitPromise) {
+    const p = createPool();
+    dbInitPromise = ensureTablesExist(p)
+      .then(() => seedDatabase())
+      .catch((err) => {
+        console.error('Lazy DB init/seed error:', err);
+        dbInitPromise = null;
+      });
+  }
+  return dbInitPromise;
 }
+
+if (!process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
+  ensureDbReady();
+}
+
+app.use(async (req, _res, next) => {
+  if (req.path.startsWith('/api')) {
+    try {
+      await ensureDbReady();
+    } catch (_) {}
+  }
+  next();
+});
 
 // ----------------------------------------------------
 // 1. AUTHENTICATION & REGISTRATION ENDPOINTS
@@ -322,6 +342,7 @@ app.get('/api/dashboard/stats', authenticate, async (req: AuthRequest, res) => {
     const schoolId = req.appUser?.schoolId || 1;
 
     const [studentsCount] = await db.select({ count: sql<number>`count(*)::int` }).from(students);
+    const [teachersCount] = await db.select({ count: sql<number>`count(*)::int` }).from(teachers);
     const [quizzesCount] = await db.select({ count: sql<number>`count(*)::int` }).from(quizzes);
     const [questionsCount] = await db.select({ count: sql<number>`count(*)::int` }).from(questions);
     const [assessmentsCount] = await db.select({ count: sql<number>`count(*)::int` }).from(assessments);
@@ -356,6 +377,8 @@ app.get('/api/dashboard/stats', authenticate, async (req: AuthRequest, res) => {
     return res.json({
       stats: {
         totalStudents: studentsCount?.count || 0,
+        totalTeachers: Math.max(teachersCount?.count || 0, 1),
+        totalStaff: Math.max(teachersCount?.count || 0, 1),
         totalQuizzes: quizzesCount?.count || 0,
         totalQuestions: questionsCount?.count || 0,
         totalAssessments: assessmentsCount?.count || 0,
@@ -803,8 +826,9 @@ app.get('/api/bursar/locks', authenticate, async (_req: AuthRequest, res) => {
 app.post('/api/bursar/lock-student', authenticate, async (req: AuthRequest, res) => {
   try {
     const role = req.appUser?.role;
-    if (role !== 'bursar' && role !== 'admin' && role !== 'super_admin') {
-      return res.status(403).json({ error: 'Permission denied. Only Bursars and Administrators can modify student fee clearance locks.' });
+    const isAllowed = role === 'bursar' || role === 'super_admin' || role === 'director' || role === 'principal';
+    if (!isAllowed) {
+      return res.status(403).json({ error: 'Permission denied. Only Bursars and Executive Leadership (Super Admin, Director, Principal) can modify student fee clearance locks. Regular Admins do not have bursary access.' });
     }
 
     const { studentId, locked, reason, balance } = req.body;
@@ -824,6 +848,79 @@ app.post('/api/bursar/lock-student', authenticate, async (req: AuthRequest, res)
 
     inMemoryFeeLocks[cleanId] = lockRecord;
     return res.json({ success: true, record: lockRecord });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Class Fees Designated Amount Endpoints
+const inMemoryClassFees: Record<string, number> = {
+  'Primary 5': 120000,
+  'JSS 1': 150000,
+  'JSS 2': 150000,
+  'JSS 3': 160000,
+  'SS 1': 180000,
+  'SS 2': 180000,
+  'SS 3': 220000,
+};
+
+app.get('/api/bursar/class-fees', authenticate, async (_req: AuthRequest, res) => {
+  return res.json({ fees: inMemoryClassFees });
+});
+
+app.post('/api/bursar/class-fees', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const role = req.appUser?.role;
+    const isAllowed = role === 'bursar' || role === 'super_admin' || role === 'director' || role === 'principal';
+    if (!isAllowed) {
+      return res.status(403).json({ error: 'Permission denied. Only Bursars and Executive Leadership can configure class fees.' });
+    }
+    const { fees } = req.body;
+    if (fees && typeof fees === 'object') {
+      Object.assign(inMemoryClassFees, fees);
+    }
+    return res.json({ success: true, fees: inMemoryClassFees });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Student Payments / Debtors Records Endpoints
+const inMemoryStudentPayments: Record<string, any> = {};
+
+app.get('/api/bursar/payments', authenticate, async (_req: AuthRequest, res) => {
+  return res.json({ payments: inMemoryStudentPayments });
+});
+
+app.post('/api/bursar/payments', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const role = req.appUser?.role;
+    const isAllowed = role === 'bursar' || role === 'super_admin' || role === 'director' || role === 'principal';
+    if (!isAllowed) {
+      return res.status(403).json({ error: 'Permission denied. Only Bursars and Executive Leadership can record student fee payments.' });
+    }
+    const { studentId, amountPaid, receiptNo, note } = req.body;
+    if (!studentId) {
+      return res.status(400).json({ error: 'Student ID is required' });
+    }
+    const cleanId = String(studentId).trim().toUpperCase();
+    const existing = inMemoryStudentPayments[cleanId] || { studentId: cleanId, amountPaid: 0, history: [] };
+    const numPaid = parseFloat(amountPaid) || 0;
+    
+    existing.amountPaid = numPaid;
+    existing.lastPaymentDate = new Date().toISOString();
+    existing.history = existing.history || [];
+    existing.history.push({
+      id: `rcpt_${Date.now()}`,
+      amount: numPaid,
+      date: new Date().toISOString(),
+      receiptNo: receiptNo || `FIS-${Date.now().toString().slice(-6)}`,
+      note: note || 'Tuition payment',
+      recordedBy: `${req.appUser?.firstName || 'Staff'} (${req.appUser?.role || 'Bursary'})`,
+    });
+
+    inMemoryStudentPayments[cleanId] = existing;
+    return res.json({ success: true, record: existing });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
@@ -1478,6 +1575,15 @@ app.post('/api/ss3-mock/scores', authenticate, async (req: AuthRequest, res) => 
     const savedResults: any[] = [];
 
     for (const item of scores) {
+      // If a teacher did not input a score for this subject (blank / empty raw score and 0 score),
+      // DO NOT wipe or overwrite any existing score previously entered by another teacher!
+      const rawStr = item.rawScore !== undefined && item.rawScore !== null ? String(item.rawScore).trim() : '';
+      const hasExplicitScore = rawStr !== '' || (item.score !== undefined && item.score !== null && Number(item.score) > 0);
+      if (!hasExplicitScore) {
+        // Teacher did not enter a score for this subject in this submission; preserve previously saved score!
+        continue;
+      }
+
       // Find subject by ID or by name
       let sub = allSubjects.find((s) => s.id === Number(item.subjectId));
       if (!sub && item.subjectName) {
@@ -2270,17 +2376,39 @@ app.get('/api/admin/teachers', authenticate, async (req: AuthRequest, res) => {
   }
 });
 
-// Super Admin: Add a new teacher
+// Add or Register Faculty Member / Executive (Super Admin, Director, Principal, Admin)
 app.post('/api/admin/teachers', authenticate, async (req: AuthRequest, res) => {
   try {
-    if (req.appUser?.role !== 'super_admin') {
-      return res.status(403).json({ error: 'Access denied: Super Admin authorization required' });
+    const callerRole = req.appUser?.role;
+    const canRegister = callerRole === 'super_admin' || callerRole === 'director' || callerRole === 'principal' || callerRole === 'admin';
+    if (!canRegister) {
+      return res.status(403).json({ error: 'Access denied: Administrative authorization required' });
     }
 
-    const { firstName, lastName, email, phone, schoolName, password } = req.body;
+    const { firstName, lastName, email, phone, schoolName, password, role: requestedRole } = req.body;
 
     if (!firstName || !lastName || !email || !password) {
       return res.status(400).json({ error: 'First name, last name, email, and password are required' });
+    }
+
+    // Role Assignment Permissions:
+    // Only Victor Alo (super_admin) can assign 'director' or 'principal'
+    // 'super_admin' can NEVER be assigned to anyone else (Victor is the sole super admin)
+    let assignedRole = 'teacher';
+    const targetRole = (requestedRole || 'teacher').toLowerCase().trim();
+
+    if (targetRole === 'director' || targetRole === 'principal') {
+      if (callerRole !== 'super_admin') {
+        return res.status(403).json({ error: 'Permission denied. Only Super Administrator (Victor Alo) has executive authority to create and assign the School Director or Principal.' });
+      }
+      assignedRole = targetRole;
+    } else if (targetRole === 'admin' || targetRole === 'bursar') {
+      if (callerRole !== 'super_admin' && callerRole !== 'director' && callerRole !== 'principal') {
+        return res.status(403).json({ error: 'Permission denied. Only Super Admin, Director, or Principal can assign Administrator or Bursar roles.' });
+      }
+      assignedRole = targetRole;
+    } else {
+      assignedRole = 'teacher';
     }
 
     const existing = await db.select().from(users).where(eq(users.email, email.toLowerCase().trim())).limit(1);
@@ -2291,19 +2419,20 @@ app.post('/api/admin/teachers', authenticate, async (req: AuthRequest, res) => {
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
 
-    const generatedUid = `tch_usr_${Date.now()}`;
+    const generatedUid = `${assignedRole}_usr_${Date.now()}`;
     const [newUser] = await db.insert(users).values({
       uid: generatedUid,
       email: email.toLowerCase().trim(),
       passwordHash,
       firstName: firstName.trim(),
       lastName: lastName.trim(),
-      role: 'teacher',
+      role: assignedRole,
       schoolId: 1,
     }).returning();
 
     const teacherYear = new Date().getFullYear();
-    const teacherId = `TCH-${teacherYear}-${String(newUser.id).padStart(4, '0')}`;
+    const prefix = assignedRole === 'director' ? 'DIR' : assignedRole === 'principal' ? 'PRN' : assignedRole === 'admin' ? 'ADM' : assignedRole === 'bursar' ? 'BUR' : 'TCH';
+    const teacherId = `${prefix}-${teacherYear}-${String(newUser.id).padStart(4, '0')}`;
 
     const [newTeacher] = await db.insert(teachers).values({
       userId: newUser.id,
@@ -2316,15 +2445,15 @@ app.post('/api/admin/teachers', authenticate, async (req: AuthRequest, res) => {
     // Audit log
     await db.insert(auditLogs).values({
       actorName: `${req.appUser?.firstName} ${req.appUser?.lastName}`,
-      actorRole: 'super_admin',
-      action: 'TEACHER_CREATED_BY_ADMIN',
-      targetEntity: 'teachers',
-      details: `Super Admin created teacher ${teacherId} (${newUser.firstName} ${newUser.lastName})`,
+      actorRole: callerRole || 'super_admin',
+      action: 'FACULTY_ACCOUNT_CREATED',
+      targetEntity: 'users',
+      details: `${callerRole} created account ${teacherId} with role '${assignedRole}' for ${newUser.firstName} ${newUser.lastName}`,
       schoolId: 1,
     });
 
     return res.status(201).json({
-      message: 'Teacher account created successfully by Super Admin',
+      message: `Account created successfully with role '${assignedRole}'`,
       teacher: {
         id: newTeacher.id,
         userId: newUser.id,
@@ -2332,21 +2461,23 @@ app.post('/api/admin/teachers', authenticate, async (req: AuthRequest, res) => {
         firstName: newUser.firstName,
         lastName: newUser.lastName,
         email: newUser.email,
+        role: assignedRole,
         phone: newTeacher.phone,
         schoolName: newTeacher.schoolName,
       },
     });
   } catch (error: any) {
-    console.error('Super Admin create teacher error:', error);
-    return res.status(500).json({ error: error.message || 'Failed to create teacher' });
+    console.error('Create faculty member error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to create account' });
   }
 });
 
-// Super Admin: Delete Teacher
+// Delete Teacher (Super Admin, Director, Principal)
 app.delete('/api/admin/teachers/:id', authenticate, async (req: AuthRequest, res) => {
   try {
-    if (req.appUser?.role !== 'super_admin') {
-      return res.status(403).json({ error: 'Access denied: Super Admin authorization required' });
+    const role = req.appUser?.role;
+    if (role !== 'super_admin' && role !== 'director' && role !== 'principal') {
+      return res.status(403).json({ error: 'Access denied: Executive leadership authorization required to delete faculty.' });
     }
 
     const rawId = req.params.id;
@@ -2380,28 +2511,26 @@ app.delete('/api/admin/teachers/:id', authenticate, async (req: AuthRequest, res
 
     await db.insert(auditLogs).values({
       actorName: `${req.appUser?.firstName} ${req.appUser?.lastName}`,
-      actorRole: 'super_admin',
+      actorRole: role || 'super_admin',
       action: 'TEACHER_DELETED',
       targetEntity: 'teachers',
-      details: `Faculty member deleted: Teacher ID ${targetTeacher.teacherId}`,
-      schoolId: req.appUser?.schoolId || 1,
+      details: `${role} deleted faculty member ${targetTeacher.teacherId}`,
+      schoolId: 1,
     });
 
-    return res.json({
-      success: true,
-      message: `Teacher account ${targetTeacher.teacherId} deleted successfully.`,
-    });
+    return res.json({ success: true, message: `Teacher ${targetTeacher.teacherId} deleted successfully.` });
   } catch (error: any) {
     console.error('Delete teacher error:', error);
     return res.status(500).json({ error: error.message || 'Failed to delete teacher' });
   }
 });
 
-// Super Admin: Update Teacher Details
+// Executive Leadership (Super Admin, Director, Principal): Update Teacher Details
 app.put('/api/admin/teachers/:id', authenticate, async (req: AuthRequest, res) => {
   try {
-    if (req.appUser?.role !== 'super_admin') {
-      return res.status(403).json({ error: 'Access denied: Super Admin authorization required' });
+    const callerRole = req.appUser?.role;
+    if (callerRole !== 'super_admin' && callerRole !== 'director' && callerRole !== 'principal') {
+      return res.status(403).json({ error: 'Access denied: Executive leadership authorization required' });
     }
 
     const rawId = req.params.id;
@@ -2435,8 +2564,23 @@ app.put('/api/admin/teachers/:id', authenticate, async (req: AuthRequest, res) =
       if (firstName !== undefined) userUpdates.firstName = firstName.trim();
       if (lastName !== undefined) userUpdates.lastName = lastName.trim();
       if (email !== undefined) userUpdates.email = email.toLowerCase().trim();
-      if (role !== undefined) {
-        userUpdates.role = (role === 'admin' || role === 'super_admin') ? 'super_admin' : 'teacher';
+      
+      // Victor Alo is the sole Super Admin; others receive their assigned role
+      const isTargetVictor = (targetTeacher.email?.toLowerCase() === 'victoralo1862@gmail.com') || (email?.toLowerCase() === 'victoralo1862@gmail.com');
+      if (isTargetVictor) {
+        userUpdates.role = 'super_admin';
+      } else if (role !== undefined) {
+        const cleanRole = String(role).toLowerCase().trim();
+        if (cleanRole === 'director' || cleanRole === 'principal') {
+          if (callerRole !== 'super_admin') {
+            return res.status(403).json({ error: 'Only Super Admin Victor Alo can assign Director or Principal roles' });
+          }
+          userUpdates.role = cleanRole;
+        } else if (cleanRole === 'admin' || cleanRole === 'bursar' || cleanRole === 'teacher') {
+          userUpdates.role = cleanRole;
+        } else {
+          userUpdates.role = 'teacher';
+        }
       }
 
       if (password && password.trim().length > 0) {
@@ -2452,10 +2596,10 @@ app.put('/api/admin/teachers/:id', authenticate, async (req: AuthRequest, res) =
     // Audit log
     await db.insert(auditLogs).values({
       actorName: `${req.appUser?.firstName} ${req.appUser?.lastName}`,
-      actorRole: 'super_admin',
+      actorRole: req.appUser?.role || 'executive',
       action: 'TEACHER_UPDATED_BY_ADMIN',
       targetEntity: 'teachers',
-      details: `Super Admin updated faculty record: ${firstName || ''} ${lastName || ''} (${targetTeacher.teacherId})`,
+      details: `Executive updated faculty record: ${firstName || ''} ${lastName || ''} (${targetTeacher.teacherId})`,
       schoolId: 1,
     });
 
@@ -2558,16 +2702,24 @@ app.post('/api/admin/reallocate-teacher-assets', authenticate, async (req: AuthR
   }
 });
 
-// Super Admin: Delete User
+// In-memory fallback for complaints if table creation is deferred
+const inMemoryComplaints: any[] = [];
+
+// Delete User (Super Admin, Director, Principal)
 app.delete('/api/admin/users/:id', authenticate, async (req: AuthRequest, res) => {
   try {
-    if (req.appUser?.role !== 'super_admin') {
-      return res.status(403).json({ error: 'Access denied: Super Admin authorization required' });
+    const callerRole = req.appUser?.role;
+    if (callerRole !== 'super_admin' && callerRole !== 'director' && callerRole !== 'principal') {
+      return res.status(403).json({ error: 'Access denied: Executive leadership authorization required' });
     }
 
     const userId = Number(req.params.id);
     if (isNaN(userId)) {
       return res.status(400).json({ error: 'Invalid user ID' });
+    }
+
+    if (userId === 1) {
+      return res.status(400).json({ error: 'Super Administrator account (Victor Alo) cannot be deleted.' });
     }
 
     await db.delete(users).where(eq(users.id, userId));
@@ -2577,11 +2729,12 @@ app.delete('/api/admin/users/:id', authenticate, async (req: AuthRequest, res) =
   }
 });
 
-// Super Admin: List all system users across roles
+// List all system users across roles (Super Admin, Director, Principal, Admin)
 app.get('/api/admin/users', authenticate, async (req: AuthRequest, res) => {
   try {
-    if (req.appUser?.role !== 'super_admin') {
-      return res.status(403).json({ error: 'Access denied: Super Admin authorization required' });
+    const role = req.appUser?.role;
+    if (role !== 'super_admin' && role !== 'director' && role !== 'principal' && role !== 'admin') {
+      return res.status(403).json({ error: 'Access denied: Administrative authorization required' });
     }
 
     const allUsers = await db
@@ -2602,11 +2755,12 @@ app.get('/api/admin/users', authenticate, async (req: AuthRequest, res) => {
   }
 });
 
-// Super Admin: Database Explorer (Inspect tables & row counts live)
+// Database Explorer (Super Admin, Director, Principal)
 app.get('/api/admin/database-explorer', authenticate, async (req: AuthRequest, res) => {
   try {
-    if (req.appUser?.role !== 'super_admin') {
-      return res.status(403).json({ error: 'Access denied: Super Admin authorization required' });
+    const role = req.appUser?.role;
+    if (role !== 'super_admin' && role !== 'director' && role !== 'principal') {
+      return res.status(403).json({ error: 'Access denied: Executive authorization required' });
     }
 
     const tablesQuery = await db.execute(sql`
@@ -2640,11 +2794,12 @@ app.get('/api/admin/database-explorer', authenticate, async (req: AuthRequest, r
   }
 });
 
-// Super Admin: System Overview & Stats
+// System Overview & Stats (Super Admin, Director, Principal, Admin)
 app.get('/api/admin/overview', authenticate, async (req: AuthRequest, res) => {
   try {
-    if (req.appUser?.role !== 'super_admin') {
-      return res.status(403).json({ error: 'Access denied: Super Admin authorization required' });
+    const role = req.appUser?.role;
+    if (role !== 'super_admin' && role !== 'director' && role !== 'principal' && role !== 'admin') {
+      return res.status(403).json({ error: 'Access denied: Administrative authorization required' });
     }
 
     const [usersCount] = await db.select({ count: sql<number>`count(*)::int` }).from(users);
@@ -2673,6 +2828,127 @@ app.get('/api/admin/overview', authenticate, async (req: AuthRequest, res) => {
     });
   } catch (error: any) {
     return res.status(500).json({ error: error.message });
+  }
+});
+
+// ----------------------------------------------------
+// ANONYMOUS COMPLAINTS & SUGGESTIONS ENDPOINTS
+// ----------------------------------------------------
+
+// 1. Submit Anonymous Complaint / Suggestion (PUBLIC - NO AUTH REQUIRED)
+app.post('/api/complaints', async (req, res) => {
+  try {
+    const { category, priority, subject, message, targetRole, referenceCode } = req.body;
+
+    if (!subject || !message) {
+      return res.status(400).json({ error: 'Subject and detailed message are required.' });
+    }
+
+    const ref = referenceCode || `FIS-CMP-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
+
+    const newRecord = {
+      referenceCode: ref,
+      category: category || 'General Suggestion',
+      priority: priority || 'Routine',
+      subject: subject.trim(),
+      message: message.trim(),
+      targetRole: targetRole || 'Super Admin, Principal & Director',
+      status: 'pending',
+      executiveNotes: null,
+      schoolId: 1,
+      createdAt: new Date().toISOString(),
+    };
+
+    inMemoryComplaints.unshift(newRecord);
+
+    try {
+      const [inserted] = await db.insert(complaints).values({
+        referenceCode: ref,
+        category: newRecord.category,
+        priority: newRecord.priority,
+        subject: newRecord.subject,
+        message: newRecord.message,
+        targetRole: newRecord.targetRole,
+        status: 'pending',
+        schoolId: 1,
+      }).returning();
+
+      return res.status(201).json({
+        success: true,
+        referenceCode: ref,
+        complaint: inserted,
+      });
+    } catch (dbErr) {
+      console.warn('Complaints DB table insert deferred, using in-memory store:', dbErr);
+      return res.status(201).json({
+        success: true,
+        referenceCode: ref,
+        complaint: newRecord,
+      });
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Failed to submit anonymous suggestion' });
+  }
+});
+
+// 2. Fetch Anonymous Complaints (DIRECT TO SUPER ADMIN, PRINCIPAL & DIRECTOR ONLY)
+app.get('/api/complaints', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const role = req.appUser?.role;
+    const isExecutive = role === 'super_admin' || role === 'director' || role === 'principal';
+    if (!isExecutive) {
+      return res.status(403).json({ error: 'Access denied: Only Super Administrator, School Director, and Principal have access to the confidential suggestion box.' });
+    }
+
+    try {
+      const dbList = await db.select().from(complaints).orderBy(desc(complaints.createdAt));
+      // Merge with in-memory store
+      const map = new Map<string, any>();
+      inMemoryComplaints.forEach((c) => map.set(c.referenceCode, c));
+      dbList.forEach((c) => map.set(c.referenceCode, c));
+
+      const merged = Array.from(map.values()).sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+      return res.json({ complaints: merged });
+    } catch (dbErr) {
+      return res.json({ complaints: inMemoryComplaints });
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 3. Update Complaint Status & Executive Notes (SUPER ADMIN, PRINCIPAL & DIRECTOR ONLY)
+app.patch('/api/complaints/:referenceCode', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const role = req.appUser?.role;
+    const isExecutive = role === 'super_admin' || role === 'director' || role === 'principal';
+    if (!isExecutive) {
+      return res.status(403).json({ error: 'Access denied: Executive leadership required.' });
+    }
+
+    const { referenceCode } = req.params;
+    const { status, executiveNotes } = req.body;
+
+    const inMem = inMemoryComplaints.find((c) => c.referenceCode === referenceCode);
+    if (inMem) {
+      if (status) inMem.status = status;
+      if (executiveNotes !== undefined) inMem.executiveNotes = executiveNotes;
+      if (status === 'resolved') inMem.resolvedAt = new Date().toISOString();
+    }
+
+    try {
+      await db.update(complaints).set({
+        status: status || undefined,
+        executiveNotes: executiveNotes !== undefined ? executiveNotes : undefined,
+        resolvedAt: status === 'resolved' ? new Date() : undefined,
+      }).where(eq(complaints.referenceCode, referenceCode));
+    } catch (_) {}
+
+    return res.json({ success: true, referenceCode });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
   }
 });
 

@@ -205,6 +205,21 @@ export async function ensureTablesExist(pool: Pool) {
       school_id INTEGER REFERENCES schools(id),
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS complaints (
+      id SERIAL PRIMARY KEY,
+      reference_code TEXT NOT NULL UNIQUE,
+      category TEXT NOT NULL DEFAULT 'General Suggestion',
+      priority TEXT NOT NULL DEFAULT 'Routine',
+      subject TEXT NOT NULL,
+      message TEXT NOT NULL,
+      target_role TEXT DEFAULT 'Executive Leadership',
+      status TEXT NOT NULL DEFAULT 'pending',
+      executive_notes TEXT,
+      school_id INTEGER REFERENCES schools(id),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+      resolved_at TIMESTAMP
+    );
   `;
 
   try {

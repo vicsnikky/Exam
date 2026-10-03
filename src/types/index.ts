@@ -68,6 +68,20 @@ export interface ClassFeeConfig {
   session?: string;
 }
 
+export interface AnonymousComplaint {
+  id: string;
+  referenceNo: string;
+  category: 'suggestion' | 'academic' | 'facility' | 'welfare' | 'complaint' | 'appreciation';
+  title: string;
+  message: string;
+  priority: 'routine' | 'important' | 'urgent';
+  targetOffice: 'director' | 'principal' | 'super_admin' | 'general';
+  status: 'pending' | 'under_review' | 'resolved' | 'archived';
+  adminNotes?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export interface Subject {
   id: number;
   name: string;

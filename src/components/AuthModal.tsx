@@ -10,10 +10,12 @@ import {
   ArrowRight,
   CheckCircle2,
   Eye,
-  EyeOff
+  EyeOff,
+  MessageSquareWarning
 } from 'lucide-react';
 import { extractErrorMessage } from '../lib/error.ts';
 import { authenticateLocalTeacher, authenticateLocalStudent } from '../lib/schoolStore.ts';
+import { AnonymousComplaintModal } from './AnonymousComplaintModal.tsx';
 
 interface AuthModalProps {
   onSuccess?: () => void;
@@ -33,6 +35,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
   // Common Login Form states
   const [emailOrId, setEmailOrId] = useState('');
   const [password, setPassword] = useState('');
+  const [showComplaintModal, setShowComplaintModal] = useState(false);
 
   // 1. Faculty / Admin Login
   const handleTeacherLogin = async (e: React.FormEvent) => {
@@ -349,6 +352,27 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
             </div>
           </form>
         )}
+
+        {/* 3. ANONYMOUS COMPLAINTS / SUGGESTIONS BOX (No login required) */}
+        <div className="mt-6 pt-5 border-t border-slate-800 text-center">
+          <button
+            type="button"
+            onClick={() => setShowComplaintModal(true)}
+            className="w-full py-2.5 px-4 bg-slate-950 hover:bg-slate-800/90 text-amber-300 hover:text-amber-200 border border-amber-500/30 hover:border-amber-400/60 rounded-xl text-xs font-semibold flex items-center justify-center gap-2.5 transition shadow-lg cursor-pointer group"
+          >
+            <MessageSquareWarning className="w-4 h-4 text-amber-400 group-hover:scale-110 transition shrink-0" />
+            <span>Anonymous Complaint & Suggestion Box</span>
+          </button>
+          <p className="text-[10px] text-slate-400 mt-1.5">
+            Delivered directly to School Director, Principal & Super Admin • No login or name required
+          </p>
+        </div>
+
+        {/* Modal */}
+        <AnonymousComplaintModal
+          isOpen={showComplaintModal}
+          onClose={() => setShowComplaintModal(false)}
+        />
 
       </div>
     </div>

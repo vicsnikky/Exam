@@ -279,34 +279,18 @@ function addLocalDeleted(key: string, id: string | number) {
 
 export function getLocalStudents(): Student[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.STUDENTS);
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEYS.STUDENTS) : null;
     const deletedSet = getLocalDeleted(STORAGE_KEYS.DELETED_STUDENT_IDS);
 
     let list: Student[] = [];
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        list = parsed.filter((s) => {
-          const sName = `${s.firstName || ''} ${s.surname || ''}`.toLowerCase();
-          const sId = (s.studentId || '').toUpperCase();
-          // Filter out old generic mock students
-          const isGenericMock =
-            sName.includes('chiamaka') ||
-            sName.includes('emeka') ||
-            sName.includes('zainab') ||
-            sName.includes('tunde adeyemi') ||
-            sName.includes('somtochukwu') ||
-            sId === 'FEN-2026-000005' ||
-            sId === 'FEN-2026-000006' ||
-            sId === 'FEN-2026-000007' ||
-            sId === 'FEN-2026-000008' ||
-            sId === 'FEN-2026-000009';
-          return !isGenericMock;
-        });
+        list = parsed;
       }
     }
 
-    // Filter out deleted students
+    // Filter out permanently deleted students
     const cleanList = list.filter((s) => !deletedSet.has(String(s.id)) && !deletedSet.has(String(s.studentId)));
     return cleanList;
   } catch (_) {
@@ -316,8 +300,10 @@ export function getLocalStudents(): Student[] {
 
 export function saveLocalStudents(students: Student[]) {
   try {
-    localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(students));
-    window.dispatchEvent(new CustomEvent('fis:students-updated', { detail: students }));
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(students));
+      window.dispatchEvent(new CustomEvent('fis:students-updated', { detail: students }));
+    }
   } catch (_) {}
 }
 
@@ -405,7 +391,7 @@ export async function fetchAllStudentsUnified(token?: string | null): Promise<St
 
 export function getLocalTeachers(): TeacherRecord[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.TEACHERS);
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEYS.TEACHERS) : null;
     const deletedSet = getLocalDeleted(STORAGE_KEYS.DELETED_TEACHER_IDS);
 
     let list: TeacherRecord[] = [];
@@ -414,27 +400,20 @@ export function getLocalTeachers(): TeacherRecord[] {
       if (Array.isArray(parsed) && parsed.length > 0) {
         list = parsed.filter((t) => {
           const tEmail = (t.email || '').toLowerCase().trim();
-          const tId = (t.teacherId || '').toUpperCase();
-          // Filter out old generic mock teachers
-          const isGenericMock =
-            tEmail.includes('b.fashola') ||
-            tEmail.includes('n.okonjo') ||
-            tEmail.includes('k.uzor') ||
-            tEmail === 'teacher@school.edu' ||
-            tId === 'TCH-2026-0002' ||
-            tId === 'TCH-2026-0003' ||
-            tId === 'TCH-2026-0004';
-          return !isGenericMock;
+          // Filter out dummy email
+          return tEmail !== 'teacher@school.edu';
         });
       }
     }
 
     if (list.length === 0) {
       list = [...DEFAULT_TEACHERS];
-      localStorage.setItem(STORAGE_KEYS.TEACHERS, JSON.stringify(list));
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(STORAGE_KEYS.TEACHERS, JSON.stringify(list));
+      }
     }
 
-    // Always include Super Admin if missing
+    // Always include Victor Alo (Super Admin) if missing
     if (!list.some((t) => t.email.toLowerCase() === 'victoralo1862@gmail.com' || t.role === 'super_admin')) {
       list.unshift(DEFAULT_TEACHERS[0]);
     }
@@ -450,9 +429,98 @@ export function getLocalTeachers(): TeacherRecord[] {
 
 export function saveLocalTeachers(teachers: TeacherRecord[]) {
   try {
-    localStorage.setItem(STORAGE_KEYS.TEACHERS, JSON.stringify(teachers));
-    window.dispatchEvent(new CustomEvent('fis:teachers-updated', { detail: teachers }));
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(STORAGE_KEYS.TEACHERS, JSON.stringify(teachers));
+      window.dispatchEvent(new CustomEvent('fis:teachers-updated', { detail: teachers }));
+    }
   } catch (_) {}
+}
+
+export async function fetchTeachersUnified(token?: string | null): Promise<TeacherRecord[]> {
+  const localList = getLocalTeachers();
+  const mergedMap = new Map<string, TeacherRecord>();
+
+  // 1. Add local baseline
+  for (const t of localList) {
+    const key = (t.email || t.teacherId || String(t.id)).toLowerCase().trim();
+    if (key) mergedMap.set(key, t);
+  }
+
+  // Always guarantee Victor Alo is preserved as Super Admin
+  mergedMap.set('victoralo1862@gmail.com', {
+    ...DEFAULT_TEACHERS[0],
+    role: 'super_admin',
+  });
+
+  // 2. Fetch from backend API
+  try {
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch('/api/admin/teachers', { headers });
+    if (res.ok) {
+      const text = await res.text();
+      if (text && (text.startsWith('{') || text.startsWith('['))) {
+        const data = JSON.parse(text);
+        const serverTeachers: any[] = data.teachers || [];
+        for (const st of serverTeachers) {
+          const key = (st.email || st.teacherId || String(st.id)).toLowerCase().trim();
+          if (key) {
+            const existing = mergedMap.get(key);
+            mergedMap.set(key, {
+              id: st.id || existing?.id || Date.now(),
+              userId: st.userId || existing?.userId,
+              teacherId: st.teacherId || existing?.teacherId || `TCH-${String(st.id).padStart(4, '0')}`,
+              firstName: st.firstName || existing?.firstName || 'Faculty',
+              lastName: st.lastName || existing?.lastName || 'Member',
+              email: st.email || existing?.email || key,
+              phone: st.phone !== undefined ? st.phone : existing?.phone,
+              schoolName: st.schoolName || existing?.schoolName || 'Fenster International School',
+              role: st.role || existing?.role || 'teacher',
+              createdAt: st.createdAt || existing?.createdAt || new Date().toISOString(),
+            });
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Backend teachers fetch deferred:', err);
+  }
+
+  // 3. Query Supabase directly
+  try {
+    const { data: supaTeachers } = await supabase
+      .from('teachers')
+      .select('*, users(*)')
+      .order('created_at', { ascending: false });
+
+    if (supaTeachers && supaTeachers.length > 0) {
+      for (const st of supaTeachers) {
+        const u = st.users;
+        const key = (u?.email || st.teacher_id || String(st.id)).toLowerCase().trim();
+        if (key) {
+          const existing = mergedMap.get(key);
+          mergedMap.set(key, {
+            id: st.id || existing?.id || Date.now(),
+            userId: st.user_id || u?.id || existing?.userId,
+            teacherId: st.teacher_id || existing?.teacherId || `TCH-${String(st.id).padStart(4, '0')}`,
+            firstName: u?.first_name || existing?.firstName || 'Faculty',
+            lastName: u?.last_name || existing?.lastName || 'Member',
+            email: u?.email || existing?.email || key,
+            phone: st.phone || existing?.phone || null,
+            schoolName: st.school_name || existing?.schoolName || 'Fenster International School',
+            role: u?.role || existing?.role || 'teacher',
+            createdAt: st.created_at || existing?.createdAt || new Date().toISOString(),
+          });
+        }
+      }
+    }
+  } catch (supaErr) {
+    console.warn('Supabase teachers fetch deferred:', supaErr);
+  }
+
+  const merged = Array.from(mergedMap.values());
+  saveLocalTeachers(merged);
+  return merged;
 }
 
 // ----------------------------------------------------

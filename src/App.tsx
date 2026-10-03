@@ -17,6 +17,7 @@ import { SuperAdminDashboard } from './components/SuperAdminDashboard.tsx';
 import { SS3MockStudentDashboard } from './components/SS3MockStudentDashboard.tsx';
 import { SS3MockTeacherModule } from './components/SS3MockTeacherModule.tsx';
 import { BursarDashboard } from './components/BursarDashboard.tsx';
+import { AnonymousComplaintModal } from './components/AnonymousComplaintModal.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import {
   GraduationCap,
@@ -40,7 +41,8 @@ import {
   PenTool,
   CreditCard,
   Lock,
-  DollarSign
+  DollarSign,
+  MessageSquareWarning
 } from 'lucide-react';
 import { Student } from './types/index.ts';
 
@@ -49,8 +51,27 @@ export default function App() {
 
   const isStudent = user?.role === 'student';
   const isBursar = user?.role === 'bursar';
-  const isSuperAdmin = user?.role === 'super_admin' || user?.role === 'admin';
+  const isVictorSuperAdmin = user?.role === 'super_admin';
+  const isDirector = user?.role === 'director';
+  const isPrincipal = user?.role === 'principal';
+  const isAdminOnly = user?.role === 'admin';
+
+  // Executive leadership with supreme access to everything (Victor, Director, Principal)
+  const isExecutive = isVictorSuperAdmin || isDirector || isPrincipal;
+  // Leadership console access (Victor, Director, Principal, Admin)
+  const canAccessAdminConsole = isExecutive || isAdminOnly;
+  // Bursary access: Bursar + Executive Leadership. Regular Admin DOES NOT have Bursary access!
+  const hasBursarAccess = isBursar || isExecutive;
+  const canRegisterStudent = canAccessAdminConsole;
   const isTeacher = !isStudent && !isBursar;
+
+  const adminConsoleTitle = isVictorSuperAdmin
+    ? 'Super Admin Console'
+    : isDirector
+    ? 'Director Console'
+    : isPrincipal
+    ? 'Principal Console'
+    : 'Admin Console';
 
   const rawClass = (
     user?.currentClass ||
@@ -72,6 +93,7 @@ export default function App() {
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [searchInitialQuery, setSearchInitialQuery] = useState('');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [showAnonymousModal, setShowAnonymousModal] = useState(false);
 
   if (isLoading) {
     return (
@@ -104,9 +126,9 @@ export default function App() {
   const renderActiveTabContent = () => {
     switch (activeTab) {
       case 'super-admin':
-        return isSuperAdmin ? <SuperAdminDashboard /> : null;
+        return canAccessAdminConsole ? <SuperAdminDashboard /> : null;
       case 'bursar-console':
-        return isBursar || isSuperAdmin ? <BursarDashboard /> : null;
+        return hasBursarAccess ? <BursarDashboard /> : null;
       case 'dashboard':
         return !isStudent && !isBursar ? (
           <DashboardHome
@@ -115,7 +137,7 @@ export default function App() {
           />
         ) : null;
       case 'register-student':
-        return isSuperAdmin ? (
+        return canRegisterStudent ? (
           <StudentRegistration
             onStudentRegistered={navigateToStudentProfile}
             onNavigateSearch={handleSearchStudents}

@@ -31,10 +31,12 @@ import {
   ShieldCheck,
   RotateCcw,
   Sparkles,
+  MessageSquareWarning,
 } from 'lucide-react';
 import {
   getLocalTeachers,
   getLocalStudents,
+  fetchAllStudentsUnified,
   registerNewTeacher,
   updateTeacher,
   deleteTeacher,
@@ -52,9 +54,16 @@ import { RegistrationSuccessCard } from './RegistrationSuccessCard.tsx';
 import { DeleteConfirmModal } from './DeleteConfirmModal.tsx';
 import { EditStudentModal } from './EditStudentModal.tsx';
 import { EditTeacherModal } from './EditTeacherModal.tsx';
+import { ExecutiveComplaintsManager } from './ExecutiveComplaintsManager.tsx';
 
 export const SuperAdminDashboard: React.FC = () => {
   const { token, user } = useAuth();
+  const isVictorSuperAdmin = user?.role === 'super_admin';
+  const isDirector = user?.role === 'director';
+  const isPrincipal = user?.role === 'principal';
+  const isAdmin = user?.role === 'admin';
+  const isExecutive = isVictorSuperAdmin || isDirector || isPrincipal;
+
   const [overview, setOverview] = useState<any>({
     totalUsers: 1,
     totalTeachers: 1,
@@ -71,7 +80,7 @@ export const SuperAdminDashboard: React.FC = () => {
   const [usersList, setUsersList] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [selectedDbTable, setSelectedDbTable] = useState<string>('students');
-  const [activeAdminTab, setActiveAdminTab] = useState<'teachers' | 'reallocation' | 'vault' | 'database' | 'users' | 'audit'>('teachers');
+  const [activeAdminTab, setActiveAdminTab] = useState<'teachers' | 'reallocation' | 'vault' | 'database' | 'users' | 'audit' | 'complaints'>('teachers');
 
   // Asset Reallocation states
   const [selectedRecipientTeacher, setSelectedRecipientTeacher] = useState<string>('');
@@ -87,7 +96,7 @@ export const SuperAdminDashboard: React.FC = () => {
   const [phone, setPhone] = useState('');
   const [schoolName, setSchoolName] = useState('Fenster International School');
   const [password, setPassword] = useState('');
-  const [teacherRole, setTeacherRole] = useState<'teacher' | 'bursar' | 'admin' | 'super_admin'>('teacher');
+  const [teacherRole, setTeacherRole] = useState<'teacher' | 'bursar' | 'admin' | 'director' | 'principal'>('teacher');
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -213,38 +222,47 @@ export const SuperAdminDashboard: React.FC = () => {
       setSelectedRecipientTeacher(localTeachers[0].teacherId);
     }
 
-    // 2. Safe async fetch from backend
-    if (token) {
-      try {
-        const [overRes, tchRes, usrRes] = await Promise.all([
-          safeFetchJson<any>('/api/admin/overview', { headers: { Authorization: `Bearer ${token}` } }),
-          safeFetchJson<any>('/api/admin/teachers', { headers: { Authorization: `Bearer ${token}` } }),
-          safeFetchJson<any>('/api/admin/users', { headers: { Authorization: `Bearer ${token}` } }),
-        ]);
+    // 2. Safe async fetch from backend & live database
+    try {
+      const [fetchedStudents, overRes, tchRes, usrRes] = await Promise.all([
+        fetchAllStudentsUnified(token),
+        token ? safeFetchJson<any>('/api/admin/overview', { headers: { Authorization: `Bearer ${token}` } }) : Promise.resolve({ ok: false }),
+        token ? safeFetchJson<any>('/api/admin/teachers', { headers: { Authorization: `Bearer ${token}` } }) : Promise.resolve({ ok: false }),
+        token ? safeFetchJson<any>('/api/admin/users', { headers: { Authorization: `Bearer ${token}` } }) : Promise.resolve({ ok: false }),
+      ]);
 
-        if (overRes.ok && overRes.data?.overview) {
-          setOverview((prev: any) => ({
-            ...prev,
-            totalUsers: Math.max(overRes.data.overview.totalUsers || 0, initialUsers.length),
-            totalTeachers: Math.max(overRes.data.overview.totalTeachers || 0, localTeachers.length),
-            totalStudents: Math.max(overRes.data.overview.totalStudents || 0, localStudents.length),
-            totalQuizzes: overRes.data.overview.totalQuizzes || 0,
-            totalAssessments: overRes.data.overview.totalAssessments || 0,
-            totalSubjects: overRes.data.overview.totalSubjects || 9,
-          }));
-        }
-        if (overRes.ok && overRes.data?.recentLogs) {
-          setAuditLogs(overRes.data.recentLogs);
-        }
-        if (tchRes.ok && Array.isArray(tchRes.data?.teachers) && tchRes.data.teachers.length > 0) {
-          setTeachersList(tchRes.data.teachers);
-        }
-        if (usrRes.ok && Array.isArray(usrRes.data?.users) && usrRes.data.users.length > 0) {
-          setUsersList(usrRes.data.users);
-        }
-      } catch (e) {
-        console.warn('Backend admin sync fallback:', e);
+      if (Array.isArray(fetchedStudents) && fetchedStudents.length > 0) {
+        setStudentsList(fetchedStudents);
       }
+
+      const activeTeachers = tchRes.ok && Array.isArray(tchRes.data?.teachers) && tchRes.data.teachers.length > 0
+        ? tchRes.data.teachers
+        : localTeachers;
+
+      if (tchRes.ok && Array.isArray(tchRes.data?.teachers) && tchRes.data.teachers.length > 0) {
+        setTeachersList(tchRes.data.teachers);
+      }
+
+      if (usrRes.ok && Array.isArray(usrRes.data?.users) && usrRes.data.users.length > 0) {
+        setUsersList(usrRes.data.users);
+      }
+
+      if (overRes.ok && overRes.data?.recentLogs) {
+        setAuditLogs(overRes.data.recentLogs);
+      }
+
+      const serverOverview = overRes.ok && overRes.data?.overview ? overRes.data.overview : null;
+      setOverview((prev: any) => ({
+        ...prev,
+        totalUsers: Math.max(serverOverview?.totalUsers || 0, initialUsers.length),
+        totalTeachers: Math.max(serverOverview?.totalTeachers || 0, activeTeachers.length),
+        totalStudents: Math.max(serverOverview?.totalStudents || 0, (fetchedStudents || []).length, localStudents.length),
+        totalQuizzes: serverOverview?.totalQuizzes || prev.totalQuizzes || 0,
+        totalAssessments: serverOverview?.totalAssessments || prev.totalAssessments || 0,
+        totalSubjects: serverOverview?.totalSubjects || 9,
+      }));
+    } catch (e) {
+      console.warn('Backend admin sync fallback:', e);
     }
   };
 
@@ -475,7 +493,7 @@ export const SuperAdminDashboard: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Super Admin Top Banner */}
+      {/* Top Leadership Banner */}
       <div className="bg-gradient-to-r from-emerald-950 via-slate-900 to-amber-950/40 border border-amber-500/40 p-6 sm:p-8 rounded-2xl shadow-2xl fis-card-accent relative overflow-hidden">
         <div className="absolute right-0 top-0 bottom-0 opacity-10 pointer-events-none flex items-center pr-6">
           <img src={FIS_LOGOS.crest} alt="FIS Crest" className="h-56 w-auto" />
@@ -489,20 +507,46 @@ export const SuperAdminDashboard: React.FC = () => {
             <div>
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-semibold uppercase tracking-wider mb-1.5">
                 <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
-                Fenster International School • Super Admin Authority
+                {isVictorSuperAdmin
+                  ? 'Fenster International School • Super Administrator (Victor Alo)'
+                  : isDirector
+                  ? 'Fenster International School • Director / Proprietor Portal'
+                  : isPrincipal
+                  ? 'Fenster International School • Principal Executive Portal'
+                  : 'Fenster International School • Administrator Portal'}
               </div>
               <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
-                System Control & Staff Governance
+                {isVictorSuperAdmin
+                  ? 'System Control & Supreme Governance'
+                  : isDirector
+                  ? 'Executive Director Oversight & Governance'
+                  : isPrincipal
+                  ? 'Principal Academic & Institutional Leadership'
+                  : 'Administrative Governance & Staff Operations'}
               </h1>
               <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-2xl">
-                Super Admin governs all staff accounts, student enrollments, academic asset reallocations for departed teachers, and manages the Institutional Recovery Vault.
+                {isVictorSuperAdmin
+                  ? 'Super Administrator Victor Alo maintains supreme system authority, creates and assigns Director and Principal executive profiles, and oversees institutional records.'
+                  : isDirector
+                  ? 'Executive Director (School Owner) maintains supreme oversight across all school modules, including Bursary accounts, student enrollment, faculty, and confidential feedback.'
+                  : isPrincipal
+                  ? 'School Principal maintains comprehensive executive authority across academic grading, mock series, bursary records, faculty management, and confidential feedback.'
+                  : 'Administrator oversees faculty member onboarding, student admissions, questions bank, and departmental coordination.'}
               </p>
             </div>
           </div>
 
           <div className="bg-slate-950/80 border border-amber-500/30 p-4 rounded-xl text-xs space-y-1">
-            <span className="text-slate-400 block">Logged In Super Admin:</span>
-            <span className="text-white font-bold block">{user?.firstName} {user?.lastName}</span>
+            <span className="text-slate-400 block">
+              {isVictorSuperAdmin
+                ? 'Logged In Super Admin:'
+                : isDirector
+                ? 'Logged In Director (Owner):'
+                : isPrincipal
+                ? 'Logged In Principal:'
+                : 'Logged In Administrator:'}
+            </span>
+            <span className="text-white font-bold block">{user?.firstName} {user?.lastName || user?.surname}</span>
             <span className="text-amber-400 font-mono text-[11px]">{user?.email}</span>
           </div>
         </div>
@@ -590,12 +634,12 @@ export const SuperAdminDashboard: React.FC = () => {
       <div className="grid grid-cols-2 lg:grid-cols-6 gap-3.5">
         <div className="bg-slate-800/80 border border-slate-700 p-4 rounded-2xl">
           <span className="text-[11px] text-slate-400 font-medium block">Total Teachers</span>
-          <span className="text-xl font-bold text-white font-mono mt-1 block">{overview.totalTeachers}</span>
+          <span className="text-xl font-bold text-white font-mono mt-1 block">{Math.max(overview.totalTeachers, teachersList.length)}</span>
           <span className="text-[10px] text-indigo-400 mt-0.5 block">Active Faculty</span>
         </div>
         <div className="bg-slate-800/80 border border-slate-700 p-4 rounded-2xl">
           <span className="text-[11px] text-slate-400 font-medium block">Total Students</span>
-          <span className="text-xl font-bold text-emerald-400 font-mono mt-1 block">{studentsList.length}</span>
+          <span className="text-xl font-bold text-emerald-400 font-mono mt-1 block">{Math.max(overview.totalStudents, studentsList.length)}</span>
           <span className="text-[10px] text-slate-400 mt-0.5 block">Enrolled Scholars</span>
         </div>
         <div className="bg-slate-800/80 border border-slate-700 p-4 rounded-2xl">
@@ -707,16 +751,21 @@ export const SuperAdminDashboard: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-[11px] font-medium text-slate-300 mb-1">Faculty Role / Designation *</label>
+              <label className="block text-[11px] font-medium text-slate-300 mb-1">Role / Executive Designation *</label>
               <select
                 value={teacherRole}
                 onChange={(e) => setTeacherRole(e.target.value as any)}
                 className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500 font-semibold"
               >
                 <option value="teacher">Academic Faculty (Class Teacher / Examiner)</option>
-                <option value="bursar">Bursar (School Fees Clearance & Result Lock)</option>
+                <option value="bursar">Bursar (School Fees Clearance & Debtors Management)</option>
                 <option value="admin">Administrator (Faculty & Student Governance)</option>
-                <option value="super_admin">Super Administrator (Supreme Master Privileges)</option>
+                {isVictorSuperAdmin && (
+                  <>
+                    <option value="principal">School Principal (Executive Authority)</option>
+                    <option value="director">School Director (School Owner / Supreme Authority)</option>
+                  </>
+                )}
               </select>
             </div>
 
@@ -814,6 +863,19 @@ export const SuperAdminDashboard: React.FC = () => {
               <Activity className="w-3.5 h-3.5" />
               Audit Logs
             </button>
+            {isExecutive && (
+              <button
+                onClick={() => setActiveAdminTab('complaints')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                  activeAdminTab === 'complaints'
+                    ? 'bg-amber-500 text-slate-950 font-bold shadow'
+                    : 'text-amber-300 hover:text-white bg-amber-500/10 border border-amber-500/30'
+                }`}
+              >
+                <MessageSquareWarning className="w-3.5 h-3.5" />
+                Confidential Complaints Box
+              </button>
+            )}
           </div>
 
           {/* TEACHERS LIST */}
@@ -844,6 +906,14 @@ export const SuperAdminDashboard: React.FC = () => {
                           {t.role === 'super_admin' ? (
                             <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 uppercase">
                               🌟 Super Admin
+                            </span>
+                          ) : t.role === 'director' ? (
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 uppercase">
+                              👑 Director (Owner)
+                            </span>
+                          ) : t.role === 'principal' ? (
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 uppercase">
+                              🎓 Principal
                             </span>
                           ) : t.role === 'admin' ? (
                             <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30 uppercase">
@@ -876,9 +946,14 @@ export const SuperAdminDashboard: React.FC = () => {
                           title="Change staff authority & role"
                         >
                           <option value="teacher">Role: Faculty</option>
-                          <option value="bursar">Role: Bursar (Fees Lock)</option>
+                          <option value="bursar">Role: Bursar</option>
                           <option value="admin">Role: Admin</option>
-                          <option value="super_admin">Role: Super Admin</option>
+                          {isVictorSuperAdmin && (
+                            <>
+                              <option value="principal">Role: Principal</option>
+                              <option value="director">Role: Director (Owner)</option>
+                            </>
+                          )}
                         </select>
                       )}
                       <button
@@ -1299,6 +1374,13 @@ export const SuperAdminDashboard: React.FC = () => {
                   </div>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* CONFIDENTIAL COMPLAINTS & SUGGESTIONS TAB (Super Admin, Principal, Director Only) */}
+          {activeAdminTab === 'complaints' && isExecutive && (
+            <div className="bg-slate-800/80 border border-slate-700 p-6 rounded-2xl">
+              <ExecutiveComplaintsManager />
             </div>
           )}
         </div>

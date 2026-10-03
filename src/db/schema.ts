@@ -302,3 +302,19 @@ export const assessmentsRelations = relations(assessments, ({ one }) => ({
     references: [teachers.id],
   }),
 }));
+
+// Anonymous Complaints & Suggestions Table (Direct to Super Admin, Principal, Director)
+export const complaints = pgTable('complaints', {
+  id: serial('id').primaryKey(),
+  referenceCode: text('reference_code').notNull().unique(), // e.g. FIS-CMP-2026-0001
+  category: text('category').notNull().default('General Suggestion'), // Academics, Facilities, Bursary, Conduct, Welfare, Suggestion
+  priority: text('priority').notNull().default('Routine'), // Routine, Important, Urgent
+  subject: text('subject').notNull(),
+  message: text('message').notNull(),
+  targetRole: text('target_role').default('Executive Leadership'), // Super Admin, Principal, Director
+  status: text('status').notNull().default('pending'), // pending, under_review, resolved, archived
+  executiveNotes: text('executive_notes'),
+  schoolId: integer('school_id').references(() => schools.id),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  resolvedAt: timestamp('resolved_at'),
+});

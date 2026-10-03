@@ -141,32 +141,61 @@ export const SS3MockTeacherModule: React.FC = () => {
 
   const loadStudentScoresForWeek = async (stId: number, week: number) => {
     try {
-      const res = await fetch(`/api/ss3-mock/scores?studentId=${stId}&weekNumber=${week}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) return;
-      const data = await res.json();
-      const existing = data.scores || [];
+      const existingMap = new Map<string, any>();
 
-      if (existing.length > 0) {
-        // Pre-fill existing entries
-        const prefilled: SubjectScoreEntry[] = existing.map((sc: any) => {
-          const isEng = (sc.subjectName || '').toLowerCase().includes('english');
-          return {
-            subjectId: sc.subjectId,
-            subjectName: sc.subjectName,
-            rawScore: sc.rawScore !== undefined ? String(sc.rawScore) : '',
-            maxRawScore: isEng ? 60 : 40,
-            scaledScore: sc.score || 0,
-            remark: sc.remark || 'Good',
-            isEnglish: isEng,
-          };
-        });
-
-        // Ensure 4 subjects if possible
-        if (prefilled.length > 0) {
-          setSubjectEntries(prefilled);
+      // 1. Check local storage cache first
+      try {
+        const storedRaw = localStorage.getItem('fis_mock_scores_v2');
+        if (storedRaw) {
+          const parsed = JSON.parse(storedRaw);
+          const found = parsed.find(
+            (m: any) => (Number(m.studentId) === stId || String(m.studentId) === String(stId)) && m.weekNumber === week
+          );
+          if (found && Array.isArray(found.subjects)) {
+            for (const s of found.subjects) {
+              const key = (s.subjectName || '').toLowerCase().trim();
+              if (key) existingMap.set(key, s);
+              if (s.subjectId) existingMap.set(String(s.subjectId), s);
+            }
+          }
         }
+      } catch (_) {}
+
+      // 2. Fetch live from backend
+      try {
+        const res = await fetch(`/api/ss3-mock/scores?studentId=${stId}&weekNumber=${week}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const serverScores = data.scores || [];
+          for (const s of serverScores) {
+            const key = (s.subjectName || '').toLowerCase().trim();
+            if (key) existingMap.set(key, s);
+            if (s.subjectId) existingMap.set(String(s.subjectId), s);
+          }
+        }
+      } catch (_) {}
+
+      if (existingMap.size > 0) {
+        setSubjectEntries((prev) => {
+          return prev.map((item) => {
+            const byId = existingMap.get(String(item.subjectId));
+            const byName = existingMap.get((item.subjectName || '').toLowerCase().trim());
+            const match = byId || byName;
+            if (match) {
+              const rawStr = match.rawScore !== undefined && match.rawScore !== null ? String(match.rawScore) : item.rawScore;
+              const scaled = match.score !== undefined ? match.score : (match.scaledScore !== undefined ? match.scaledScore : item.scaledScore);
+              return {
+                ...item,
+                rawScore: rawStr,
+                scaledScore: scaled || item.scaledScore,
+                remark: match.remark || item.remark,
+              };
+            }
+            return item;
+          });
+        });
       }
     } catch (_) {}
   };
@@ -391,10 +420,16 @@ export const SS3MockTeacherModule: React.FC = () => {
         console.warn('Direct Supabase mock score sync deferred:', supaErr);
       }
 
-      // 3. Persist locally to unified mock scores registry
+      // 3. Persist locally to unified mock scores registry with full subject merging
       try {
         const storedScoresRaw = localStorage.getItem('fis_mock_scores_v2');
         const storedScores = storedScoresRaw ? JSON.parse(storedScoresRaw) : [];
+        const existingEntry = storedScores.find(
+          (m: any) =>
+            (String(m.studentId) === String(candidateStudentId) || m.studentNumber === candidateStudentNumber) &&
+            m.weekNumber === selectedWeek
+        );
+
         const filtered = storedScores.filter(
           (m: any) =>
             !(
@@ -402,6 +437,32 @@ export const SS3MockTeacherModule: React.FC = () => {
               m.weekNumber === selectedWeek
             )
         );
+
+        const mergedSubjectsMap = new Map<string, any>();
+        if (existingEntry && Array.isArray(existingEntry.subjects)) {
+          for (const sub of existingEntry.subjects) {
+            const key = (sub.subjectName || '').toLowerCase().trim();
+            if (key) mergedSubjectsMap.set(key, sub);
+          }
+        }
+
+        for (const item of subjectEntries) {
+          const key = (item.subjectName || '').toLowerCase().trim();
+          const hasScore = item.rawScore !== '' || (item.scaledScore && item.scaledScore > 0);
+          if (hasScore || !mergedSubjectsMap.has(key)) {
+            mergedSubjectsMap.set(key, {
+              ...item,
+              rawScore: item.rawScore !== '' ? parseFloat(item.rawScore) : 0,
+              formula: `(${item.rawScore || 0} ÷ ${item.isEnglish ? 60 : 40}) × 100 = ${item.scaledScore}`,
+              grade: item.scaledScore >= 75 ? 'A1' : item.scaledScore >= 70 ? 'B2' : item.scaledScore >= 65 ? 'B3' : item.scaledScore >= 50 ? 'C4' : 'F9',
+            });
+          }
+        }
+
+        const finalSubjects = Array.from(mergedSubjectsMap.values());
+        const totalScaled = finalSubjects.reduce((acc: number, curr: any) => acc + (curr.scaledScore || 0), 0);
+        const finalAverage = Math.round(totalScaled / (finalSubjects.length || 4));
+
         filtered.push({
           studentId: candidateStudentId,
           studentNumber: candidateStudentNumber,
@@ -411,20 +472,15 @@ export const SS3MockTeacherModule: React.FC = () => {
           term,
           examDate,
           mockSeriesTitle: `SS3 Weekly Mock Series - Week ${selectedWeek}`,
-          subjects: subjectEntries.map((item) => ({
-            ...item,
-            rawScore: item.rawScore !== '' ? parseFloat(item.rawScore) : 0,
-            formula: `(${item.rawScore || 0} ÷ ${item.isEnglish ? 60 : 40}) × 100 = ${item.scaledScore}`,
-            grade: item.scaledScore >= 75 ? 'A1' : item.scaledScore >= 70 ? 'B2' : item.scaledScore >= 65 ? 'B3' : item.scaledScore >= 50 ? 'C4' : 'F9',
-          })),
-          totalScore400: roundedGrandTotal,
-          averagePercentage,
+          subjects: finalSubjects,
+          totalScore400: totalScaled,
+          averagePercentage: finalAverage,
         });
         localStorage.setItem('fis_mock_scores_v2', JSON.stringify(filtered));
 
         // Legacy student-week key
         const localKey = `fis_mock_${selectedStudentId}_week_${selectedWeek}`;
-        localStorage.setItem(localKey, JSON.stringify(subjectEntries));
+        localStorage.setItem(localKey, JSON.stringify(finalSubjects));
       } catch (_) {}
 
       // 4. Dispatch event so any student dashboard updates automatically

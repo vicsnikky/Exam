@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../context/AuthContext.tsx';
 import { Student } from '../types/index.ts';
 import { getLocalStudents, deleteStudent, fetchAllStudentsUnified } from '../lib/schoolStore.ts';
@@ -16,6 +16,7 @@ import {
   Trash2,
   Pencil,
   CheckCircle,
+  X
 } from 'lucide-react';
 
 interface StudentSearchProps {
@@ -28,75 +29,110 @@ export const StudentSearch: React.FC<StudentSearchProps> = ({
   initialQuery = '',
 }) => {
   const { token, user } = useAuth();
-  const isSuperAdmin = user?.role === 'super_admin' || user?.role === 'admin';
+  const isSuperAdmin = user?.role === 'super_admin' || user?.role === 'director' || user?.role === 'principal' || user?.role === 'admin';
 
   const [query, setQuery] = useState(initialQuery);
   const [selectedClass, setSelectedClass] = useState('all');
-  const [students, setStudents] = useState<Student[]>([]);
+  const [masterStudents, setMasterStudents] = useState<Student[]>(() => getLocalStudents());
   const [loading, setLoading] = useState(false);
-  const [totalCount, setTotalCount] = useState(0);
 
-  // Delete modal state
-  const [deleteModal, setDeleteModal] = useState<{
-    isOpen: boolean;
-    student: Student | null;
-  }>({
-    isOpen: false,
-    student: null,
-  });
+  // Sync initial query once on mount if provided
+  const initialQueryApplied = useRef(false);
+  useEffect(() => {
+    if (initialQuery && !initialQueryApplied.current) {
+      setQuery(initialQuery);
+      initialQueryApplied.current = true;
+    }
+  }, [initialQuery]);
 
-  const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+  // Unified, rock-solid memoized filter
+  const students = useMemo(() => {
+    const cleanQ = query.trim().toLowerCase();
+    const cleanCls = selectedClass !== 'all' ? selectedClass.toUpperCase().replace(/\s+/g, '') : null;
 
-  const [toastMsg, setToastMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+    return masterStudents.filter((s) => {
+      // 1. Class Filter
+      if (cleanCls) {
+        const studentCls = (s.currentClass || '').toUpperCase().replace(/\s+/g, '');
+        if (studentCls !== cleanCls) return false;
+      }
 
-  const fetchStudents = async (q = query, cls = selectedClass) => {
+      // 2. Query Search
+      if (!cleanQ) return true;
+
+      const sId = (s.studentId || '').toLowerCase();
+      const fName = (s.firstName || '').toLowerCase();
+      const sName = (s.surname || '').toLowerCase();
+      const mName = (s.middleName || '').toLowerCase();
+      const fullName1 = `${fName} ${sName}`.trim();
+      const fullName2 = `${sName} ${fName}`.trim();
+      const fullAll = `${fName} ${mName} ${sName}`.trim();
+      const email = (s.email || '').toLowerCase();
+      const phone = (s.parentPhone || '').toLowerCase();
+
+      return (
+        sId.includes(cleanQ) ||
+        fName.includes(cleanQ) ||
+        sName.includes(cleanQ) ||
+        mName.includes(cleanQ) ||
+        fullName1.includes(cleanQ) ||
+        fullName2.includes(cleanQ) ||
+        fullAll.includes(cleanQ) ||
+        email.includes(cleanQ) ||
+        phone.includes(cleanQ)
+      );
+    });
+  }, [masterStudents, query, selectedClass]);
+
+  const totalCount = students.length;
+
+  const loadMasterRoster = async () => {
     setLoading(true);
     try {
-      // 1. Unified multi-source sync (LocalStorage + Supabase + PostgreSQL Backend)
+      // Fast load local immediately
+      const local = getLocalStudents();
+      if (local.length > 0) {
+        setMasterStudents(local);
+      }
+
+      // Live fetch unified roster
       const allStudents = await fetchAllStudentsUnified(token);
-      let filtered = [...allStudents];
-
-      const cleanQ = q.trim().toLowerCase();
-      if (cleanQ) {
-        filtered = filtered.filter(
-          (s) =>
-            s.studentId.toLowerCase().includes(cleanQ) ||
-            s.firstName.toLowerCase().includes(cleanQ) ||
-            s.surname.toLowerCase().includes(cleanQ) ||
-            (s.middleName && s.middleName.toLowerCase().includes(cleanQ)) ||
-            `${s.firstName} ${s.surname}`.toLowerCase().includes(cleanQ)
-        );
+      if (Array.isArray(allStudents) && allStudents.length > 0) {
+        setMasterStudents(allStudents);
       }
-
-      if (cls && cls !== 'all') {
-        filtered = filtered.filter((s) => s.currentClass === cls);
-      }
-
-      setStudents(filtered);
-      setTotalCount(filtered.length);
     } catch (e) {
       console.error('Failed to search students:', e);
       const fallback = getLocalStudents();
-      setStudents(fallback);
-      setTotalCount(fallback.length);
+      setMasterStudents(fallback);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchStudents(initialQuery, selectedClass);
+    loadMasterRoster();
 
-    const handleUpdated = () => {
-      fetchStudents(query, selectedClass);
+    const handleUpdated = (e: any) => {
+      const updatedList = Array.isArray(e?.detail) ? e.detail : getLocalStudents();
+      if (Array.isArray(updatedList) && updatedList.length > 0) {
+        setMasterStudents(updatedList);
+      }
     };
+
     window.addEventListener('fis:students-updated', handleUpdated);
     return () => window.removeEventListener('fis:students-updated', handleUpdated);
-  }, [initialQuery]);
+  }, [token]);
+
+  const handleQueryChange = (val: string) => {
+    setQuery(val);
+  };
+
+  const handleClassChange = (newClass: string) => {
+    setSelectedClass(newClass);
+  };
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    fetchStudents(query, selectedClass);
   };
 
   const promptDeleteStudent = (e: React.MouseEvent, st: Student) => {
@@ -116,7 +152,7 @@ export const StudentSearch: React.FC<StudentSearchProps> = ({
       text: `Student ${st.firstName} ${st.surname} (${st.studentId}) was permanently deleted.`,
     });
     setTimeout(() => setToastMsg(null), 4000);
-    fetchStudents(query, selectedClass);
+    loadMasterRoster();
   };
 
   return (
@@ -162,7 +198,7 @@ export const StudentSearch: React.FC<StudentSearchProps> = ({
             <input
               type="text"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => handleQueryChange(e.target.value)}
               placeholder="Search by Student ID, Surname, First Name..."
               className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 transition"
             />
@@ -171,10 +207,7 @@ export const StudentSearch: React.FC<StudentSearchProps> = ({
           <div className="sm:w-56">
             <select
               value={selectedClass}
-              onChange={(e) => {
-                setSelectedClass(e.target.value);
-                fetchStudents(query, e.target.value);
-              }}
+              onChange={(e) => handleClassChange(e.target.value)}
               className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
             >
               <option value="all">All Classes</option>
@@ -200,30 +233,21 @@ export const StudentSearch: React.FC<StudentSearchProps> = ({
           <span className="text-slate-400">Quick Filters:</span>
           <button
             type="button"
-            onClick={() => {
-              setQuery('Eze');
-              fetchStudents('Eze', selectedClass);
-            }}
+            onClick={() => handleQueryChange('Eze')}
             className="px-2 py-0.5 bg-slate-900 hover:bg-slate-700 text-indigo-300 rounded border border-slate-700 cursor-pointer"
           >
             "Eze"
           </button>
           <button
             type="button"
-            onClick={() => {
-              setQuery('FEN-2026');
-              fetchStudents('FEN-2026', selectedClass);
-            }}
+            onClick={() => handleQueryChange('FEN-2026')}
             className="px-2 py-0.5 bg-slate-900 hover:bg-slate-700 text-emerald-300 rounded border border-slate-700 cursor-pointer"
           >
             "FEN-2026"
           </button>
           <button
             type="button"
-            onClick={() => {
-              setSelectedClass('SS 3');
-              fetchStudents(query, 'SS 3');
-            }}
+            onClick={() => handleClassChange('SS 3')}
             className="px-2 py-0.5 bg-slate-900 hover:bg-slate-700 text-purple-300 rounded border border-slate-700 cursor-pointer"
           >
             SS 3 Candidates
