@@ -111,7 +111,7 @@ export const AnonymousComplaintModal: React.FC<AnonymousComplaintModalProps> = (
               </div>
               <p className="text-xs text-slate-300 mt-0.5 flex items-center gap-1.5">
                 <Lock className="w-3.5 h-3.5 text-emerald-400" />
-                <span>100% Anonymous • Directed to Super Admin, Principal & Director</span>
+                <span>100% Anonymous • Directed to, Principal & Director</span>
               </p>
             </div>
           </div>
@@ -134,7 +134,7 @@ export const AnonymousComplaintModal: React.FC<AnonymousComplaintModalProps> = (
               <div>
                 <h4 className="text-xl font-bold text-white">Submission Received Anonymously</h4>
                 <p className="text-xs text-slate-300 max-w-md mx-auto mt-2 leading-relaxed">
-                  Your message has been securely submitted and routed exclusively to Victor Alo (Super Admin),
+                  Your message has been securely submitted and routed exclusively to,
                   the School Director, and the Principal. No user account, name, or IP address was recorded.
                 </p>
               </div>
