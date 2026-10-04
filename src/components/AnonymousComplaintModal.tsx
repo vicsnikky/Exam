@@ -271,7 +271,7 @@ export const AnonymousComplaintModal: React.FC<AnonymousComplaintModalProps> = (
               <div className="bg-slate-800/80 border border-slate-700 p-3 rounded-xl flex items-center justify-between text-xs">
                 <span className="text-slate-400">Recipients:</span>
                 <span className="font-semibold text-amber-300">
-                  Super Admin (Victor Alo) • School Director • Principal
+                    School Director • Principal
                 </span>
               </div>
 
