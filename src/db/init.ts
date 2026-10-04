@@ -7,7 +7,25 @@ export async function ensureTablesExist(pool: Pool) {
       "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'schools' LIMIT 1;"
     );
     if (checkRes.rows && checkRes.rows.length > 0) {
-      // Tables are already created and ready for use
+      // Ensure complaints table is created if previously missing
+      try {
+        await pool.query(`
+          CREATE TABLE IF NOT EXISTS complaints (
+            id SERIAL PRIMARY KEY,
+            reference_code TEXT NOT NULL UNIQUE,
+            category TEXT NOT NULL DEFAULT 'General Suggestion',
+            priority TEXT NOT NULL DEFAULT 'Routine',
+            subject TEXT NOT NULL,
+            message TEXT NOT NULL,
+            target_role TEXT DEFAULT 'Executive Leadership',
+            status TEXT NOT NULL DEFAULT 'pending',
+            executive_notes TEXT,
+            school_id INTEGER REFERENCES schools(id),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+            resolved_at TIMESTAMP
+          );
+        `);
+      } catch (_) {}
       return;
     }
   } catch (err) {

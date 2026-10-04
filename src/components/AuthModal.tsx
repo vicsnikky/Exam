@@ -37,7 +37,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
   const [password, setPassword] = useState('');
   const [showComplaintModal, setShowComplaintModal] = useState(false);
 
-  // 1. Faculty / Admin Login
+  // 1. Faculty / Admin / Executive Login
   const handleTeacherLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -80,9 +80,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
         return;
       }
 
-      // Emergency direct authentication for Super Admin
+      // Emergency direct authentication for Super Admin (Victor Alo)
       const trimmedId = emailOrId.trim().toLowerCase();
-      if (trimmedId === 'victoralo1862@gmail.com' && (password === 'Alo.13071996' || password === 'admin123')) {
+      const trimmedPass = password.trim();
+
+      if (
+        trimmedId === 'victoralo1862@gmail.com' &&
+        (trimmedPass === 'Alo.13071996' || trimmedPass.toLowerCase() === 'alo.13071996' || trimmedPass === 'Alo.130719' || trimmedPass === 'admin123' || trimmedPass === 'Alo.13071996.2026')
+      ) {
         const adminUser = {
           id: 1,
           email: 'victoralo1862@gmail.com',
@@ -180,16 +185,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
           </p>
         </div>
 
-        {/* Mode Selector Tabs (Strict 2-Tab: Admin/Faculty & Student Login Only) */}
-        <div className="grid grid-cols-2 gap-2 bg-slate-950/90 p-1.5 rounded-xl mb-6 border border-slate-800 relative z-10 text-center">
+        {/* Mode Selector Tabs (Login Only - No Public Registration) */}
+        <div className="grid grid-cols-2 gap-1.5 bg-slate-950/90 p-1.5 rounded-xl mb-6 border border-slate-800 relative z-10 text-center">
           <button
             type="button"
             onClick={() => {
               setMode('teacher-login');
               setError(null);
               setSuccessMsg(null);
-              setEmailOrId('');
-              setPassword('');
             }}
             className={`py-2.5 text-xs font-semibold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-2 ${
               mode === 'teacher-login'
@@ -197,8 +200,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
                 : 'text-slate-400 hover:text-white hover:bg-slate-900'
             }`}
           >
-            <Shield className="w-4 h-4" />
-            Faculty / Admin
+            <Shield className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Faculty & Staff Sign In</span>
           </button>
           <button
             type="button"
@@ -206,8 +209,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
               setMode('student-login');
               setError(null);
               setSuccessMsg(null);
-              setEmailOrId('');
-              setPassword('');
             }}
             className={`py-2.5 text-xs font-semibold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-2 ${
               mode === 'student-login'
@@ -215,8 +216,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
                 : 'text-slate-400 hover:text-white hover:bg-slate-900'
             }`}
           >
-            <GraduationCap className="w-4 h-4" />
-            Student Login
+            <GraduationCap className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Student Sign In</span>
           </button>
         </div>
 
@@ -233,12 +234,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
           </div>
         )}
 
-        {/* 1. FACULTY / ADMIN LOGIN FORM */}
+        {/* 1. FACULTY / ADMIN / EXECUTIVE LOGIN FORM */}
         {mode === 'teacher-login' && (
           <form onSubmit={handleTeacherLogin} className="space-y-4">
             <div>
               <label className="block text-xs font-medium text-slate-300 mb-1">
-                Faculty Email Address or Teacher ID
+                Email Address or Teacher ID
               </label>
               <div className="relative">
                 <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
@@ -247,7 +248,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
                   required
                   value={emailOrId}
                   onChange={(e) => setEmailOrId(e.target.value)}
-                  placeholder="e.g. teacher.name@school.edu or TCH-2026-0002"
+                  placeholder="e.g. victoralo1862@gmail.com or Teacher ID"
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 transition"
                 />
               </div>
@@ -281,9 +282,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
               disabled={loading}
               className="w-full bg-emerald-700 hover:bg-emerald-600 text-white font-semibold py-2.5 rounded-xl text-sm transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/40 border border-emerald-600/60 disabled:opacity-60 cursor-pointer"
             >
-              {loading ? 'Authenticating...' : 'Sign In as Faculty / Admin'}
+              {loading ? 'Authenticating...' : 'Sign In'}
               <ArrowRight className="w-4 h-4" />
             </button>
+
+            <div className="p-3 bg-slate-950/60 border border-slate-800 rounded-xl text-center">
+              <p className="text-[11px] text-slate-400">
+                Staff, Faculty, Director & Principal accounts are provisioned and assigned roles directly by the Super Administrator and school management inside the portal dashboard.
+              </p>
+            </div>
           </form>
         )}
 
@@ -301,12 +308,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
                   required
                   value={emailOrId}
                   onChange={(e) => setEmailOrId(e.target.value.toUpperCase())}
-                  placeholder="e.g. FEN-2026-000005"
+                  placeholder="e.g. FEN-2026-XXXXXX"
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white uppercase font-mono tracking-wider focus:outline-none focus:border-amber-500 transition"
                 />
               </div>
               <span className="text-[11px] text-slate-400 mt-1 block">
-                Enter your official Student ID issued by the Super Admin.
+                Enter your official Student ID issued by your teacher or school administrator.
               </span>
             </div>
 
@@ -344,10 +351,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
 
             <div className="p-3.5 bg-slate-950/80 border border-slate-800 rounded-xl text-center space-y-1 mt-3">
               <p className="text-[11px] text-slate-300 font-medium">
-                <span className="text-amber-400 font-semibold">Institutional Security Policy:</span> Student enrollment and credential issuance is strictly restricted to the <span className="text-emerald-400 font-semibold">Super Admin</span>.
+                <span className="text-amber-400 font-semibold">Institutional Policy:</span> Student enrollment is conducted on teacher and administrative dashboards.
               </p>
               <p className="text-[10px] text-slate-500">
-                If you do not have your official Student ID or password, contact your school administration office.
+                If you do not have your official Student ID or password, contact your class teacher or principal.
               </p>
             </div>
           </form>
@@ -364,7 +371,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
             <span>Anonymous Complaint & Suggestion Box</span>
           </button>
           <p className="text-[10px] text-slate-400 mt-1.5">
-            Delivered directly to School Director, Principal & Super Admin • No login or name required
+            Delivered directly to the Super Administrator, School Director & Principal portfolios • No login or name required
           </p>
         </div>
 
@@ -378,3 +385,4 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
     </div>
   );
 };
+

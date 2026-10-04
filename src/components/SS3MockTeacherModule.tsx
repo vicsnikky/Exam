@@ -533,71 +533,63 @@ export const SS3MockTeacherModule: React.FC = () => {
       if (data) {
         setBroadsheetData(data);
       } else {
-        // High fidelity fallback broadsheet
-        setBroadsheetData({
-          weekNumber: week,
-          totalCandidates: 5,
-          classAverage: 351.4,
-          highestScore: 362,
-          lowestScore: 338,
-          rows: [
-            {
-              studentId: 'FEN-2026-000005',
-              studentName: 'Chiamaka Eze',
-              gender: 'Female',
-              scores: { Mathematics: 96, 'English Language': 88, Physics: 92, Chemistry: 86 },
-              totalScore400: 362,
-              percentage: 90.5,
-              grade: 'A1',
-              rank: 1,
-              remark: 'Distinction - Ready for WAEC/UTME'
-            },
-            {
-              studentId: 'FEN-2026-000006',
-              studentName: 'Emeka Okafor',
-              gender: 'Male',
-              scores: { Mathematics: 94, 'English Language': 82, Physics: 89, Chemistry: 88 },
-              totalScore400: 353,
-              percentage: 88.3,
-              grade: 'A1',
-              rank: 2,
-              remark: 'Outstanding Analytical Acumen'
-            },
-            {
-              studentId: 'FEN-2026-000007',
-              studentName: 'Zainab Bello',
-              gender: 'Female',
-              scores: { Mathematics: 91, 'English Language': 90, Physics: 85, Chemistry: 84 },
-              totalScore400: 350,
-              percentage: 87.5,
-              grade: 'A1',
-              rank: 3,
-              remark: 'Excellent Consistent Performance'
-            },
-            {
-              studentId: 'FEN-2026-000008',
-              studentName: 'Tunde Adeyemi',
-              gender: 'Male',
-              scores: { Mathematics: 88, 'English Language': 84, Physics: 86, Chemistry: 88 },
-              totalScore400: 346,
-              percentage: 86.5,
-              grade: 'B2',
-              rank: 4,
-              remark: 'Very Commendable Standard'
-            },
-            {
-              studentId: 'FEN-2026-000009',
-              studentName: 'Somtochukwu Nnamdi',
-              gender: 'Male',
-              scores: { Mathematics: 89, 'English Language': 83, Physics: 84, Chemistry: 82 },
-              totalScore400: 338,
-              percentage: 84.5,
-              grade: 'B2',
-              rank: 5,
-              remark: 'Good Credit Benchmark'
-            }
-          ]
-        });
+        // Calculate broadsheet strictly from actual registered students
+        try {
+          const storedRaw = localStorage.getItem('fis_mock_scores_v2');
+          const storedList = storedRaw ? JSON.parse(storedRaw) : [];
+          const weekScores = storedList.filter((m: any) => m.weekNumber === week);
+
+          if (weekScores.length > 0) {
+            const rows = weekScores.map((s: any, idx: number) => {
+              const scoresMap: Record<string, number> = {};
+              (s.subjects || []).forEach((sub: any) => {
+                scoresMap[sub.subjectName] = sub.scaledScore !== undefined ? sub.scaledScore : sub.score;
+              });
+              const total = s.totalScore400 || Object.values(scoresMap).reduce((a: any, b: any) => Number(a) + Number(b), 0);
+              const pct = Math.round((Number(total) / 400) * 1000) / 10;
+              return {
+                studentId: s.studentNumber,
+                studentName: s.studentName,
+                gender: s.gender || 'Scholar',
+                scores: scoresMap,
+                totalScore400: Number(total),
+                percentage: pct,
+                grade: pct >= 75 ? 'A1' : pct >= 70 ? 'B2' : pct >= 65 ? 'B3' : pct >= 50 ? 'C4' : 'F9',
+                rank: idx + 1,
+                remark: Number(total) >= 300 ? 'Distinction - Ready for WAEC/UTME' : 'Commendable Performance',
+              };
+            });
+            rows.sort((a: any, b: any) => b.totalScore400 - a.totalScore400);
+            rows.forEach((r: any, i: number) => { r.rank = i + 1; });
+            const sumTotal = rows.reduce((acc: number, r: any) => acc + r.totalScore400, 0);
+            setBroadsheetData({
+              weekNumber: week,
+              totalCandidates: rows.length,
+              classAverage: Math.round((sumTotal / rows.length) * 10) / 10,
+              highestScore: rows[0]?.totalScore400 || 0,
+              lowestScore: rows[rows.length - 1]?.totalScore400 || 0,
+              rows,
+            });
+          } else {
+            setBroadsheetData({
+              weekNumber: week,
+              totalCandidates: 0,
+              classAverage: 0,
+              highestScore: 0,
+              lowestScore: 0,
+              rows: [],
+            });
+          }
+        } catch (_) {
+          setBroadsheetData({
+            weekNumber: week,
+            totalCandidates: 0,
+            classAverage: 0,
+            highestScore: 0,
+            lowestScore: 0,
+            rows: [],
+          });
+        }
       }
     } catch (err: any) {
       console.warn('Broadsheet warning:', err);

@@ -47,8 +47,8 @@ export const StudentRegistration: React.FC<StudentRegistrationProps> = ({
   const [school, setSchool] = useState(user?.schoolName || 'Fenster International School');
   const [session, setSession] = useState('2026/2027');
   const [customPrefix, setCustomPrefix] = useState('FEN');
-  const [studentPassword, setStudentPassword] = useState('student123');
-  const [confirmPassword, setConfirmPassword] = useState('student123');
+  const [studentPassword, setStudentPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
@@ -91,11 +91,15 @@ export const StudentRegistration: React.FC<StudentRegistrationProps> = ({
       setSavedPassword(result.password);
       onStudentRegistered?.(result.student);
 
-      // Reset core names
+      // Reset fields
       setFirstName('');
       setMiddleName('');
       setSurname('');
       setEmail('');
+      setParentName('');
+      setParentPhone('');
+      setStudentPassword('');
+      setConfirmPassword('');
     } catch (err: any) {
       setError(err?.message || 'Error completing registration');
     } finally {

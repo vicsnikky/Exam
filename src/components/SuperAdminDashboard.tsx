@@ -226,9 +226,9 @@ export const SuperAdminDashboard: React.FC = () => {
     try {
       const [fetchedStudents, overRes, tchRes, usrRes] = await Promise.all([
         fetchAllStudentsUnified(token),
-        token ? safeFetchJson<any>('/api/admin/overview', { headers: { Authorization: `Bearer ${token}` } }) : Promise.resolve({ ok: false }),
-        token ? safeFetchJson<any>('/api/admin/teachers', { headers: { Authorization: `Bearer ${token}` } }) : Promise.resolve({ ok: false }),
-        token ? safeFetchJson<any>('/api/admin/users', { headers: { Authorization: `Bearer ${token}` } }) : Promise.resolve({ ok: false }),
+        token ? safeFetchJson<any>('/api/admin/overview', { headers: { Authorization: `Bearer ${token}` } }) : Promise.resolve({ ok: false, data: null as any }),
+        token ? safeFetchJson<any>('/api/admin/teachers', { headers: { Authorization: `Bearer ${token}` } }) : Promise.resolve({ ok: false, data: null as any }),
+        token ? safeFetchJson<any>('/api/admin/users', { headers: { Authorization: `Bearer ${token}` } }) : Promise.resolve({ ok: false, data: null as any }),
       ]);
 
       if (Array.isArray(fetchedStudents) && fetchedStudents.length > 0) {
@@ -315,12 +315,14 @@ export const SuperAdminDashboard: React.FC = () => {
           name: `${result.teacher.firstName} ${result.teacher.lastName}`,
           uniqueId: result.teacher.teacherId,
           roleOrClass:
-            teacherRole === 'bursar'
+            teacherRole === 'director'
+              ? 'School Director (Owner)'
+              : teacherRole === 'principal'
+              ? 'School Principal'
+              : teacherRole === 'bursar'
               ? 'Bursar & Accounts Officer'
               : teacherRole === 'admin'
               ? 'Institutional Administrator'
-              : teacherRole === 'super_admin'
-              ? 'Super Administrator'
               : 'Senior Academic Faculty',
           email: result.teacher.email,
           password: result.password,
@@ -671,10 +673,10 @@ export const SuperAdminDashboard: React.FC = () => {
           <div className="pb-3 border-b border-slate-700">
             <h3 className="text-sm font-bold text-white flex items-center gap-2">
               <UserPlus className="w-4 h-4 text-purple-400" />
-              Add & Provision New Teacher
+              Register Executive, Admin & Faculty Profile
             </h3>
             <p className="text-[11px] text-slate-400 mt-0.5">
-              Super Admin provisions verified staff accounts. Automatically mirrored to Database & Institutional Vault.
+              Super Administrator registers the School Director, Principal, Administrators, and Faculty with official role assignment.
             </p>
           </div>
 
@@ -788,7 +790,7 @@ export const SuperAdminDashboard: React.FC = () => {
               className="w-full mt-2 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold rounded-xl shadow-lg transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
             >
               <UserPlus className="w-3.5 h-3.5" />
-              {submitting ? 'Registering & Syncing...' : 'Provision Faculty Account'}
+              {submitting ? 'Registering & Assigning Role...' : 'Register & Assign Staff Role'}
             </button>
           </form>
         </div>

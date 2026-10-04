@@ -35,6 +35,12 @@ export const StudentSearch: React.FC<StudentSearchProps> = ({
   const [selectedClass, setSelectedClass] = useState('all');
   const [masterStudents, setMasterStudents] = useState<Student[]>(() => getLocalStudents());
   const [loading, setLoading] = useState(false);
+  const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; student: Student | null }>({
+    isOpen: false,
+    student: null,
+  });
+  const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+  const [toastMsg, setToastMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Sync initial query once on mount if provided
   const initialQueryApplied = useRef(false);
@@ -371,7 +377,7 @@ export const StudentSearch: React.FC<StudentSearchProps> = ({
               type: 'success',
               text: `Student ${updated.firstName} ${updated.surname} (${updated.studentId}) updated successfully.`,
             });
-            fetchStudents();
+            loadMasterRoster();
           }}
         />
       )}

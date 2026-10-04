@@ -18,6 +18,7 @@ import { SS3MockStudentDashboard } from './components/SS3MockStudentDashboard.ts
 import { SS3MockTeacherModule } from './components/SS3MockTeacherModule.tsx';
 import { BursarDashboard } from './components/BursarDashboard.tsx';
 import { AnonymousComplaintModal } from './components/AnonymousComplaintModal.tsx';
+import { ExecutiveComplaintsManager } from './components/ExecutiveComplaintsManager.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import {
   GraduationCap,
@@ -56,13 +57,12 @@ export default function App() {
   const isPrincipal = user?.role === 'principal';
   const isAdminOnly = user?.role === 'admin';
 
-  // Executive leadership with supreme access to everything (Victor, Director, Principal)
+  // Super Admin (Victor Alo), Director (School Owner), and Principal ALL have full access to everything!
   const isExecutive = isVictorSuperAdmin || isDirector || isPrincipal;
-  // Leadership console access (Victor, Director, Principal, Admin)
+  const isSuperAdmin = isExecutive;
   const canAccessAdminConsole = isExecutive || isAdminOnly;
-  // Bursary access: Bursar + Executive Leadership. Regular Admin DOES NOT have Bursary access!
   const hasBursarAccess = isBursar || isExecutive;
-  const canRegisterStudent = canAccessAdminConsole;
+  const canRegisterStudent = !isStudent && !isBursar; // Teachers, Admins, Principal, Director & Super Admin can register students on their dashboard
   const isTeacher = !isStudent && !isBursar;
 
   const adminConsoleTitle = isVictorSuperAdmin
@@ -127,6 +127,21 @@ export default function App() {
     switch (activeTab) {
       case 'super-admin':
         return canAccessAdminConsole ? <SuperAdminDashboard /> : null;
+      case 'complaints':
+        return isExecutive ? (
+          <div className="space-y-6">
+            <div className="bg-slate-800/80 border border-slate-700 rounded-2xl p-5 shadow-sm">
+              <h2 className="text-lg font-bold text-white mb-1 flex items-center gap-2">
+                <MessageSquareWarning className="w-5 h-5 text-amber-400" />
+                Executive Confidential Complaints & Suggestion Box
+              </h2>
+              <p className="text-xs text-slate-400">
+                Official grievance and suggestion channel delivered directly to the Super Administrator, School Director, and Principal portfolios.
+              </p>
+            </div>
+            <ExecutiveComplaintsManager />
+          </div>
+        ) : null;
       case 'bursar-console':
         return hasBursarAccess ? <BursarDashboard /> : null;
       case 'dashboard':
@@ -245,12 +260,37 @@ export default function App() {
 
           {/* User profile & actions in navbar */}
           <div className="flex items-center gap-3">
+            {/* Quick Anonymous Complaint Button for all logged in users */}
+            <button
+              onClick={() => setShowAnonymousModal(true)}
+              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 hover:border-amber-400 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+              title="Submit Anonymous Suggestion or Complaint"
+            >
+              <MessageSquareWarning className="w-3.5 h-3.5 text-amber-400" />
+              <span className="hidden md:inline">Suggestion Box</span>
+            </button>
+
             <div className="hidden sm:flex flex-col text-right">
               <span className="text-xs font-semibold text-white flex items-center justify-end gap-1.5">
                 {user.firstName} {user.lastName || user.surname}
-                {isSuperAdmin && (
+                {isVictorSuperAdmin && (
                   <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
                     SUPER ADMIN
+                  </span>
+                )}
+                {isDirector && (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40">
+                    DIRECTOR (OWNER)
+                  </span>
+                )}
+                {isPrincipal && (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-teal-500/20 text-teal-300 border border-teal-500/40">
+                    PRINCIPAL
+                  </span>
+                )}
+                {isAdminOnly && (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/40">
+                    ADMIN
                   </span>
                 )}
                 {isBursar && (
@@ -263,14 +303,14 @@ export default function App() {
                     STUDENT ({user.currentClass || 'Scholar'})
                   </span>
                 )}
-                {isTeacher && !isSuperAdmin && (
+                {user?.role === 'teacher' && (
                   <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-500/20 text-indigo-300">
                     FACULTY TEACHER
                   </span>
                 )}
               </span>
               <span className="text-[10px] text-slate-400 font-mono">
-                {isStudent ? `ID: ${user.studentId}` : isBursar ? 'Bursary Fee Clearance & Locks' : isSuperAdmin ? 'Full System Authority' : `Faculty: ${user.teacherId || user.email}`}
+                {isStudent ? `ID: ${user.studentId}` : isBursar ? 'Bursary Fee Clearance & Locks' : isExecutive ? 'Full System Authority' : `Faculty: ${user.teacherId || user.email}`}
               </span>
             </div>
 
@@ -284,6 +324,11 @@ export default function App() {
           </div>
         </div>
       </header>
+
+      <AnonymousComplaintModal
+        isOpen={showAnonymousModal}
+        onClose={() => setShowAnonymousModal(false)}
+      />
 
       {/* Main Layout */}
       <div className="flex-1 flex max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 gap-6">
@@ -343,10 +388,10 @@ export default function App() {
               </>
             )}
 
-            {/* 2. SUPER ADMIN / TEACHER NAVIGATION */}
+            {/* 2. SUPER ADMIN / DIRECTOR / PRINCIPAL / ADMIN / TEACHER NAVIGATION */}
             {!isStudent && !isBursar && (
               <>
-                {isSuperAdmin && (
+                {canAccessAdminConsole && (
                   <>
                     <motion.button
                       whileHover={{ x: 2 }}
@@ -367,33 +412,61 @@ export default function App() {
                       )}
                       <span className="relative z-10 flex items-center gap-3">
                         <ShieldAlert className={`w-4 h-4 shrink-0 ${activeTab === 'super-admin' ? 'text-slate-950' : 'text-amber-400'}`} />
-                        Super Admin Console
+                        {adminConsoleTitle}
                       </span>
                     </motion.button>
 
-                    {/* Super Admin can also access Bursar Console to lock/unlock students */}
-                    <motion.button
-                      whileHover={{ x: 2 }}
-                      whileTap={{ scale: 0.98 }}
-                      onClick={() => setActiveTab('bursar-console')}
-                      className={`w-full relative flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-colors cursor-pointer mb-2 ${
-                        activeTab === 'bursar-console'
-                          ? 'text-white'
-                          : 'bg-rose-950/40 text-rose-300 border border-rose-500/30 hover:bg-rose-950/70'
-                      }`}
-                    >
-                      {activeTab === 'bursar-console' && (
-                        <motion.div
-                          layoutId="activeSidebarIndicator"
-                          className="absolute inset-0 bg-rose-700 rounded-xl shadow-md shadow-rose-950/40 border border-rose-600/40 z-0"
-                          transition={{ type: 'spring', stiffness: 450, damping: 32 }}
-                        />
-                      )}
-                      <span className="relative z-10 flex items-center gap-3">
-                        <CreditCard className="w-4 h-4 shrink-0 text-rose-400" />
-                        Bursary Fees & Lock
-                      </span>
-                    </motion.button>
+                    {/* Super Admin, Director, Principal have full Bursary access to lock/unlock students & debtors */}
+                    {hasBursarAccess && (
+                      <motion.button
+                        whileHover={{ x: 2 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => setActiveTab('bursar-console')}
+                        className={`w-full relative flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-colors cursor-pointer mb-2 ${
+                          activeTab === 'bursar-console'
+                            ? 'text-white'
+                            : 'bg-rose-950/40 text-rose-300 border border-rose-500/30 hover:bg-rose-950/70'
+                        }`}
+                      >
+                        {activeTab === 'bursar-console' && (
+                          <motion.div
+                            layoutId="activeSidebarIndicator"
+                            className="absolute inset-0 bg-rose-700 rounded-xl shadow-md shadow-rose-950/40 border border-rose-600/40 z-0"
+                            transition={{ type: 'spring', stiffness: 450, damping: 32 }}
+                          />
+                        )}
+                        <span className="relative z-10 flex items-center gap-3">
+                          <CreditCard className="w-4 h-4 shrink-0 text-rose-400" />
+                          Bursary Fees & Lock
+                        </span>
+                      </motion.button>
+                    )}
+
+                    {/* Complaints Box (Victor Alo Super Admin, Director, Principal) */}
+                    {isExecutive && (
+                      <motion.button
+                        whileHover={{ x: 2 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => setActiveTab('complaints')}
+                        className={`w-full relative flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-colors cursor-pointer mb-2 ${
+                          activeTab === 'complaints'
+                            ? 'text-slate-950 font-bold'
+                            : 'bg-amber-950/40 text-amber-300 border border-amber-500/30 hover:bg-amber-950/70'
+                        }`}
+                      >
+                        {activeTab === 'complaints' && (
+                          <motion.div
+                            layoutId="activeSidebarIndicator"
+                            className="absolute inset-0 bg-amber-500 rounded-xl shadow-md shadow-amber-500/20 z-0"
+                            transition={{ type: 'spring', stiffness: 450, damping: 32 }}
+                          />
+                        )}
+                        <span className="relative z-10 flex items-center gap-3">
+                          <MessageSquareWarning className={`w-4 h-4 shrink-0 ${activeTab === 'complaints' ? 'text-slate-950' : 'text-amber-400'}`} />
+                          Complaints Box
+                        </span>
+                      </motion.button>
+                    )}
                   </>
                 )}
 
@@ -439,7 +512,7 @@ export default function App() {
                   </span>
                 </motion.button>
 
-                {isSuperAdmin && (
+                {canRegisterStudent && (
                   <motion.button
                     whileHover={{ x: 2 }}
                     whileTap={{ scale: 0.98 }}
@@ -457,7 +530,7 @@ export default function App() {
                     )}
                     <span className="relative z-10 flex items-center gap-3">
                       <UserPlus className="w-4 h-4 shrink-0 text-amber-400" />
-                      Register Student (Admin Only)
+                      Register Student
                     </span>
                   </motion.button>
                 )}
@@ -745,29 +818,41 @@ export default function App() {
 
                 {!isStudent && !isBursar && (
                   <>
-                    {isSuperAdmin && (
-                      <>
-                        <button
-                          onClick={() => { setActiveTab('super-admin'); setMobileMenuOpen(false); }}
-                          className={`w-full text-left px-3 py-2 text-xs rounded-lg font-bold border transition ${
-                            activeTab === 'super-admin'
-                              ? 'bg-amber-500 text-slate-950 border-amber-400'
-                              : 'bg-purple-950/60 text-purple-300 border-purple-800'
-                          }`}
-                        >
-                          Super Admin Console
-                        </button>
-                        <button
-                          onClick={() => { setActiveTab('bursar-console'); setMobileMenuOpen(false); }}
-                          className={`w-full text-left px-3 py-2 text-xs rounded-lg font-bold border transition ${
-                            activeTab === 'bursar-console'
-                              ? 'bg-rose-700 text-white border-rose-500'
-                              : 'bg-rose-950/60 text-rose-300 border-rose-800'
-                          }`}
-                        >
-                          Bursary Fees & Lock
-                        </button>
-                      </>
+                    {canAccessAdminConsole && (
+                      <button
+                        onClick={() => { setActiveTab('super-admin'); setMobileMenuOpen(false); }}
+                        className={`w-full text-left px-3 py-2 text-xs rounded-lg font-bold border transition ${
+                          activeTab === 'super-admin'
+                            ? 'bg-amber-500 text-slate-950 border-amber-400'
+                            : 'bg-purple-950/60 text-purple-300 border-purple-800'
+                        }`}
+                      >
+                        {adminConsoleTitle}
+                      </button>
+                    )}
+                    {hasBursarAccess && (
+                      <button
+                        onClick={() => { setActiveTab('bursar-console'); setMobileMenuOpen(false); }}
+                        className={`w-full text-left px-3 py-2 text-xs rounded-lg font-bold border transition ${
+                          activeTab === 'bursar-console'
+                            ? 'bg-rose-700 text-white border-rose-500'
+                            : 'bg-rose-950/60 text-rose-300 border-rose-800'
+                        }`}
+                      >
+                        Bursary Fees & Lock
+                      </button>
+                    )}
+                    {isExecutive && (
+                      <button
+                        onClick={() => { setActiveTab('complaints'); setMobileMenuOpen(false); }}
+                        className={`w-full text-left px-3 py-2 text-xs rounded-lg font-bold border transition ${
+                          activeTab === 'complaints'
+                            ? 'bg-amber-500 text-slate-950 border-amber-400'
+                            : 'bg-amber-950/60 text-amber-300 border-amber-800'
+                        }`}
+                      >
+                        Complaints Box
+                      </button>
                     )}
                     <button
                       onClick={() => { setActiveTab('dashboard'); setMobileMenuOpen(false); }}
@@ -785,14 +870,14 @@ export default function App() {
                     >
                       Students Directory
                     </button>
-                    {isSuperAdmin && (
+                    {canRegisterStudent && (
                       <button
                         onClick={() => { setActiveTab('register-student'); setMobileMenuOpen(false); }}
                         className={`w-full text-left px-3 py-2 text-xs rounded-lg transition ${
                           activeTab === 'register-student' ? 'bg-emerald-700 text-white font-semibold' : 'text-slate-300 hover:bg-slate-700'
                         }`}
                       >
-                        Register Student (Admin Only)
+                        Register Student
                       </button>
                     )}
                     <button

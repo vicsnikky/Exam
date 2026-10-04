@@ -59,7 +59,7 @@ export async function seedDatabase() {
       console.log('Seeded initial subjects');
     }
 
-    // 5. Seed Super Admin (Victor Alo - Super Admin & Digital Technology Faculty)
+    // 5. Seed Super Admin (Victor Alo - The ONLY Super Admin in the system)
     const adminUser = await db.select().from(users).where(eq(users.email, 'victoralo1862@gmail.com')).limit(1);
     let adminUserId: number;
 
@@ -80,7 +80,6 @@ export async function seedDatabase() {
       console.log('Seeded Super Admin: victoralo1862@gmail.com / Alo.13071996');
     } else {
       adminUserId = adminUser[0].id;
-      // Ensure password hash and names are up to date
       await db.update(users).set({
         passwordHash: adminPassHash,
         firstName: 'Victor',
@@ -107,21 +106,50 @@ export async function seedDatabase() {
       demoTeacherId = adminTeacherRecord[0].id;
     }
 
-    // Purge any legacy generic/mock teachers or students to ensure clean database state
+    // Enforce Rule: The ONLY super admin is Victor Alo. Demote any other user with super_admin to admin
     try {
-      // Purge generic teacher
-      const genericTeachers = await db.select().from(users).where(eq(users.email, 'teacher@school.edu'));
-      for (const gt of genericTeachers) {
-        await db.delete(teachers).where(eq(teachers.userId, gt.id));
-        await db.delete(users).where(eq(users.id, gt.id));
+      const otherSuperAdmins = await db.select().from(users).where(eq(users.role, 'super_admin'));
+      for (const osa of otherSuperAdmins) {
+        if (osa.email.toLowerCase() !== 'victoralo1862@gmail.com') {
+          await db.update(users).set({ role: 'admin' }).where(eq(users.id, osa.id));
+          console.log(`Demoted other super admin account (${osa.email}) to admin`);
+        }
       }
-      // Purge legacy generic students
-      const genericStudentIds = ['FEN-2026-000001', 'FEN-2026-000002', 'FEN-2026-000003', 'FEN-2026-000021'];
-      for (const stId of genericStudentIds) {
+    } catch (_) {}
+
+    // Purge ALL dummy/mock accounts for teachers and students, leaving only real registered accounts
+    try {
+      const dummyEmails = [
+        'director@school.edu',
+        'principal@school.edu',
+        'bursar@school.edu',
+        'admin@school.edu',
+        'teacher@school.edu',
+      ];
+      for (const de of dummyEmails) {
+        const dummyUsers = await db.select().from(users).where(eq(users.email, de));
+        for (const du of dummyUsers) {
+          await db.delete(teachers).where(eq(teachers.userId, du.id));
+          await db.delete(users).where(eq(users.id, du.id));
+        }
+      }
+
+      // Purge legacy dummy mock students
+      const dummyStudentIds = [
+        'FEN-2026-000001',
+        'FEN-2026-000002',
+        'FEN-2026-000003',
+        'FEN-2026-000004',
+        'FEN-2026-000005',
+        'FEN-2026-000021',
+        'FIS-2026-000001',
+      ];
+      for (const stId of dummyStudentIds) {
         await db.delete(students).where(eq(students.studentId, stId));
       }
+      console.log('Purged all dummy teachers and students from database');
     } catch (e) {
-      console.warn('Purge generic seed items deferred:', e);
+      console.warn('Purge dummy items deferred:', e);
     }
   } catch (error) {
     console.error('Error during database seed:', error);

@@ -31,10 +31,20 @@ const CATEGORIES = [
   'Other Confidential Matters',
 ];
 
+const TARGET_PORTFOLIOS = [
+  'All Executive Portfolios (Super Admin, Director & Principal)',
+  'Office of the Super Administrator',
+  'Office of the School Director',
+  'Office of the School Principal',
+  'Bursary & Accounts Portfolio',
+  'Academic Board & Examination Portfolio',
+];
+
 export const AnonymousComplaintModal: React.FC<AnonymousComplaintModalProps> = ({
   isOpen,
   onClose,
 }) => {
+  const [targetPortfolio, setTargetPortfolio] = useState(TARGET_PORTFOLIOS[0]);
   const [category, setCategory] = useState(CATEGORIES[0]);
   const [priority, setPriority] = useState<'Routine' | 'Important' | 'Urgent'>('Routine');
   const [subject, setSubject] = useState('');
@@ -62,7 +72,7 @@ export const AnonymousComplaintModal: React.FC<AnonymousComplaintModalProps> = (
         priority,
         subject: subject.trim(),
         message: message.trim(),
-        targetRole: 'Super Admin, Principal & Director',
+        targetRole: targetPortfolio,
       });
 
       if (res.success) {
@@ -85,6 +95,7 @@ export const AnonymousComplaintModal: React.FC<AnonymousComplaintModalProps> = (
   };
 
   const handleResetAndClose = () => {
+    setTargetPortfolio(TARGET_PORTFOLIOS[0]);
     setCategory(CATEGORIES[0]);
     setPriority('Routine');
     setSubject('');
@@ -111,7 +122,7 @@ export const AnonymousComplaintModal: React.FC<AnonymousComplaintModalProps> = (
               </div>
               <p className="text-xs text-slate-300 mt-0.5 flex items-center gap-1.5">
                 <Lock className="w-3.5 h-3.5 text-emerald-400" />
-                <span>100% Anonymous • Directed to, Principal & Director</span>
+                <span>100% Anonymous • Routed to Leadership Portfolios</span>
               </p>
             </div>
           </div>
@@ -134,8 +145,7 @@ export const AnonymousComplaintModal: React.FC<AnonymousComplaintModalProps> = (
               <div>
                 <h4 className="text-xl font-bold text-white">Submission Received Anonymously</h4>
                 <p className="text-xs text-slate-300 max-w-md mx-auto mt-2 leading-relaxed">
-                  Your message has been securely submitted and routed exclusively to,
-                  the School Director, and the Principal. No user account, name, or IP address was recorded.
+                  Your message has been securely submitted and routed to the <strong className="text-amber-300">{targetPortfolio}</strong>. No user account, name, or IP address was recorded.
                 </p>
               </div>
 
@@ -177,7 +187,7 @@ export const AnonymousComplaintModal: React.FC<AnonymousComplaintModalProps> = (
                 <div className="text-xs text-slate-300 leading-relaxed">
                   <strong className="text-white font-semibold">Complete Anonymity Guarantee: </strong>
                   You do not need to register, provide an email, or log in. Your identity remains strictly confidential.
-                  Leadership will investigate all reports objectively.
+                  The receiving portfolio leadership will investigate all submissions objectively.
                 </div>
               </div>
 
@@ -187,6 +197,25 @@ export const AnonymousComplaintModal: React.FC<AnonymousComplaintModalProps> = (
                   <span>{error}</span>
                 </div>
               )}
+
+              {/* Target Portfolio Destination */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center gap-1.5">
+                  <Building2 className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Target Destination Portfolio</span>
+                </label>
+                <select
+                  value={targetPortfolio}
+                  onChange={(e) => setTargetPortfolio(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-amber-400 transition font-medium"
+                >
+                  {TARGET_PORTFOLIOS.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
               {/* Category */}
               <div>
@@ -267,11 +296,11 @@ export const AnonymousComplaintModal: React.FC<AnonymousComplaintModalProps> = (
                 </span>
               </div>
 
-              {/* Target Leadership Note */}
+              {/* Target Portfolio Destination Indicator */}
               <div className="bg-slate-800/80 border border-slate-700 p-3 rounded-xl flex items-center justify-between text-xs">
-                <span className="text-slate-400">Recipients:</span>
+                <span className="text-slate-400">Destination:</span>
                 <span className="font-semibold text-amber-300">
-                    School Director • Principal
+                  {targetPortfolio}
                 </span>
               </div>
 
@@ -306,3 +335,4 @@ export const AnonymousComplaintModal: React.FC<AnonymousComplaintModalProps> = (
     </div>
   );
 };
+
