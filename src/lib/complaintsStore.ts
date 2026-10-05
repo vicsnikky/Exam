@@ -10,6 +10,10 @@ export interface Complaint {
   targetRole: string;
   status: 'pending' | 'under_review' | 'resolved' | 'archived';
   executiveNotes?: string | null;
+  forwardedToDirector?: boolean;
+  forwardedAt?: string | null;
+  forwardedBy?: string | null;
+  forwardingNotes?: string | null;
   createdAt: string;
   resolvedAt?: string | null;
 }
@@ -51,9 +55,13 @@ export async function submitAnonymousComplaint(data: {
     priority: data.priority || 'Routine',
     subject: data.subject.trim(),
     message: data.message.trim(),
-    targetRole: data.targetRole || 'Super Admin, Principal & Director',
+    targetRole: data.targetRole || 'Super Admin & Principal',
     status: 'pending',
     executiveNotes: null,
+    forwardedToDirector: false,
+    forwardedAt: null,
+    forwardedBy: null,
+    forwardingNotes: null,
     createdAt: new Date().toISOString(),
   };
 
@@ -77,7 +85,7 @@ export async function submitAnonymousComplaint(data: {
         return {
           success: true,
           referenceCode: respData.complaint.referenceCode || refCode,
-          message: 'Your anonymous complaint/suggestion has been submitted securely and delivered to the Super Admin, Principal, and Director.',
+          message: 'Your anonymous complaint/suggestion has been submitted securely and delivered to the Super Admin and Principal for investigation.',
           complaint: respData.complaint,
         };
       }
@@ -89,12 +97,12 @@ export async function submitAnonymousComplaint(data: {
   return {
     success: true,
     referenceCode: refCode,
-    message: 'Your anonymous suggestion/complaint was recorded successfully and forwarded directly to the executive leadership team.',
+    message: 'Your anonymous suggestion/complaint was recorded successfully and forwarded directly to the Super Admin and Principal.',
     complaint: newComplaint,
   };
 }
 
-export async function fetchExecutiveComplaints(token?: string | null): Promise<Complaint[]> {
+export async function fetchExecutiveComplaints(token?: string | null, userRole?: string): Promise<Complaint[]> {
   const localList = getLocalComplaints();
   const mergedMap = new Map<string, Complaint>();
 
@@ -116,9 +124,13 @@ export async function fetchExecutiveComplaints(token?: string | null): Promise<C
               priority: c.priority || 'Routine',
               subject: c.subject,
               message: c.message,
-              targetRole: c.targetRole || 'Executive Leadership',
+              targetRole: c.targetRole || 'Super Admin & Principal',
               status: c.status || 'pending',
               executiveNotes: c.executiveNotes,
+              forwardedToDirector: Boolean(c.forwardedToDirector),
+              forwardedAt: c.forwardedAt,
+              forwardedBy: c.forwardedBy,
+              forwardingNotes: c.forwardingNotes,
               createdAt: c.createdAt || new Date().toISOString(),
               resolvedAt: c.resolvedAt,
             });
@@ -130,11 +142,57 @@ export async function fetchExecutiveComplaints(token?: string | null): Promise<C
     }
   }
 
-  const merged = Array.from(mergedMap.values()).sort(
+  const allMerged = Array.from(mergedMap.values()).sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
-  saveLocalComplaints(merged);
-  return merged;
+  saveLocalComplaints(allMerged);
+
+  // If user is School Director, only return complaints that have been forwarded to the Director's dashboard!
+  if (userRole === 'director') {
+    return allMerged.filter((c) => c.forwardedToDirector === true);
+  }
+
+  return allMerged;
+}
+
+export async function forwardComplaintToDirector(
+  referenceCode: string,
+  forwardingNotes?: string,
+  forwardedByTitle: string = 'Super Admin / Principal',
+  token?: string | null
+): Promise<boolean> {
+  const current = getLocalComplaints();
+  const forwardedAt = new Date().toISOString();
+  const updated = current.map((c) => {
+    if (c.referenceCode === referenceCode) {
+      return {
+        ...c,
+        forwardedToDirector: true,
+        forwardedAt,
+        forwardedBy: forwardedByTitle,
+        forwardingNotes: forwardingNotes || null,
+      };
+    }
+    return c;
+  });
+  saveLocalComplaints(updated);
+
+  if (token) {
+    try {
+      await fetch(`/api/complaints/${referenceCode}/forward-director`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ forwardingNotes }),
+      });
+    } catch (e) {
+      console.warn('Backend forward complaint deferred, updated locally:', e);
+    }
+  }
+
+  return true;
 }
 
 export async function updateComplaintStatus(

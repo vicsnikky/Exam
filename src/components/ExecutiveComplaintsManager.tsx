@@ -4,6 +4,7 @@ import {
   Complaint,
   fetchExecutiveComplaints,
   updateComplaintStatus,
+  forwardComplaintToDirector,
 } from '../lib/complaintsStore.ts';
 import { FIS_LOGOS } from '../constants/branding.ts';
 import {
@@ -22,7 +23,10 @@ import {
   Eye,
   MessageCircle,
   Building2,
-  UserCheck
+  UserCheck,
+  Share2,
+  Send,
+  ArrowRight
 } from 'lucide-react';
 
 export const ExecutiveComplaintsManager: React.FC = () => {
@@ -34,19 +38,28 @@ export const ExecutiveComplaintsManager: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedComplaint, setSelectedComplaint] = useState<Complaint | null>(null);
 
-  // Status update modal state
+  // Status update & forwarding state
   const [editingNotes, setEditingNotes] = useState('');
   const [updating, setUpdating] = useState(false);
+  const [forwardingNotes, setForwardingNotes] = useState('');
+  const [forwardingLoading, setForwardingLoading] = useState(false);
   const [feedbackMsg, setFeedbackMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const isSuperAdmin = user?.role === 'super_admin';
+  const isPrincipal = user?.role === 'principal';
+  const isDirector = user?.role === 'director';
+  const canForwardToDirector = isSuperAdmin || isPrincipal;
 
   const loadComplaints = async () => {
     setLoading(true);
     try {
-      const list = await fetchExecutiveComplaints(token);
-      setComplaints(list);
+      const list = await fetchExecutiveComplaints(token, user?.role);
+      // If user is School Director, only display complaints forwarded to the Director
+      const visibleList = isDirector ? list.filter((c) => c.forwardedToDirector === true) : list;
+      setComplaints(visibleList);
       if (selectedComplaint) {
-        const refreshed = list.find((c) => c.referenceCode === selectedComplaint.referenceCode);
-        if (refreshed) setSelectedComplaint(refreshed);
+        const refreshed = visibleList.find((c) => c.referenceCode === selectedComplaint.referenceCode);
+        setSelectedComplaint(refreshed || null);
       }
     } catch (err) {
       console.warn('Failed to load executive complaints:', err);
@@ -63,7 +76,7 @@ export const ExecutiveComplaintsManager: React.FC = () => {
     };
     window.addEventListener('fis:complaints-updated', handleUpdate);
     return () => window.removeEventListener('fis:complaints-updated', handleUpdate);
-  }, [token]);
+  }, [token, user?.role]);
 
   const filteredComplaints = useMemo(() => {
     return complaints.filter((c) => {
@@ -99,13 +112,46 @@ export const ExecutiveComplaintsManager: React.FC = () => {
     }
   };
 
+  const handleForwardToDirector = async () => {
+    if (!selectedComplaint) return;
+    setForwardingLoading(true);
+    try {
+      const forwarderTitle = isSuperAdmin
+        ? `Super Administrator (${user?.firstName || 'Victor Alo'})`
+        : `School Principal (${user?.firstName || 'Principal'})`;
+
+      await forwardComplaintToDirector(
+        selectedComplaint.referenceCode,
+        forwardingNotes.trim() || undefined,
+        forwarderTitle,
+        token
+      );
+
+      setFeedbackMsg({
+        type: 'success',
+        text: `Complaint ${selectedComplaint.referenceCode} has been successfully forwarded to the School Director's dashboard.`,
+      });
+      setForwardingNotes('');
+      setTimeout(() => setFeedbackMsg(null), 5000);
+      await loadComplaints();
+    } catch (err: any) {
+      setFeedbackMsg({
+        type: 'error',
+        text: err.message || 'Failed to forward complaint to Director',
+      });
+    } finally {
+      setForwardingLoading(false);
+    }
+  };
+
   const pendingCount = complaints.filter((c) => c.status === 'pending').length;
   const underReviewCount = complaints.filter((c) => c.status === 'under_review').length;
   const resolvedCount = complaints.filter((c) => c.status === 'resolved').length;
+  const forwardedCount = complaints.filter((c) => c.forwardedToDirector === true).length;
 
   const handleExportCSV = () => {
     if (filteredComplaints.length === 0) return;
-    const headers = ['Reference Code', 'Category', 'Priority', 'Subject', 'Message', 'Status', 'Executive Notes', 'Submitted Date', 'Resolved Date'];
+    const headers = ['Reference Code', 'Category', 'Priority', 'Subject', 'Message', 'Status', 'Forwarded to Director', 'Forwarded By', 'Executive Notes', 'Submitted Date', 'Resolved Date'];
     const rows = filteredComplaints.map((c) => [
       `"${c.referenceCode}"`,
       `"${c.category}"`,
@@ -113,6 +159,8 @@ export const ExecutiveComplaintsManager: React.FC = () => {
       `"${c.subject.replace(/"/g, '""')}"`,
       `"${c.message.replace(/"/g, '""')}"`,
       `"${c.status}"`,
+      `"${c.forwardedToDirector ? 'Yes' : 'No'}"`,
+      `"${(c.forwardedBy || 'N/A').replace(/"/g, '""')}"`,
       `"${(c.executiveNotes || '').replace(/"/g, '""')}"`,
       `"${c.createdAt}"`,
       `"${c.resolvedAt || 'N/A'}"`,
@@ -140,17 +188,25 @@ export const ExecutiveComplaintsManager: React.FC = () => {
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-amber-400">
-                  Executive Confidential Portal
+                  {isDirector ? 'Directorate Executive Records' : 'Two-Tier Confidential Portal'}
                 </span>
-                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                  SUPER ADMIN • DIRECTOR • PRINCIPAL ONLY
+                <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                  isDirector
+                    ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+                    : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                }`}>
+                  {isDirector ? 'DIRECTORATE DASHBOARD • FORWARDED ONLY' : 'SUPER ADMIN & PRINCIPAL FIRST'}
                 </span>
               </div>
               <h2 className="text-xl font-bold text-white tracking-tight mt-0.5">
-                Anonymous Suggestion & Complaint Box Records
+                {isDirector
+                  ? "Director's Grievance & Complaints Directorate"
+                  : 'Anonymous Suggestion & Complaint Box Records'}
               </h2>
               <p className="text-xs text-slate-300 mt-1">
-                Direct confidential feedback submitted by students, parents, staff, and visitors.
+                {isDirector
+                  ? 'Showing submissions vetted and forwarded by the Super Administrator and School Principal for proprietor decisions.'
+                  : 'Complaints are delivered to the Super Admin and Principal first. Only the Super Admin and Principal can forward them to the Director.'}
               </p>
             </div>
           </div>
@@ -178,19 +234,29 @@ export const ExecutiveComplaintsManager: React.FC = () => {
       {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
         <div className="bg-slate-800/80 border border-slate-700 p-4 rounded-2xl">
-          <span className="text-[11px] text-slate-400 font-medium block">Total Submissions</span>
+          <span className="text-[11px] text-slate-400 font-medium block">
+            {isDirector ? 'Forwarded to Director' : 'Total Submissions'}
+          </span>
           <span className="text-2xl font-bold text-white font-mono mt-1 block">{complaints.length}</span>
-          <span className="text-[10px] text-slate-400 mt-0.5 block">Recorded Anonymously</span>
+          <span className="text-[10px] text-slate-400 mt-0.5 block">
+            {isDirector ? 'Executive Directorate Inbox' : 'Super Admin & Principal'}
+          </span>
         </div>
         <div className="bg-slate-800/80 border border-slate-700 p-4 rounded-2xl">
           <span className="text-[11px] text-amber-400 font-medium block">Pending Review</span>
           <span className="text-2xl font-bold text-amber-300 font-mono mt-1 block">{pendingCount}</span>
-          <span className="text-[10px] text-amber-400/80 mt-0.5 block">Requires Executive Attention</span>
+          <span className="text-[10px] text-amber-400/80 mt-0.5 block">Awaiting Assessment</span>
         </div>
         <div className="bg-slate-800/80 border border-slate-700 p-4 rounded-2xl">
-          <span className="text-[11px] text-cyan-400 font-medium block">Under Review</span>
-          <span className="text-2xl font-bold text-cyan-300 font-mono mt-1 block">{underReviewCount}</span>
-          <span className="text-[10px] text-cyan-400/80 mt-0.5 block">Active Investigation</span>
+          <span className="text-[11px] text-purple-400 font-medium block">
+            {isDirector ? 'Active Investigation' : 'Forwarded to Director'}
+          </span>
+          <span className="text-2xl font-bold text-purple-300 font-mono mt-1 block">
+            {isDirector ? underReviewCount : forwardedCount}
+          </span>
+          <span className="text-[10px] text-purple-400/80 mt-0.5 block">
+            {isDirector ? 'Directorate Review' : 'Sent to School Director'}
+          </span>
         </div>
         <div className="bg-slate-800/80 border border-slate-700 p-4 rounded-2xl">
           <span className="text-[11px] text-emerald-400 font-medium block">Resolved</span>
@@ -253,8 +319,16 @@ export const ExecutiveComplaintsManager: React.FC = () => {
             {filteredComplaints.length === 0 ? (
               <div className="p-12 text-center text-slate-400">
                 <MessageSquareWarning className="w-10 h-10 mx-auto text-slate-600 mb-2" />
-                <p className="text-sm font-medium text-slate-300">No anonymous submissions found</p>
-                <p className="text-xs mt-1">Submissions sent via the public suggestion box will appear here immediately.</p>
+                <p className="text-sm font-medium text-slate-300">
+                  {isDirector
+                    ? 'No complaints have been forwarded to the Director yet'
+                    : 'No anonymous submissions found'}
+                </p>
+                <p className="text-xs mt-1">
+                  {isDirector
+                    ? 'Complaints are delivered directly to the Super Admin and Principal first. They will appear here once forwarded.'
+                    : 'Submissions sent via the suggestion box appear here for the Super Admin and Principal.'}
+                </p>
               </div>
             ) : (
               filteredComplaints.map((c) => (
@@ -263,6 +337,7 @@ export const ExecutiveComplaintsManager: React.FC = () => {
                   onClick={() => {
                     setSelectedComplaint(c);
                     setEditingNotes(c.executiveNotes || '');
+                    setForwardingNotes('');
                   }}
                   className={`p-4 hover:bg-slate-700/40 transition cursor-pointer flex items-start justify-between gap-3 ${
                     selectedComplaint?.referenceCode === c.referenceCode
@@ -270,7 +345,7 @@ export const ExecutiveComplaintsManager: React.FC = () => {
                       : ''
                   }`}
                 >
-                  <div className="space-y-1 min-w-0">
+                  <div className="space-y-1.5 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-xs font-mono font-bold text-amber-400">
                         {c.referenceCode}
@@ -299,6 +374,19 @@ export const ExecutiveComplaintsManager: React.FC = () => {
                       >
                         {c.status.replace('_', ' ')}
                       </span>
+
+                      {/* Forwarded to Director status pill */}
+                      {c.forwardedToDirector ? (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40 flex items-center gap-1">
+                          <Share2 className="w-2.5 h-2.5" />
+                          Forwarded to Director
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-900 text-slate-400 border border-slate-700 flex items-center gap-1">
+                          <Lock className="w-2.5 h-2.5 text-amber-400" />
+                          Super Admin & Principal First
+                        </span>
+                      )}
                     </div>
 
                     <h4 className="text-sm font-semibold text-white truncate">{c.subject}</h4>
@@ -308,6 +396,12 @@ export const ExecutiveComplaintsManager: React.FC = () => {
                       <span>{c.category}</span>
                       <span>•</span>
                       <span>{new Date(c.createdAt).toLocaleDateString()} at {new Date(c.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      {c.forwardedBy && (
+                        <>
+                          <span>•</span>
+                          <span className="text-purple-300">By: {c.forwardedBy}</span>
+                        </>
+                      )}
                     </div>
                   </div>
 
@@ -355,14 +449,77 @@ export const ExecutiveComplaintsManager: React.FC = () => {
                   <span className="text-white font-medium">{new Date(selectedComplaint.createdAt).toLocaleString()}</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block text-[10px]">Target Audience</span>
-                  <span className="text-amber-300 font-medium">Super Admin, Principal, Director</span>
+                  <span className="text-slate-400 block text-[10px]">Initial Routing</span>
+                  <span className="text-amber-300 font-medium">Super Admin & Principal</span>
                 </div>
                 <div>
                   <span className="text-slate-400 block text-[10px]">Current Status</span>
                   <span className="text-emerald-400 font-bold capitalize">{selectedComplaint.status.replace('_', ' ')}</span>
                 </div>
               </div>
+
+              {/* Director Forwarding Status / Forwarding Action */}
+              {selectedComplaint.forwardedToDirector ? (
+                <div className="p-3.5 bg-purple-950/40 border border-purple-500/40 rounded-xl space-y-1.5">
+                  <div className="flex items-center gap-2 text-xs font-bold text-purple-300">
+                    <Share2 className="w-4 h-4 text-purple-400" />
+                    Forwarded to School Director's Dashboard
+                  </div>
+                  <div className="text-[11px] text-slate-300 leading-normal">
+                    <span>Forwarded by: </span>
+                    <strong className="text-white">{selectedComplaint.forwardedBy || 'Super Admin / Principal'}</strong>
+                    {selectedComplaint.forwardedAt && (
+                      <span className="text-slate-400 block mt-0.5">
+                        Date: {new Date(selectedComplaint.forwardedAt).toLocaleString()}
+                      </span>
+                    )}
+                  </div>
+                  {selectedComplaint.forwardingNotes && (
+                    <div className="text-[11px] bg-slate-900/90 p-2.5 rounded-lg border border-purple-500/20 text-purple-200 mt-1.5">
+                      <span className="text-[10px] text-purple-400 font-semibold block uppercase">
+                        Executive Forwarding Notes:
+                      </span>
+                      {selectedComplaint.forwardingNotes}
+                    </div>
+                  )}
+                </div>
+              ) : canForwardToDirector ? (
+                <div className="p-3.5 bg-amber-950/30 border border-amber-500/40 rounded-xl space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                      <Share2 className="w-4 h-4 text-amber-400" />
+                      Forward to School Director's Dashboard
+                    </span>
+                    <span className="text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded font-semibold">
+                      Super Admin & Principal Authority
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 leading-relaxed">
+                    This complaint is currently restricted to the Super Administrator and Principal. Forwarding will make it visible in the School Director's executive dashboard.
+                  </p>
+                  <textarea
+                    rows={2}
+                    value={forwardingNotes}
+                    onChange={(e) => setForwardingNotes(e.target.value)}
+                    placeholder="Optional directive or executive summary notes for the Director..."
+                    className="w-full bg-slate-900 border border-amber-500/30 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-amber-400 resize-none"
+                  />
+                  <button
+                    type="button"
+                    disabled={forwardingLoading}
+                    onClick={handleForwardToDirector}
+                    className="w-full py-2 bg-gradient-to-r from-purple-700 to-indigo-700 hover:from-purple-600 hover:to-indigo-600 text-white font-semibold rounded-xl text-xs flex items-center justify-center gap-2 shadow-lg shadow-purple-900/30 transition cursor-pointer disabled:opacity-50"
+                  >
+                    <Share2 className="w-3.5 h-3.5" />
+                    {forwardingLoading ? 'Forwarding to Director...' : 'Forward to Director’s Dashboard'}
+                  </button>
+                </div>
+              ) : (
+                <div className="p-3 bg-slate-900/60 border border-slate-800 rounded-xl text-[11px] text-slate-400 flex items-center gap-2">
+                  <Lock className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>Only the Super Administrator and Principal have authority to forward complaints to the Director.</span>
+                </div>
+              )}
 
               {/* Full Message */}
               <div>
@@ -430,3 +587,4 @@ export const ExecutiveComplaintsManager: React.FC = () => {
     </div>
   );
 };
+

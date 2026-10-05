@@ -230,7 +230,9 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
               } catch (_) {}
 
               const subName = a.subjects?.name || 'Subject';
-              const isEng = subName.toLowerCase().includes('english');
+              const cleanSub = subName.toLowerCase();
+              // Only English Language is compulsory and over 60. Literature in English is an elective over 40 and not compulsory.
+              const isEng = cleanSub.includes('english') && !cleanSub.includes('literature');
               const maxRaw = isEng ? 60 : 40;
               const rawScore = parsedComment.rawScore !== undefined ? parsedComment.rawScore : parseFloat(a.score) || 0;
               const scaledScore = Math.min(100, Math.ceil(parseFloat(a.score) || 0));
@@ -618,7 +620,7 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
             <code className="bg-slate-900 px-1.5 py-0.5 rounded text-amber-300 font-mono">(Raw Score ÷ 60) × 100</code>.
           </p>
           <p>
-            • <strong>Mathematics & Other 2 Subjects:</strong> Each graded over <strong>40</strong> marks. Feasible score ={' '}
+            • <strong>Other Elective Subjects (including Literature in English):</strong> Graded over <strong>40</strong> marks (not compulsory). Feasible score ={' '}
             <code className="bg-slate-900 px-1.5 py-0.5 rounded text-amber-300 font-mono">(Raw Score ÷ 40) × 100</code>.
           </p>
           <p>
@@ -742,9 +744,13 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
                     <td className="py-3.5 px-3">
                       <div className="font-bold text-white print:text-black flex items-center gap-2">
                         {sub.subjectName}
-                        {sub.isEnglish && (
+                        {sub.isEnglish ? (
                           <span className="px-2 py-0.5 rounded text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40 print:border-amber-600 print:text-amber-800 font-semibold">
-                            Compulsory
+                            Compulsory (/60)
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded text-[10px] bg-slate-700/60 text-slate-300 border border-slate-600/50 print:border-slate-400 print:text-slate-700 font-medium">
+                            Elective (/40)
                           </span>
                         )}
                       </div>

@@ -331,7 +331,7 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
               value={studentSearchQuery}
               onChange={(e) => setStudentSearchQuery(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleLookupStudent())}
-              placeholder="e.g. FEN-2026-000001 or Victor..."
+              placeholder="e.g. FEN-2026-000001 or Student Name..."
               className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
             />
           </div>
@@ -385,15 +385,34 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
               <label className="block text-xs font-medium text-slate-300 mb-1">Subject *</label>
               <select
                 value={selectedSubjectId}
-                onChange={(e) => setSelectedSubjectId(e.target.value)}
+                onChange={(e) => {
+                  const subId = e.target.value;
+                  setSelectedSubjectId(subId);
+                  const matchedSub = subjects.find((s) => String(s.id) === subId);
+                  if (matchedSub) {
+                    const lName = matchedSub.name.toLowerCase();
+                    if (lName.includes('literature')) {
+                      setMaxScore('40');
+                    } else if (lName.includes('english')) {
+                      setMaxScore('60');
+                    } else if (maxScore === '60') {
+                      setMaxScore('40');
+                    }
+                  }
+                }}
                 className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
               >
                 {subjects.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.name} ({s.code})
+                    {s.name} ({s.code}) {s.name.toLowerCase().includes('literature') ? '— Elective (over 40)' : s.name.toLowerCase().includes('english') ? '— Compulsory (over 60)' : ''}
                   </option>
                 ))}
               </select>
+              {selectedSubjectId && subjects.find((s) => String(s.id) === selectedSubjectId)?.name.toLowerCase().includes('literature') && (
+                <span className="text-[11px] text-amber-300 mt-1 block font-medium">
+                  • Literature in English is an elective subject graded over 40 (not compulsory).
+                </span>
+              )}
             </div>
 
             <div>

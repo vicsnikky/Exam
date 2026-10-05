@@ -88,6 +88,8 @@ export interface Subject {
   code: string;
   description?: string | null;
   status: string;
+  isCompulsory?: boolean;
+  defaultMaxRawScore?: number;
 }
 
 export interface AssessmentRecord {

@@ -248,7 +248,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
                   required
                   value={emailOrId}
                   onChange={(e) => setEmailOrId(e.target.value)}
-                  placeholder="e.g. victoralo1862@gmail.com or Teacher ID"
+                  placeholder="e.g. staff@school.edu or Teacher ID"
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 transition"
                 />
               </div>
@@ -371,7 +371,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
             <span>Anonymous Complaint & Suggestion Box</span>
           </button>
           <p className="text-[10px] text-slate-400 mt-1.5">
-            Delivered directly to the Super Administrator, School Director & Principal portfolios • No login or name required
+            Delivered directly to the Super Administrator & Principal (reviewers) • Forwarded to Director upon executive review
           </p>
         </div>
 

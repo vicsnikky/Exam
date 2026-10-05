@@ -303,7 +303,7 @@ export const assessmentsRelations = relations(assessments, ({ one }) => ({
   }),
 }));
 
-// Anonymous Complaints & Suggestions Table (Direct to Super Admin, Principal, Director)
+// Anonymous Complaints & Suggestions Table (Direct to Super Admin & Principal first; escalated to Director)
 export const complaints = pgTable('complaints', {
   id: serial('id').primaryKey(),
   referenceCode: text('reference_code').notNull().unique(), // e.g. FIS-CMP-2026-0001
@@ -311,9 +311,13 @@ export const complaints = pgTable('complaints', {
   priority: text('priority').notNull().default('Routine'), // Routine, Important, Urgent
   subject: text('subject').notNull(),
   message: text('message').notNull(),
-  targetRole: text('target_role').default('Executive Leadership'), // Super Admin, Principal, Director
+  targetRole: text('target_role').default('Super Admin & Principal'), // Super Admin, Principal (forwardable to Director)
   status: text('status').notNull().default('pending'), // pending, under_review, resolved, archived
   executiveNotes: text('executive_notes'),
+  forwardedToDirector: boolean('forwarded_to_director').default(false).notNull(),
+  forwardedAt: timestamp('forwarded_at'),
+  forwardedBy: text('forwarded_by'),
+  forwardingNotes: text('forwarding_notes'),
   schoolId: integer('school_id').references(() => schools.id),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   resolvedAt: timestamp('resolved_at'),

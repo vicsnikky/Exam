@@ -117,7 +117,9 @@ export const SS3MockTeacherModule: React.FC = () => {
 
     const entries: SubjectScoreEntry[] = targetNames.map((name) => {
       const match = list.find((s) => s.name.toLowerCase() === name.toLowerCase()) || list[0];
-      const isEng = match.name.toLowerCase().includes('english');
+      const lower = match.name.toLowerCase();
+      // Only English Language is compulsory and over 60. Literature in English is an elective over 40 and not compulsory.
+      const isEng = lower.includes('english') && !lower.includes('literature');
       return {
         subjectId: match.id,
         subjectName: match.name,
@@ -222,7 +224,9 @@ export const SS3MockTeacherModule: React.FC = () => {
     if (!sub) return;
 
     const updated = [...subjectEntries];
-    const isEng = sub.name.toLowerCase().includes('english');
+    const lower = sub.name.toLowerCase();
+    // Only English Language is compulsory and over 60. Literature in English is an elective over 40.
+    const isEng = lower.includes('english') && !lower.includes('literature');
     updated[index] = {
       ...updated[index],
       subjectId: sub.id,
@@ -631,7 +635,7 @@ export const SS3MockTeacherModule: React.FC = () => {
             SS3 Weekly Mock Assessment Manager
           </h1>
           <p className="text-xs text-slate-400 mt-1 max-w-2xl">
-            Enter weekly mock exam scores for Senior Secondary 3 students. English Language is marked over 60; Mathematics and other department subjects are marked over 40. Scores automatically scale to 100 each for a total aggregate over 400.
+            Enter weekly mock exam scores for Senior Secondary 3 students. English Language is marked over 60 (compulsory); Literature in English and all other elective subjects are marked over 40 (not compulsory). Scores automatically scale to 100 each for a total aggregate over 400.
           </p>
         </div>
 
@@ -838,7 +842,12 @@ export const SS3MockTeacherModule: React.FC = () => {
                   {/* Subject Name / Selector */}
                   <div className="md:col-span-4 space-y-1">
                     <label className="text-[11px] font-semibold text-slate-400 block">
-                      Subject #{idx + 1} {item.isEnglish && <span className="text-amber-400">(Compulsory)</span>}
+                      Subject #{idx + 1}{' '}
+                      {item.isEnglish ? (
+                        <span className="text-amber-400 font-bold ml-1">(Compulsory • Marked over 60)</span>
+                      ) : (
+                        <span className="text-slate-400 font-normal ml-1">(Elective • Marked over 40 • Not Compulsory)</span>
+                      )}
                     </label>
                     <select
                       value={item.subjectId}

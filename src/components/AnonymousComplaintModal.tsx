@@ -31,20 +31,10 @@ const CATEGORIES = [
   'Other Confidential Matters',
 ];
 
-const TARGET_PORTFOLIOS = [
-  'All Executive Portfolios (Super Admin, Director & Principal)',
-  'Office of the Super Administrator',
-  'Office of the School Director',
-  'Office of the School Principal',
-  'Bursary & Accounts Portfolio',
-  'Academic Board & Examination Portfolio',
-];
-
 export const AnonymousComplaintModal: React.FC<AnonymousComplaintModalProps> = ({
   isOpen,
   onClose,
 }) => {
-  const [targetPortfolio, setTargetPortfolio] = useState(TARGET_PORTFOLIOS[0]);
   const [category, setCategory] = useState(CATEGORIES[0]);
   const [priority, setPriority] = useState<'Routine' | 'Important' | 'Urgent'>('Routine');
   const [subject, setSubject] = useState('');
@@ -72,7 +62,7 @@ export const AnonymousComplaintModal: React.FC<AnonymousComplaintModalProps> = (
         priority,
         subject: subject.trim(),
         message: message.trim(),
-        targetRole: targetPortfolio,
+        targetRole: 'Super Admin & Principal',
       });
 
       if (res.success) {
@@ -95,7 +85,6 @@ export const AnonymousComplaintModal: React.FC<AnonymousComplaintModalProps> = (
   };
 
   const handleResetAndClose = () => {
-    setTargetPortfolio(TARGET_PORTFOLIOS[0]);
     setCategory(CATEGORIES[0]);
     setPriority('Routine');
     setSubject('');
@@ -122,7 +111,7 @@ export const AnonymousComplaintModal: React.FC<AnonymousComplaintModalProps> = (
               </div>
               <p className="text-xs text-slate-300 mt-0.5 flex items-center gap-1.5">
                 <Lock className="w-3.5 h-3.5 text-emerald-400" />
-                <span>100% Anonymous • Routed to Leadership Portfolios</span>
+                <span>100% Anonymous • Delivered to Super Admin & Principal First</span>
               </p>
             </div>
           </div>
@@ -145,7 +134,7 @@ export const AnonymousComplaintModal: React.FC<AnonymousComplaintModalProps> = (
               <div>
                 <h4 className="text-xl font-bold text-white">Submission Received Anonymously</h4>
                 <p className="text-xs text-slate-300 max-w-md mx-auto mt-2 leading-relaxed">
-                  Your message has been securely submitted and routed to the <strong className="text-amber-300">{targetPortfolio}</strong>. No user account, name, or IP address was recorded.
+                  Your message has been securely submitted and delivered directly to the <strong className="text-amber-300">Super Administrator & School Principal</strong> for initial investigation and action. No user account, name, or IP address was recorded.
                 </p>
               </div>
 
@@ -185,9 +174,8 @@ export const AnonymousComplaintModal: React.FC<AnonymousComplaintModalProps> = (
               <div className="bg-emerald-950/40 border border-emerald-500/30 p-3.5 rounded-2xl flex items-start gap-3">
                 <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
                 <div className="text-xs text-slate-300 leading-relaxed">
-                  <strong className="text-white font-semibold">Complete Anonymity Guarantee: </strong>
-                  You do not need to register, provide an email, or log in. Your identity remains strictly confidential.
-                  The receiving portfolio leadership will investigate all submissions objectively.
+                  <strong className="text-white font-semibold">Two-Tier Executive Review Protocol: </strong>
+                  Submissions are delivered directly to the <span className="text-amber-300 font-semibold">Super Administrator</span> and <span className="text-amber-300 font-semibold">School Principal</span> first. Only the Super Admin or Principal can escalate and forward submissions to the School Director's dashboard when executive proprietor decisions are required. Complete anonymity is guaranteed.
                 </div>
               </div>
 
@@ -198,23 +186,13 @@ export const AnonymousComplaintModal: React.FC<AnonymousComplaintModalProps> = (
                 </div>
               )}
 
-              {/* Target Portfolio Destination */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center gap-1.5">
+              {/* Destination Banner */}
+              <div className="bg-slate-800/80 border border-slate-700 p-3 rounded-xl flex items-center justify-between text-xs">
+                <span className="text-slate-400">First-Tier Recipients:</span>
+                <span className="font-semibold text-amber-300 flex items-center gap-1.5">
                   <Building2 className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Target Destination Portfolio</span>
-                </label>
-                <select
-                  value={targetPortfolio}
-                  onChange={(e) => setTargetPortfolio(e.target.value)}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-amber-400 transition font-medium"
-                >
-                  {TARGET_PORTFOLIOS.map((p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
-                  ))}
-                </select>
+                  Super Administrator & School Principal
+                </span>
               </div>
 
               {/* Category */}
@@ -293,14 +271,6 @@ export const AnonymousComplaintModal: React.FC<AnonymousComplaintModalProps> = (
                 />
                 <span className="text-[10px] text-slate-400 mt-1 block">
                   Do not include your own personal contact details unless you desire the leadership to know who you are.
-                </span>
-              </div>
-
-              {/* Target Portfolio Destination Indicator */}
-              <div className="bg-slate-800/80 border border-slate-700 p-3 rounded-xl flex items-center justify-between text-xs">
-                <span className="text-slate-400">Destination:</span>
-                <span className="font-semibold text-amber-300">
-                  {targetPortfolio}
                 </span>
               </div>
 

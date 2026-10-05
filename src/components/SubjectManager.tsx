@@ -234,11 +234,28 @@ export const SubjectManager: React.FC = () => {
                 className="p-3.5 bg-slate-900/80 border border-slate-700/80 rounded-xl flex items-start justify-between"
               >
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-bold text-white text-sm">{s.name}</span>
                     <span className="px-2 py-0.5 rounded font-mono text-[10px] font-bold bg-indigo-950 text-indigo-300 border border-indigo-800/50">
                       {s.code}
                     </span>
+                    {s.name.toLowerCase().includes('literature') ? (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-700">
+                        Elective (/40)
+                      </span>
+                    ) : s.name.toLowerCase().includes('english') ? (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                        Compulsory (/60)
+                      </span>
+                    ) : s.name.toLowerCase().includes('mathematics') ? (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                        Compulsory (/40)
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-800 text-slate-400 border border-slate-700">
+                        Elective (/40)
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs text-slate-400 mt-1 line-clamp-2">
                     {s.description || 'Active syllabus subject.'}

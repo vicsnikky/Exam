@@ -7,7 +7,7 @@ export async function ensureTablesExist(pool: Pool) {
       "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'schools' LIMIT 1;"
     );
     if (checkRes.rows && checkRes.rows.length > 0) {
-      // Ensure complaints table is created if previously missing
+      // Ensure complaints table is created and has forwarding columns
       try {
         await pool.query(`
           CREATE TABLE IF NOT EXISTS complaints (
@@ -17,13 +17,21 @@ export async function ensureTablesExist(pool: Pool) {
             priority TEXT NOT NULL DEFAULT 'Routine',
             subject TEXT NOT NULL,
             message TEXT NOT NULL,
-            target_role TEXT DEFAULT 'Executive Leadership',
+            target_role TEXT DEFAULT 'Super Admin & Principal',
             status TEXT NOT NULL DEFAULT 'pending',
             executive_notes TEXT,
+            forwarded_to_director BOOLEAN DEFAULT FALSE,
+            forwarded_at TIMESTAMP,
+            forwarded_by TEXT,
+            forwarding_notes TEXT,
             school_id INTEGER REFERENCES schools(id),
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
             resolved_at TIMESTAMP
           );
+          ALTER TABLE complaints ADD COLUMN IF NOT EXISTS forwarded_to_director BOOLEAN DEFAULT FALSE;
+          ALTER TABLE complaints ADD COLUMN IF NOT EXISTS forwarded_at TIMESTAMP;
+          ALTER TABLE complaints ADD COLUMN IF NOT EXISTS forwarded_by TEXT;
+          ALTER TABLE complaints ADD COLUMN IF NOT EXISTS forwarding_notes TEXT;
         `);
       } catch (_) {}
       return;
@@ -231,9 +239,13 @@ export async function ensureTablesExist(pool: Pool) {
       priority TEXT NOT NULL DEFAULT 'Routine',
       subject TEXT NOT NULL,
       message TEXT NOT NULL,
-      target_role TEXT DEFAULT 'Executive Leadership',
+      target_role TEXT DEFAULT 'Super Admin & Principal',
       status TEXT NOT NULL DEFAULT 'pending',
       executive_notes TEXT,
+      forwarded_to_director BOOLEAN DEFAULT FALSE,
+      forwarded_at TIMESTAMP,
+      forwarded_by TEXT,
+      forwarding_notes TEXT,
       school_id INTEGER REFERENCES schools(id),
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
       resolved_at TIMESTAMP

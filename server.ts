@@ -1170,7 +1170,9 @@ app.get('/api/ss3-mock/weeks', authenticate, async (req: AuthRequest, res) => {
 
 // Helper for SS3 Mock score calculation
 function calculateMockSubjectValues(subjectName: string, rawScoreInput?: any, scaledScoreInput?: any) {
-  const isEnglish = (subjectName || '').toLowerCase().includes('english');
+  const cleanName = (subjectName || '').toLowerCase().trim();
+  // English Language is the compulsory subject graded over 60. Literature in English is graded over 40 and is not compulsory.
+  const isEnglish = cleanName.includes('english') && !cleanName.includes('literature');
   const maxRawScore = isEnglish ? 60 : 40;
 
   let rawScore = 0;
@@ -2876,9 +2878,13 @@ app.post('/api/complaints', async (req, res) => {
       priority: priority || 'Routine',
       subject: subject.trim(),
       message: message.trim(),
-      targetRole: targetRole || 'Super Admin, Principal & Director',
+      targetRole: 'Super Admin & Principal',
       status: 'pending',
       executiveNotes: null,
+      forwardedToDirector: false,
+      forwardedAt: null,
+      forwardedBy: null,
+      forwardingNotes: null,
       schoolId: 1,
       createdAt: new Date().toISOString(),
     };
@@ -2894,6 +2900,7 @@ app.post('/api/complaints', async (req, res) => {
         message: newRecord.message,
         targetRole: newRecord.targetRole,
         status: 'pending',
+        forwardedToDirector: false,
         schoolId: 1,
       }).returning();
 
@@ -2915,7 +2922,7 @@ app.post('/api/complaints', async (req, res) => {
   }
 });
 
-// 2. Fetch Anonymous Complaints (DIRECT TO SUPER ADMIN, PRINCIPAL & DIRECTOR ONLY)
+// 2. Fetch Anonymous Complaints (DIRECT TO SUPER ADMIN, PRINCIPAL FIRST; DIRECTOR ONLY SEES FORWARDED)
 app.get('/api/complaints', authenticate, async (req: AuthRequest, res) => {
   try {
     const role = req.appUser?.role;
@@ -2934,16 +2941,68 @@ app.get('/api/complaints', authenticate, async (req: AuthRequest, res) => {
       const merged = Array.from(map.values()).sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
-      return res.json({ complaints: merged });
+
+      // Director ONLY sees complaints that were explicitly forwarded by Super Admin or Principal!
+      const finalComplaints = role === 'director'
+        ? merged.filter((c) => c.forwardedToDirector === true)
+        : merged;
+
+      return res.json({ complaints: finalComplaints });
     } catch (dbErr) {
-      return res.json({ complaints: inMemoryComplaints });
+      const finalComplaints = role === 'director'
+        ? inMemoryComplaints.filter((c) => c.forwardedToDirector === true)
+        : inMemoryComplaints;
+      return res.json({ complaints: finalComplaints });
     }
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
 });
 
-// 3. Update Complaint Status & Executive Notes (SUPER ADMIN, PRINCIPAL & DIRECTOR ONLY)
+// 3. Forward Complaint to Director's Dashboard (SUPER ADMIN & PRINCIPAL ONLY)
+app.post('/api/complaints/:referenceCode/forward-director', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const role = req.appUser?.role;
+    if (role !== 'super_admin' && role !== 'principal') {
+      return res.status(403).json({ error: 'Access denied: Only Super Administrator and Principal have authority to forward complaints to the Director.' });
+    }
+
+    const { referenceCode } = req.params;
+    const { forwardingNotes } = req.body;
+    const forwardedBy = `${req.appUser?.firstName || ''} ${req.appUser?.lastName || ''} (${role === 'super_admin' ? 'Super Admin' : 'Principal'})`.trim();
+    const forwardedAt = new Date().toISOString();
+
+    const inMem = inMemoryComplaints.find((c) => c.referenceCode === referenceCode);
+    if (inMem) {
+      inMem.forwardedToDirector = true;
+      inMem.forwardedAt = forwardedAt;
+      inMem.forwardedBy = forwardedBy;
+      if (forwardingNotes !== undefined) inMem.forwardingNotes = forwardingNotes;
+    }
+
+    try {
+      await db.update(complaints).set({
+        forwardedToDirector: true,
+        forwardedAt: new Date(forwardedAt),
+        forwardedBy,
+        forwardingNotes: forwardingNotes || null,
+      }).where(eq(complaints.referenceCode, referenceCode));
+    } catch (_) {}
+
+    return res.json({
+      success: true,
+      referenceCode,
+      forwardedToDirector: true,
+      forwardedAt,
+      forwardedBy,
+      forwardingNotes,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 4. Update Complaint Status & Executive Notes (SUPER ADMIN, PRINCIPAL & DIRECTOR ONLY)
 app.patch('/api/complaints/:referenceCode', authenticate, async (req: AuthRequest, res) => {
   try {
     const role = req.appUser?.role;
