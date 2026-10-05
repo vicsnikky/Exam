@@ -41,16 +41,9 @@ import {
   Building2,
   GraduationCap
 } from 'lucide-react';
+import { SCHOOL_CLASSES, isSameClass } from '../constants/classes.ts';
 
-const CLASS_OPTIONS = [
-  'Primary 5',
-  'JSS 1',
-  'JSS 2',
-  'JSS 3',
-  'SS 1',
-  'SS 2',
-  'SS 3',
-];
+const CLASS_OPTIONS = [...SCHOOL_CLASSES];
 
 export const BursarDashboard: React.FC = () => {
   const { token, user } = useAuth();

@@ -16,6 +16,7 @@ import {
 import { Subject, Question, Student } from '../types/index.ts';
 import { fetchAllSubjectsUnified } from '../lib/subjectStore.ts';
 import { fetchAllStudentsUnified } from '../lib/schoolStore.ts';
+import { SCHOOL_CLASSES } from '../constants/classes.ts';
 
 interface QuizBuilderProps {
   onQuizCreated?: () => void;
@@ -237,13 +238,11 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ onQuizCreated }) => {
                 className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
               >
                 <option value="All">All Classes</option>
-                <option value="Primary 5">Primary 5</option>
-                <option value="JSS 1">JSS 1</option>
-                <option value="JSS 2">JSS 2</option>
-                <option value="JSS 3">JSS 3</option>
-                <option value="SS 1">SS 1</option>
-                <option value="SS 2">SS 2</option>
-                <option value="SS 3">SS 3</option>
+                {SCHOOL_CLASSES.map((cName) => (
+                  <option key={cName} value={cName}>
+                    {cName}
+                  </option>
+                ))}
               </select>
             </div>
             <div>

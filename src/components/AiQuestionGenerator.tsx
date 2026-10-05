@@ -26,6 +26,7 @@ import {
 import { Subject, Question } from '../types/index.ts';
 import { fetchAllSubjectsUnified } from '../lib/subjectStore.ts';
 import { supabase } from '../supabaseConfig.ts';
+import { SCHOOL_CLASSES } from '../constants/classes.ts';
 
 interface AiQuestionGeneratorProps {
   onQuestionsSaved?: () => void;
@@ -598,12 +599,11 @@ export const AiQuestionGenerator: React.FC<AiQuestionGeneratorProps> = ({
                     onChange={(e) => setManualClassLevel(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-400"
                   >
-                    <option value="JSS 1">JSS 1</option>
-                    <option value="JSS 2">JSS 2</option>
-                    <option value="JSS 3">JSS 3</option>
-                    <option value="SS 1">SS 1</option>
-                    <option value="SS 2">SS 2</option>
-                    <option value="SS 3">SS 3</option>
+                    {SCHOOL_CLASSES.map((cName) => (
+                      <option key={cName} value={cName}>
+                        {cName}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
@@ -1072,12 +1072,11 @@ export const AiQuestionGenerator: React.FC<AiQuestionGeneratorProps> = ({
                   onChange={(e) => setAiClassLevel(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-400"
                 >
-                  <option value="JSS 1">JSS 1</option>
-                  <option value="JSS 2">JSS 2</option>
-                  <option value="JSS 3">JSS 3</option>
-                  <option value="SS 1">SS 1</option>
-                  <option value="SS 2">SS 2</option>
-                  <option value="SS 3">SS 3</option>
+                  {SCHOOL_CLASSES.map((cName) => (
+                    <option key={cName} value={cName}>
+                      {cName}
+                    </option>
+                  ))}
                 </select>
               </div>
 

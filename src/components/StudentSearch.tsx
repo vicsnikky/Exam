@@ -4,6 +4,7 @@ import { Student } from '../types/index.ts';
 import { getLocalStudents, deleteStudent, fetchAllStudentsUnified } from '../lib/schoolStore.ts';
 import { DeleteConfirmModal } from './DeleteConfirmModal.tsx';
 import { EditStudentModal } from './EditStudentModal.tsx';
+import { SCHOOL_CLASSES, isSameClass } from '../constants/classes.ts';
 import {
   Search,
   Filter,
@@ -58,9 +59,8 @@ export const StudentSearch: React.FC<StudentSearchProps> = ({
 
     return masterStudents.filter((s) => {
       // 1. Class Filter
-      if (cleanCls) {
-        const studentCls = (s.currentClass || '').toUpperCase().replace(/\s+/g, '');
-        if (studentCls !== cleanCls) return false;
+      if (selectedClass && selectedClass !== 'all') {
+        if (!isSameClass(s.currentClass, selectedClass)) return false;
       }
 
       // 2. Query Search
@@ -217,12 +217,11 @@ export const StudentSearch: React.FC<StudentSearchProps> = ({
               className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
             >
               <option value="all">All Classes</option>
-              <option value="SS 3">SS 3 (Final Year)</option>
-              <option value="SS 2">SS 2</option>
-              <option value="SS 1">SS 1</option>
-              <option value="JSS 3">JSS 3</option>
-              <option value="JSS 2">JSS 2</option>
-              <option value="JSS 1">JSS 1</option>
+              {SCHOOL_CLASSES.map((cName) => (
+                <option key={cName} value={cName}>
+                  {cName}
+                </option>
+              ))}
             </select>
           </div>
 

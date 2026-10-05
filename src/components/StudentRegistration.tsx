@@ -17,6 +17,7 @@ import {
 import { Student } from '../types/index.ts';
 import { registerNewStudent } from '../lib/schoolStore.ts';
 import { RegistrationSuccessCard } from './RegistrationSuccessCard.tsx';
+import { SCHOOL_CLASS_OPTIONS } from '../constants/classes.ts';
 
 interface StudentRegistrationProps {
   onStudentRegistered?: (student: Student) => void;
@@ -251,18 +252,11 @@ export const StudentRegistration: React.FC<StudentRegistrationProps> = ({
                 onChange={(e) => setCurrentClass(e.target.value)}
                 className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
               >
-                <option value="SS 3">SS 3 (Weekly Mock Class)</option>
-                <option value="SS 2">SS 2 (Senior Secondary 2)</option>
-                <option value="SS 1">SS 1 (Senior Secondary 1)</option>
-                <option value="JSS 3">JSS 3 (Junior Secondary 3)</option>
-                <option value="JSS 2">JSS 2 (Junior Secondary 2)</option>
-                <option value="JSS 1">JSS 1 (Junior Secondary 1)</option>
-                <option value="Primary 6">Primary 6</option>
-                <option value="Primary 5">Primary 5</option>
-                <option value="Primary 4">Primary 4</option>
-                <option value="Primary 3">Primary 3</option>
-                <option value="Primary 2">Primary 2</option>
-                <option value="Primary 1">Primary 1</option>
+                {SCHOOL_CLASS_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
               </select>
             </div>
             <div>

@@ -25,6 +25,7 @@ import { Student, Subject } from '../types/index.ts';
 import { getLocalStudents, fetchAllStudentsUnified } from '../lib/schoolStore.ts';
 import { fetchAllSubjectsUnified } from '../lib/subjectStore.ts';
 import { supabase } from '../supabaseConfig.ts';
+import { isSameClass } from '../constants/classes.ts';
 
 export const SS3MockTeacherModule: React.FC = () => {
   const { user, token } = useAuth();
@@ -80,8 +81,11 @@ export const SS3MockTeacherModule: React.FC = () => {
       const allStudents = await fetchAllStudentsUnified(token);
       let ss3List = allStudents.filter(
         (s) =>
+          isSameClass(s.currentClass, 'SS 3') ||
           (s.currentClass || '').toUpperCase().includes('SS 3') ||
-          (s.currentClass || '').toUpperCase().includes('SS3')
+          (s.currentClass || '').toUpperCase().includes('SS3') ||
+          (s.currentClass || '').toUpperCase().includes('SSS 3') ||
+          (s.currentClass || '').toUpperCase().includes('SSS3')
       );
       if (ss3List.length === 0) {
         ss3List = allStudents;

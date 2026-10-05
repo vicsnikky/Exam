@@ -296,7 +296,11 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   const isLockedForFees = isStudentFeeLocked(studentKey) || isStudentFeeLocked(student.id) || isStudentFeeLocked(student.email);
   const lockDetails = isLockedForFees ? (getStudentFeeLockDetails(studentKey) || getStudentFeeLockDetails(student.id)) : null;
 
-  const isSS3 = (student.currentClass || '').toUpperCase().includes('SS 3') || (student.currentClass || '').toUpperCase().includes('SS3');
+  const isSS3 =
+    (student.currentClass || '').toUpperCase().includes('SS 3') ||
+    (student.currentClass || '').toUpperCase().includes('SS3') ||
+    (student.currentClass || '').toUpperCase().includes('SSS 3') ||
+    (student.currentClass || '').toUpperCase().includes('SSS3');
 
   return (
     <ErrorBoundary fallbackTitle="Student Profile Recovery">

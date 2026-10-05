@@ -878,13 +878,24 @@ app.post('/api/bursar/lock-student', authenticate, async (req: AuthRequest, res)
 
 // Class Fees Designated Amount Endpoints
 const inMemoryClassFees: Record<string, number> = {
-  'Primary 5': 120000,
+  'Creche': 95000,
+  'KG 1': 100000,
+  'KG 2': 100000,
+  'NUR 1': 110000,
+  'NUR 2': 110000,
+  'Primary 1': 115000,
+  'Primary 2': 115000,
+  'Primary 3': 120000,
+  'Primary 4': 120000,
+  'Primary 5': 125000,
   'JSS 1': 150000,
   'JSS 2': 150000,
   'JSS 3': 160000,
+  'SSS 1': 180000,
+  'SSS 2': 180000,
+  'SS 3': 220000,
   'SS 1': 180000,
   'SS 2': 180000,
-  'SS 3': 220000,
 };
 
 app.get('/api/bursar/class-fees', authenticate, async (_req: AuthRequest, res) => {

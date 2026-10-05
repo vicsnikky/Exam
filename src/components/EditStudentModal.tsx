@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Student } from '../types/index.ts';
 import { useAuth } from '../context/AuthContext.tsx';
 import { updateStudent } from '../lib/schoolStore.ts';
+import { SCHOOL_CLASS_OPTIONS } from '../constants/classes.ts';
 import {
   X,
   User,
@@ -191,14 +192,11 @@ export const EditStudentModal: React.FC<EditStudentModalProps> = ({
                 onChange={(e) => setCurrentClass(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
               >
-                <option value="SS 3">SS 3 (Final Year)</option>
-                <option value="SS 2">SS 2</option>
-                <option value="SS 1">SS 1</option>
-                <option value="JSS 3">JSS 3</option>
-                <option value="JSS 2">JSS 2</option>
-                <option value="JSS 1">JSS 1</option>
-                <option value="Primary 6">Primary 6</option>
-                <option value="Primary 5">Primary 5</option>
+                {SCHOOL_CLASS_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
               </select>
             </div>
 

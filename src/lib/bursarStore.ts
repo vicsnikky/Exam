@@ -5,13 +5,25 @@ const CLASS_FEES_STORAGE_KEY = 'fis_class_fees_config_v1';
 const STUDENT_PAYMENTS_STORAGE_KEY = 'fis_student_payments_v1';
 
 export const DEFAULT_CLASS_FEES: Record<string, number> = {
-  'Primary 5': 120000,
+  'Creche': 95000,
+  'KG 1': 100000,
+  'KG 2': 100000,
+  'NUR 1': 110000,
+  'NUR 2': 110000,
+  'Primary 1': 115000,
+  'Primary 2': 115000,
+  'Primary 3': 120000,
+  'Primary 4': 120000,
+  'Primary 5': 125000,
   'JSS 1': 150000,
   'JSS 2': 150000,
   'JSS 3': 160000,
+  'SSS 1': 180000,
+  'SSS 2': 180000,
+  'SS 3': 220000,
+  // Backwards compatibility aliases
   'SS 1': 180000,
   'SS 2': 180000,
-  'SS 3': 220000,
 };
 
 // ----------------------------------------------------
