@@ -345,6 +345,83 @@ app.get('/api/auth/me', authenticate, async (req: AuthRequest, res) => {
   });
 });
 
+// Change Password for Staff (excluding students)
+app.post('/api/auth/change-password', authenticate, async (req: AuthRequest, res) => {
+  try {
+    if (!req.appUser) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    if (req.appUser.role === 'student') {
+      return res.status(403).json({ error: 'Students cannot use the staff password change channel.' });
+    }
+
+    const { newPassword } = req.body;
+    if (!newPassword || typeof newPassword !== 'string' || newPassword.trim().length < 6) {
+      return res.status(400).json({ error: 'New password must be at least 6 characters long.' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const passwordHash = await bcrypt.hash(newPassword.trim(), salt);
+
+    if (req.appUser.id) {
+      await db.update(users).set({ passwordHash }).where(eq(users.id, req.appUser.id));
+    }
+    if (req.appUser.email) {
+      await db.update(users).set({ passwordHash }).where(eq(users.email, req.appUser.email.toLowerCase().trim()));
+    }
+
+    // Audit log
+    await db.insert(auditLogs).values({
+      actorName: `${req.appUser.firstName} ${req.appUser.lastName || ''}`.trim(),
+      actorRole: req.appUser.role,
+      action: 'STAFF_PASSWORD_CHANGED',
+      targetEntity: 'users',
+      details: `Staff member ${req.appUser.email} updated account password securely`,
+      schoolId: req.appUser.schoolId || 1,
+    });
+
+    return res.json({ success: true, message: 'Password updated successfully' });
+  } catch (error: any) {
+    console.error('Password change error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to update password' });
+  }
+});
+
+// Reset Staff Password (SUPER ADMIN ONLY - Strictly forbidden to director and others)
+app.post('/api/admin/reset-staff-password', authenticate, async (req: AuthRequest, res) => {
+  try {
+    if (req.appUser?.role !== 'super_admin') {
+      return res.status(403).json({ error: 'Access denied: Super Administrator authority required' });
+    }
+
+    const { staffEmail, teacherId, newPassword } = req.body;
+    if (!newPassword || newPassword.trim().length < 6) {
+      return res.status(400).json({ error: 'New password must be at least 6 characters' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const passwordHash = await bcrypt.hash(newPassword.trim(), salt);
+
+    if (staffEmail) {
+      await db.update(users).set({ passwordHash }).where(eq(users.email, staffEmail.toLowerCase().trim()));
+    }
+
+    // Audit log
+    await db.insert(auditLogs).values({
+      actorName: `${req.appUser.firstName} ${req.appUser.lastName || ''}`.trim(),
+      actorRole: 'super_admin',
+      action: 'STAFF_PASSWORD_ADMIN_RESET',
+      targetEntity: 'users',
+      details: `Super Admin reset password for staff member ${staffEmail || teacherId}`,
+      schoolId: req.appUser.schoolId || 1,
+    });
+
+    return res.json({ success: true, message: `Password reset successfully for ${staffEmail || teacherId}` });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message || 'Failed to reset staff password' });
+  }
+});
+
 // ----------------------------------------------------
 // 2. DASHBOARD METRICS
 // ----------------------------------------------------
@@ -1714,6 +1791,60 @@ app.post('/api/ss3-mock/scores', authenticate, async (req: AuthRequest, res) => 
   } catch (error: any) {
     console.error('SS3 mock score recording error:', error);
     return res.status(500).json({ error: error.message || 'Failed to record SS3 mock scores' });
+  }
+});
+
+// Delete Subject Mock Score for Student (e.g. mistakenly added subject)
+app.delete('/api/ss3-mock/scores', authenticate, async (req: AuthRequest, res) => {
+  try {
+    if (req.appUser?.role === 'student' || req.appUser?.role === 'bursar') {
+      return res.status(403).json({ error: 'Permission denied. Only academic faculty and administrators can modify mock scores.' });
+    }
+
+    const studentIdParam = req.query.studentId;
+    const weekNumber = Number(req.query.weekNumber);
+    const subjectId = req.query.subjectId ? Number(req.query.subjectId) : null;
+    const subjectName = (req.query.subjectName as string || '').toLowerCase().trim();
+
+    if (!studentIdParam || !weekNumber) {
+      return res.status(400).json({ error: 'studentId and weekNumber are required' });
+    }
+
+    let resolvedStudent: any[] = [];
+    if (!isNaN(Number(studentIdParam))) {
+      resolvedStudent = await db.select().from(students).where(eq(students.id, Number(studentIdParam))).limit(1);
+    }
+    if (resolvedStudent.length === 0) {
+      resolvedStudent = await db.select().from(students).where(eq(students.studentId, String(studentIdParam).toUpperCase())).limit(1);
+    }
+
+    if (resolvedStudent.length === 0) {
+      return res.status(404).json({ error: 'Student not found' });
+    }
+
+    const currentStudent = resolvedStudent[0];
+
+    let targetSubjectId = subjectId;
+    if (!targetSubjectId && subjectName) {
+      const allSubs = await db.select().from(subjects);
+      const matched = allSubs.find((s) => s.name.toLowerCase().trim() === subjectName);
+      if (matched) targetSubjectId = matched.id;
+    }
+
+    if (targetSubjectId) {
+      await db.delete(assessments).where(
+        and(
+          eq(assessments.studentId, currentStudent.id),
+          eq(assessments.assessmentType, 'SS3_MOCK'),
+          eq(assessments.term, `Week ${weekNumber}`),
+          eq(assessments.subjectId, targetSubjectId)
+        )
+      );
+    }
+
+    return res.json({ success: true, message: 'Subject mock score removed successfully' });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
   }
 });
 

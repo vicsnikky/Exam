@@ -43,6 +43,11 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   const { token, user } = useAuth();
   const isStudent = user?.role === 'student';
   const isBursar = user?.role === 'bursar';
+  const hasAdminPrivileges =
+    user?.role === 'super_admin' ||
+    user?.role === 'director' ||
+    user?.role === 'principal' ||
+    user?.role === 'admin';
   const canAddScore = !isStudent && !isBursar && Boolean(onAddScoreForStudent);
 
   const [student, setStudent] = useState<Student | null>(initialStudent || null);
@@ -450,7 +455,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
             Terminal Assessments & Tests ({assessments.length})
           </button>
 
-          {isSS3 && (
+          {isSS3 && hasAdminPrivileges && (
             <button
               onClick={() => setProfileTab('mock-results')}
               className={`px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
@@ -460,7 +465,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
               }`}
             >
               <Award className="w-3.5 h-3.5 text-amber-300" />
-              SS3 Mock Results & Aggregate
+              SS3 Mock Results & Aggregate (Admin)
             </button>
           )}
 
@@ -637,8 +642,8 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           )
         )}
 
-        {/* TAB 2: SS3 MOCK RESULTS */}
-        {profileTab === 'mock-results' && (
+        {/* TAB 2: SS3 MOCK RESULTS (ADMIN PRIVILEGES ONLY) */}
+        {profileTab === 'mock-results' && hasAdminPrivileges && (
           <div className="bg-slate-800/80 border border-slate-700 rounded-2xl p-6 shadow-xl space-y-6">
             <div className="flex items-center justify-between pb-4 border-b border-slate-700">
               <div>

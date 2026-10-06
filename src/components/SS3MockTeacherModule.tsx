@@ -45,6 +45,10 @@ export const SS3MockTeacherModule: React.FC = () => {
   const [term, setTerm] = useState<string>('Second Term');
   const [searchQuery, setSearchQuery] = useState('');
 
+  const selectedStudentObj = ss3Students.find(
+    (s) => String(s.id) === String(selectedStudentId) || s.studentId === String(selectedStudentId)
+  );
+
   // 4 Subjects Array
   interface SubjectScoreEntry {
     subjectId: number;
@@ -169,9 +173,13 @@ export const SS3MockTeacherModule: React.FC = () => {
 
       // 2. Fetch live from backend
       try {
-        const res = await fetch(`/api/ss3-mock/scores?studentId=${stId}&weekNumber=${week}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const candidateNum = selectedStudentObj?.studentId || '';
+        const res = await fetch(
+          `/api/ss3-mock/scores?studentId=${stId}&studentNumber=${encodeURIComponent(candidateNum)}&weekNumber=${week}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
         if (res.ok) {
           const data = await res.json();
           const serverScores = data.scores || [];
@@ -184,26 +192,168 @@ export const SS3MockTeacherModule: React.FC = () => {
       } catch (_) {}
 
       if (existingMap.size > 0) {
-        setSubjectEntries((prev) => {
-          return prev.map((item) => {
-            const byId = existingMap.get(String(item.subjectId));
-            const byName = existingMap.get((item.subjectName || '').toLowerCase().trim());
-            const match = byId || byName;
-            if (match) {
-              const rawStr = match.rawScore !== undefined && match.rawScore !== null ? String(match.rawScore) : item.rawScore;
-              const scaled = match.score !== undefined ? match.score : (match.scaledScore !== undefined ? match.scaledScore : item.scaledScore);
-              return {
-                ...item,
-                rawScore: rawStr,
-                scaledScore: scaled || item.scaledScore,
-                remark: match.remark || item.remark,
-              };
-            }
-            return item;
+        // Collect all distinct saved subjects from existingMap so all saved scores stay visible & editable
+        const loaded: SubjectScoreEntry[] = [];
+        const seenKeys = new Set<string>();
+
+        for (const [_, s] of existingMap.entries()) {
+          const subName = (s.subjectName || '').trim();
+          const cleanName = subName.toLowerCase();
+          const subId = Number(s.subjectId) || 0;
+          const dedupKey = `${subId}_${cleanName}`;
+          if (seenKeys.has(dedupKey) || (cleanName && seenKeys.has(cleanName))) continue;
+          if (cleanName) seenKeys.add(cleanName);
+          seenKeys.add(dedupKey);
+
+          const isEng = cleanName.includes('english') && !cleanName.includes('literature');
+          const maxRaw = isEng ? 60 : 40;
+          const rawStr = s.rawScore !== undefined && s.rawScore !== null ? String(s.rawScore) : '';
+          const numRaw = parseFloat(rawStr) || 0;
+          const scaled = s.score !== undefined ? Number(s.score) : (s.scaledScore !== undefined ? Number(s.scaledScore) : Math.min(100, Math.ceil((numRaw / maxRaw) * 100)));
+
+          const matchedSub = availableSubjects.find((sub) => sub.id === subId || sub.name.toLowerCase() === cleanName);
+          const finalId = matchedSub ? matchedSub.id : (subId || 1);
+          const finalName = matchedSub ? matchedSub.name : (subName || 'Subject');
+
+          loaded.push({
+            subjectId: finalId,
+            subjectName: finalName,
+            rawScore: rawStr,
+            maxRawScore: maxRaw,
+            scaledScore: scaled,
+            remark: s.remark || (scaled >= 75 ? 'Distinction' : scaled >= 50 ? 'Credit' : 'Good Progress'),
+            isEnglish: isEng,
           });
-        });
+        }
+
+        if (loaded.length > 0) {
+          loaded.sort((a, b) => {
+            if (a.isEnglish) return -1;
+            if (b.isEnglish) return 1;
+            return a.subjectName.localeCompare(b.subjectName);
+          });
+          setSubjectEntries(loaded);
+          return;
+        }
+      }
+
+      // If no saved subjects exist for this student and week, initialize with preset
+      setupDepartmentPreset('science');
+    } catch (_) {}
+  };
+
+  const handleAddSubjectEntry = () => {
+    const usedIds = new Set(subjectEntries.map((s) => s.subjectId));
+    const nextSubject = availableSubjects.find((s) => !usedIds.has(s.id)) || availableSubjects[0];
+    if (!nextSubject) return;
+
+    const lower = nextSubject.name.toLowerCase();
+    const isEng = lower.includes('english') && !lower.includes('literature');
+    setSubjectEntries((prev) => [
+      ...prev,
+      {
+        subjectId: nextSubject.id,
+        subjectName: nextSubject.name,
+        rawScore: '',
+        maxRawScore: isEng ? 60 : 40,
+        scaledScore: 0,
+        remark: 'Good',
+        isEnglish: isEng,
+      },
+    ]);
+  };
+
+  const handleDeleteSubject = async (index: number) => {
+    const target = subjectEntries[index];
+    if (!target) return;
+
+    const candidateStudentId = selectedStudentObj?.id || selectedStudentId;
+    const candidateStudentNumber = selectedStudentObj?.studentId || '';
+
+    // 1. Remove from local form state immediately
+    const updated = subjectEntries.filter((_, i) => i !== index);
+    setSubjectEntries(updated);
+
+    // 2. Remove from localStorage fis_mock_scores_v2
+    try {
+      const raw = localStorage.getItem('fis_mock_scores_v2');
+      if (raw) {
+        const list = JSON.parse(raw);
+        const matchIdx = list.findIndex(
+          (m: any) =>
+            (String(m.studentId) === String(candidateStudentId) || (candidateStudentNumber && m.studentNumber === candidateStudentNumber)) &&
+            m.weekNumber === selectedWeek
+        );
+        if (matchIdx !== -1) {
+          const entry = list[matchIdx];
+          if (Array.isArray(entry.subjects)) {
+            entry.subjects = entry.subjects.filter(
+              (s: any) =>
+                s.subjectId !== target.subjectId &&
+                (s.subjectName || '').toLowerCase().trim() !== (target.subjectName || '').toLowerCase().trim()
+            );
+            entry.totalScore400 = entry.subjects.reduce((sum: number, s: any) => sum + (s.score || s.scaledScore || 0), 0);
+            entry.averagePercentage = Math.round(entry.totalScore400 / (entry.subjects.length || 4));
+          }
+          list[matchIdx] = entry;
+          localStorage.setItem('fis_mock_scores_v2', JSON.stringify(list));
+        }
       }
     } catch (_) {}
+
+    // 3. Call backend DELETE endpoint
+    try {
+      await fetch(
+        `/api/ss3-mock/scores?studentId=${candidateStudentId}&weekNumber=${selectedWeek}&subjectId=${target.subjectId}&subjectName=${encodeURIComponent(target.subjectName)}`,
+        {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+    } catch (_) {}
+
+    // 4. Delete from Supabase
+    try {
+      if (candidateStudentNumber) {
+        const { data: stRow } = await supabase
+          .from('students')
+          .select('id')
+          .eq('student_id', candidateStudentNumber)
+          .limit(1);
+        const numId = stRow && stRow[0]?.id;
+        if (numId) {
+          await supabase
+            .from('assessments')
+            .delete()
+            .eq('student_id', numId)
+            .eq('assessment_type', 'SS3_MOCK')
+            .eq('term', `Week ${selectedWeek}`)
+            .eq('subject_id', target.subjectId);
+
+          await supabase
+            .from('ss3_mock_scores')
+            .delete()
+            .eq('student_id', numId)
+            .eq('week_number', selectedWeek)
+            .eq('subject_id', target.subjectId);
+        }
+      }
+    } catch (_) {}
+
+    window.dispatchEvent(
+      new CustomEvent('fis:mock-scores-updated', {
+        detail: {
+          studentId: candidateStudentId,
+          studentNumber: candidateStudentNumber,
+          weekNumber: selectedWeek,
+        },
+      })
+    );
+
+    setStatusMessage({
+      type: 'success',
+      text: `Subject "${target.subjectName}" removed from Week ${selectedWeek} mock scores for student.`,
+    });
   };
 
   const handleRawScoreChange = (index: number, val: string) => {
@@ -503,9 +653,11 @@ export const SS3MockTeacherModule: React.FC = () => {
       );
 
       const candidateName = selectedStudentObj ? `${selectedStudentObj.firstName} ${selectedStudentObj.surname}` : 'Student';
+      await loadStudentScoresForWeek(Number(candidateStudentId), selectedWeek);
+
       setStatusMessage({
         type: 'success',
-        text: `Successfully recorded Week ${selectedWeek} mock scores for ${candidateName}! Grand Total: ${roundedGrandTotal} / 400. Automatically published to student's dashboard.`,
+        text: `Successfully saved Week ${selectedWeek} mock scores for ${candidateName}! Grand Total: ${roundedGrandTotal} / 400. Scores remain visible and editable here at any time.`,
       });
 
       // Refresh broadsheet if active
@@ -616,10 +768,6 @@ export const SS3MockTeacherModule: React.FC = () => {
     (s) =>
       `${s.firstName} ${s.surname}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
       s.studentId.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  const selectedStudentObj = ss3Students.find(
-    (s) => String(s.id) === String(selectedStudentId) || s.studentId === String(selectedStudentId)
   );
 
   return (
@@ -841,16 +989,16 @@ export const SS3MockTeacherModule: React.FC = () => {
               {subjectEntries.map((item, idx) => (
                 <div
                   key={idx}
-                  className="bg-slate-900/90 border border-slate-750 hover:border-slate-650 rounded-xl p-4 transition grid grid-cols-1 md:grid-cols-12 gap-4 items-center"
+                  className="bg-slate-900/90 border border-slate-750 hover:border-slate-650 rounded-xl p-4 transition grid grid-cols-1 md:grid-cols-12 gap-3.5 items-center relative"
                 >
                   {/* Subject Name / Selector */}
                   <div className="md:col-span-4 space-y-1">
                     <label className="text-[11px] font-semibold text-slate-400 block">
                       Subject #{idx + 1}{' '}
                       {item.isEnglish ? (
-                        <span className="text-amber-400 font-bold ml-1">(Compulsory • Marked over 60)</span>
+                        <span className="text-amber-400 font-bold ml-1">(Compulsory • Over 60)</span>
                       ) : (
-                        <span className="text-slate-400 font-normal ml-1">(Elective • Marked over 40 • Not Compulsory)</span>
+                        <span className="text-slate-400 font-normal ml-1">(Elective • Over 40)</span>
                       )}
                     </label>
                     <select
@@ -908,20 +1056,47 @@ export const SS3MockTeacherModule: React.FC = () => {
                   </div>
 
                   {/* Teacher Remark */}
-                  <div className="md:col-span-3 space-y-1">
+                  <div className="md:col-span-2 space-y-1">
                     <label className="text-[11px] font-semibold text-slate-400 block">
-                      Subject Teacher Remark
+                      Remark
                     </label>
                     <input
                       type="text"
-                      placeholder="e.g. Excellent grasp"
+                      placeholder="e.g. Good"
                       value={item.remark}
                       onChange={(e) => handleRemarkChange(idx, e.target.value)}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
+                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
                     />
+                  </div>
+
+                  {/* Delete Subject Button */}
+                  <div className="md:col-span-1 flex flex-col justify-end items-center h-full pt-4 md:pt-0">
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteSubject(idx)}
+                      title={`Delete mistakenly added subject: ${item.subjectName}`}
+                      className="p-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 hover:border-rose-400 transition cursor-pointer flex items-center justify-center"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
               ))}
+            </div>
+
+            {/* Quick Actions: Add Another Subject & Guidance */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 pb-1 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={handleAddSubjectEntry}
+                className="px-4 py-2 bg-slate-900 hover:bg-slate-700 text-amber-300 border border-amber-500/30 hover:border-amber-400 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-2 self-start shadow-sm"
+              >
+                <Plus className="w-4 h-4 text-amber-400" />
+                + Add Another Subject to Mock
+              </button>
+              <span className="text-[11px] text-slate-400">
+                💡 Scores remain safely saved and editable at any time. Delete any mistakenly added subject using the red trash button.
+              </span>
             </div>
 
             {/* Submission / Action Bar */}

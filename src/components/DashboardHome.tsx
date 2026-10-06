@@ -14,7 +14,8 @@ import {
   Sparkles,
   Search,
   School,
-  GraduationCap
+  GraduationCap,
+  KeyRound
 } from 'lucide-react';
 import { Student } from '../types/index.ts';
 import {
@@ -152,6 +153,14 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
             >
               <PlusCircle className="w-4 h-4" />
               Register Student
+            </button>
+            <button
+              onClick={() => window.dispatchEvent(new CustomEvent('fis:open-change-password'))}
+              className="px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 text-amber-300 font-semibold rounded-xl text-xs flex items-center gap-2 transition border border-amber-500/30 cursor-pointer"
+              title="Change your staff account password"
+            >
+              <KeyRound className="w-4 h-4 text-amber-400" />
+              Change Password
             </button>
           </div>
         </div>

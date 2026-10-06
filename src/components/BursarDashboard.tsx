@@ -39,7 +39,9 @@ import {
   Receipt,
   X,
   Building2,
-  GraduationCap
+  GraduationCap,
+  Pencil,
+  KeyRound
 } from 'lucide-react';
 import { SCHOOL_CLASSES, isSameClass } from '../constants/classes.ts';
 
@@ -78,6 +80,23 @@ export const BursarDashboard: React.FC = () => {
     isAddition: true,
     receiptNo: '',
     note: 'Tuition payment received',
+  });
+
+  // Edit / Correct Recorded Fee Modal (in case of wrong entry)
+  const [editFeeModal, setEditFeeModal] = useState<{
+    isOpen: boolean;
+    student: Student | null;
+    currentPaid: number;
+    correctedAmount: string;
+    note: string;
+    receiptNo: string;
+  }>({
+    isOpen: false,
+    student: null,
+    currentPaid: 0,
+    correctedAmount: '',
+    note: 'Correction of wrong entry by Bursar',
+    receiptNo: '',
   });
 
   // Class fees editing state
@@ -179,14 +198,30 @@ export const BursarDashboard: React.FC = () => {
     });
   };
 
-  // Submit Payment Record
+  // Open Edit / Correct Fee Modal (in case of wrong entry)
+  const openEditFeeModal = (st: Student) => {
+    const sId = (st.studentId || String(st.id)).toUpperCase();
+    const currentRecord = payments[sId];
+    const currentPaid = currentRecord ? currentRecord.amountPaid : (st.amountPaid || 0);
+
+    setEditFeeModal({
+      isOpen: true,
+      student: st,
+      currentPaid,
+      correctedAmount: String(currentPaid),
+      note: 'Correction of wrong entry by Bursar',
+      receiptNo: `CORR-${Date.now().toString().slice(-6)}`,
+    });
+  };
+
+  // Submit Payment Record (Bursar can input ANY amount)
   const handleSubmitPayment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!paymentModal.student) return;
 
     const val = parseFloat(paymentModal.amountToInput);
-    if (isNaN(val) || val <= 0) {
-      showToast('error', 'Please enter a valid payment amount greater than zero.');
+    if (isNaN(val) || val < 0) {
+      showToast('error', 'Please enter a valid payment amount (0 or greater).');
       return;
     }
 
@@ -216,6 +251,46 @@ export const BursarDashboard: React.FC = () => {
       );
     } catch (err: any) {
       showToast('error', 'Error recording payment: ' + (err.message || 'Failed'));
+    }
+  };
+
+  // Submit Corrected Fee Record (In case of wrong entry)
+  const handleSubmitEditFee = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editFeeModal.student) return;
+
+    const val = parseFloat(editFeeModal.correctedAmount);
+    if (isNaN(val) || val < 0) {
+      showToast('error', 'Please enter a valid corrected amount (0 or greater).');
+      return;
+    }
+
+    const st = editFeeModal.student;
+    const sId = (st.studentId || String(st.id)).toUpperCase();
+
+    try {
+      const updated = await recordStudentPayment(sId, val, {
+        isAddition: false, // Set total cumulative paid directly to corrected amount!
+        receiptNo: editFeeModal.receiptNo || `CORR-${Date.now().toString().slice(-6)}`,
+        note: editFeeModal.note || 'Correction of wrong entry by Bursar',
+        updatedBy: `${user?.firstName || 'Bursar'} (${user?.role || 'Bursary'})`,
+        studentDbId: st.id,
+        currentClass: st.currentClass,
+        token,
+      });
+
+      setPayments((prev) => ({ ...prev, [sId]: updated }));
+      setEditFeeModal((prev) => ({ ...prev, isOpen: false }));
+
+      const requiredFee = classFees[st.currentClass] || DEFAULT_CLASS_FEES[st.currentClass] || 150000;
+      const remainingBalance = Math.max(0, requiredFee - val);
+
+      showToast(
+        'success',
+        `Fee record for ${st.firstName} ${st.surname} (${st.studentId}) corrected to ₦${val.toLocaleString()}. Remaining balance: ₦${remainingBalance.toLocaleString()}.`
+      );
+    } catch (err: any) {
+      showToast('error', 'Error updating corrected fee: ' + (err.message || 'Failed'));
     }
   };
 
@@ -382,6 +457,14 @@ export const BursarDashboard: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              onClick={() => window.dispatchEvent(new CustomEvent('fis:open-change-password'))}
+              className="px-3.5 py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 rounded-xl text-xs font-semibold flex items-center gap-2 transition cursor-pointer border border-amber-500/30"
+              title="Change Bursar Account Password"
+            >
+              <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+              Change Password
+            </button>
             <button
               onClick={handleExportDebtorsCSV}
               disabled={debtorsList.length === 0}
@@ -660,6 +743,14 @@ export const BursarDashboard: React.FC = () => {
                               Input Fee Paid
                             </button>
                             <button
+                              onClick={() => openEditFeeModal(student)}
+                              className="px-2.5 py-1 bg-amber-900/40 hover:bg-amber-800 text-amber-300 rounded-lg text-[11px] font-semibold transition cursor-pointer flex items-center gap-1 border border-amber-600/40 shadow-sm"
+                              title="Edit fee record in case of wrong entry"
+                            >
+                              <Pencil className="w-3 h-3" />
+                              Edit Fee
+                            </button>
+                            <button
                               onClick={() => handleToggleLock(student, status)}
                               disabled={updatingId === student.studentId}
                               className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition cursor-pointer flex items-center gap-1 border ${
@@ -742,7 +833,7 @@ export const BursarDashboard: React.FC = () => {
                       <input
                         type="number"
                         min="0"
-                        step="1000"
+                        step="any"
                         value={currentVal}
                         onChange={(e) => {
                           const num = parseFloat(e.target.value) || 0;
@@ -885,6 +976,14 @@ export const BursarDashboard: React.FC = () => {
                             + Input Fee
                           </button>
                           <button
+                            onClick={() => openEditFeeModal(student)}
+                            className="px-2 py-1 bg-amber-900/40 hover:bg-amber-800 text-amber-300 rounded text-[10px] font-semibold transition cursor-pointer flex items-center gap-1 border border-amber-600/30"
+                            title="Edit fee record in case of wrong entry"
+                          >
+                            <Pencil className="w-3 h-3" />
+                            Edit Fee
+                          </button>
+                          <button
                             onClick={() => handleToggleLock(student, status)}
                             disabled={updatingId === student.studentId}
                             className={`px-2 py-1 rounded text-[10px] font-semibold transition cursor-pointer ${
@@ -990,14 +1089,14 @@ export const BursarDashboard: React.FC = () => {
                   <span className="absolute left-3 top-2.5 font-bold text-slate-400 font-mono">₦</span>
                   <input
                     type="number"
-                    min="1"
-                    step="100"
+                    min="0"
+                    step="any"
                     required
                     value={paymentModal.amountToInput}
                     onChange={(e) =>
                       setPaymentModal((prev) => ({ ...prev, amountToInput: e.target.value }))
                     }
-                    placeholder="e.g. 50000"
+                    placeholder="e.g. 50000 (Enter any amount)"
                     className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-8 pr-3 py-2 text-sm text-white font-mono font-bold focus:outline-none focus:border-emerald-500"
                   />
                 </div>
@@ -1047,6 +1146,135 @@ export const BursarDashboard: React.FC = () => {
                   className="px-5 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-emerald-950 cursor-pointer"
                 >
                   Confirm & Update Ledger
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: EDIT / CORRECT RECORDED STUDENT FEE (IN CASE OF WRONG ENTRY) */}
+      {editFeeModal.isOpen && editFeeModal.student && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl space-y-5 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2 text-amber-400">
+                <Pencil className="w-5 h-5 text-amber-400" />
+                <h3 className="font-bold text-white text-base">Edit / Correct Fee Record</h3>
+              </div>
+              <button
+                onClick={() => setEditFeeModal((prev) => ({ ...prev, isOpen: false }))}
+                className="text-slate-400 hover:text-white p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-xs text-amber-300 flex items-start gap-2">
+              <ShieldAlert className="w-4 h-4 shrink-0 text-amber-400 mt-0.5" />
+              <span>
+                Correction Mode: Adjust or fix any mistakenly entered payment amount. The new total cumulative paid amount will replace the wrong record on all ledgers.
+              </span>
+            </div>
+
+            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 text-xs space-y-1.5">
+              <div className="flex justify-between">
+                <span className="text-slate-400 font-medium">Scholar Name:</span>
+                <strong className="text-white text-sm">
+                  {editFeeModal.student.firstName} {editFeeModal.student.surname}
+                </strong>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400 font-medium">Admission ID:</span>
+                <strong className="text-emerald-400 font-mono">{editFeeModal.student.studentId}</strong>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400 font-medium">Class:</span>
+                <strong className="text-white">{editFeeModal.student.currentClass}</strong>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400 font-medium">Class Required Fee:</span>
+                <strong className="text-amber-300 font-mono">
+                  ₦{(classFees[editFeeModal.student.currentClass] || 150000).toLocaleString()}
+                </strong>
+              </div>
+              <div className="flex justify-between pt-1 border-t border-slate-800">
+                <span className="text-slate-400 font-medium">Currently Recorded Paid:</span>
+                <strong className="text-rose-400 font-mono font-bold">
+                  ₦{editFeeModal.currentPaid.toLocaleString()}
+                </strong>
+              </div>
+            </div>
+
+            <form onSubmit={handleSubmitEditFee} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Corrected Total Cumulative Amount Paid (NGN) *
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-2.5 font-bold text-slate-400 font-mono">₦</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    required
+                    value={editFeeModal.correctedAmount}
+                    onChange={(e) =>
+                      setEditFeeModal((prev) => ({ ...prev, correctedAmount: e.target.value }))
+                    }
+                    placeholder="Enter any amount (e.g. 0 or corrected sum)"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-8 pr-3 py-2 text-sm text-white font-mono font-bold focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+                <span className="text-[10px] text-slate-400 mt-1 block">
+                  Enter 0 if the payment was mistakenly attributed to this scholar.
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Correction Reason / Audit Note *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editFeeModal.note}
+                  onChange={(e) =>
+                    setEditFeeModal((prev) => ({ ...prev, note: e.target.value }))
+                  }
+                  placeholder="e.g. Correction of wrong entry by Bursar"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Reference / Correction Voucher ID
+                </label>
+                <input
+                  type="text"
+                  value={editFeeModal.receiptNo}
+                  onChange={(e) =>
+                    setEditFeeModal((prev) => ({ ...prev, receiptNo: e.target.value }))
+                  }
+                  placeholder="CORR-12345"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditFeeModal((prev) => ({ ...prev, isOpen: false }))}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold rounded-xl text-xs transition shadow-lg shadow-amber-950 cursor-pointer"
+                >
+                  Save Corrected Record
                 </button>
               </div>
             </form>

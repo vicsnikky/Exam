@@ -7,6 +7,7 @@ import {
   FileCheck2,
   Calendar,
   ShieldCheck,
+  ShieldAlert,
   Printer,
   ChevronRight,
   BookOpen,
@@ -105,7 +106,12 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
         });
         setWeeklySummaries(sanitizedSummaries);
         setProgressData(data.progressChartData || []);
-        setSelectedWeek(sanitizedSummaries[sanitizedSummaries.length - 1].weekNumber);
+        setSelectedWeek((prev) => {
+          if (prev && sanitizedSummaries.some((s: any) => s.weekNumber === prev)) {
+            return prev;
+          }
+          return sanitizedSummaries[sanitizedSummaries.length - 1].weekNumber;
+        });
         return;
       }
 
@@ -300,7 +306,12 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
 
             setWeeklySummaries(summaries);
             setProgressData(progress);
-            setSelectedWeek(summaries[summaries.length - 1].weekNumber);
+            setSelectedWeek((prev) => {
+              if (prev && summaries.some((s) => s.weekNumber === prev)) {
+                return prev;
+              }
+              return summaries[summaries.length - 1].weekNumber;
+            });
             return;
           }
         }
@@ -385,7 +396,12 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
 
             setWeeklySummaries(summaries);
             setProgressData(progress);
-            setSelectedWeek(summaries[summaries.length - 1].weekNumber);
+            setSelectedWeek((prev) => {
+              if (prev && summaries.some((s) => s.weekNumber === prev)) {
+                return prev;
+              }
+              return summaries[summaries.length - 1].weekNumber;
+            });
             return;
           }
         }
@@ -463,6 +479,26 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
   const handlePrintSlip = () => {
     window.print();
   };
+
+  const hasAdminPrivileges =
+    user?.role === 'super_admin' ||
+    user?.role === 'director' ||
+    user?.role === 'principal' ||
+    user?.role === 'admin';
+
+  if (!hasAdminPrivileges && !readOnly) {
+    return (
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center max-w-xl mx-auto space-y-4 my-8">
+        <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400 flex items-center justify-center mx-auto">
+          <ShieldAlert className="w-7 h-7" />
+        </div>
+        <h2 className="text-lg font-bold text-white">Administrative Access Required</h2>
+        <p className="text-xs text-slate-400 leading-relaxed">
+          Access to SS3 Weekly Mock Examination results and aggregate broadsheets is strictly restricted to School Administrators, Principal, Director, and Super Administrator portfolios.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

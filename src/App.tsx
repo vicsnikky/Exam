@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from './context/AuthContext.tsx';
 import { FIS_LOGOS } from './constants/branding.ts';
@@ -18,6 +18,7 @@ import { SS3MockStudentDashboard } from './components/SS3MockStudentDashboard.ts
 import { SS3MockTeacherModule } from './components/SS3MockTeacherModule.tsx';
 import { BursarDashboard } from './components/BursarDashboard.tsx';
 import { AnonymousComplaintModal } from './components/AnonymousComplaintModal.tsx';
+import { ChangePasswordModal } from './components/ChangePasswordModal.tsx';
 import { ExecutiveComplaintsManager } from './components/ExecutiveComplaintsManager.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import {
@@ -43,7 +44,9 @@ import {
   CreditCard,
   Lock,
   DollarSign,
-  MessageSquareWarning
+  MessageSquareWarning,
+  Key,
+  KeyRound
 } from 'lucide-react';
 import { Student } from './types/index.ts';
 
@@ -84,7 +87,7 @@ export default function App() {
   const getInitialTab = (): string => {
     if (user?.role === 'bursar') return 'bursar-console';
     if (user?.role === 'student') {
-      return isSS3Student ? 'ss3-mock-student' : 'student-profile';
+      return 'student-profile';
     }
     return 'dashboard';
   };
@@ -94,6 +97,13 @@ export default function App() {
   const [searchInitialQuery, setSearchInitialQuery] = useState('');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showAnonymousModal, setShowAnonymousModal] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+
+  useEffect(() => {
+    const handleOpenPwd = () => setShowPasswordModal(true);
+    window.addEventListener('fis:open-change-password', handleOpenPwd);
+    return () => window.removeEventListener('fis:open-change-password', handleOpenPwd);
+  }, []);
 
   if (isLoading) {
     return (
@@ -195,7 +205,11 @@ export default function App() {
       case 'results':
         return <ResultsView />;
       case 'ss3-mock-student':
-        return isSS3Student || !isStudent ? <SS3MockStudentDashboard /> : <StudentProfile studentIdOrId={user?.studentId || ''} />;
+        return canAccessAdminConsole ? (
+          <SS3MockStudentDashboard />
+        ) : (
+          <StudentProfile studentIdOrId={user?.studentId || ''} />
+        );
       case 'ss3-mock-teacher':
         return isTeacher || isSuperAdmin ? <SS3MockTeacherModule /> : null;
       case 'take-quiz':
@@ -203,7 +217,7 @@ export default function App() {
       default:
         if (isBursar) return <BursarDashboard />;
         if (isStudent) {
-          return isSS3Student ? <SS3MockStudentDashboard /> : (
+          return (
             <StudentProfile
               studentIdOrId={user?.studentId || ''}
               onBack={() => setActiveTab('take-quiz')}
@@ -270,6 +284,18 @@ export default function App() {
               <span className="hidden md:inline">Suggestion Box</span>
             </button>
 
+            {/* Staff Change Password Action */}
+            {!isStudent && (
+              <button
+                onClick={() => setShowPasswordModal(true)}
+                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-amber-300 border border-slate-700 hover:border-amber-500/40 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                title="Change Your Account Password"
+              >
+                <Key className="w-3.5 h-3.5 text-amber-400" />
+                <span className="hidden md:inline">Change Password</span>
+              </button>
+            )}
+
             <div className="hidden sm:flex flex-col text-right">
               <span className="text-xs font-semibold text-white flex items-center justify-end gap-1.5">
                 {user.firstName} {user.lastName || user.surname}
@@ -314,6 +340,17 @@ export default function App() {
               </span>
             </div>
 
+            {!isStudent && (
+              <button
+                onClick={() => setShowPasswordModal(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 hover:text-amber-200 border border-slate-700 text-xs font-semibold transition cursor-pointer shadow-sm"
+                title="Change Staff Account Password"
+              >
+                <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+                <span className="hidden sm:inline">Change Password</span>
+              </button>
+            )}
+
             <button
               onClick={logout}
               className="p-2.5 rounded-xl text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 transition cursor-pointer border border-transparent hover:border-amber-500/20"
@@ -328,6 +365,11 @@ export default function App() {
       <AnonymousComplaintModal
         isOpen={showAnonymousModal}
         onClose={() => setShowAnonymousModal(false)}
+      />
+
+      <ChangePasswordModal
+        isOpen={showPasswordModal}
+        onClose={() => setShowPasswordModal(false)}
       />
 
       {/* Main Layout */}
@@ -688,34 +730,9 @@ export default function App() {
               </>
             )}
 
-            {/* 3. STUDENT NAVIGATION (MOCK MODULE ONLY SHOWN FOR SS3 STUDENTS) */}
+            {/* 3. STUDENT NAVIGATION (MOCK MODULE RESTRICTED TO ADMINS) */}
             {isStudent && (
               <>
-                {isSS3Student && (
-                  <motion.button
-                    whileHover={{ x: 2 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={() => setActiveTab('ss3-mock-student')}
-                    className={`w-full relative flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-colors cursor-pointer ${
-                      activeTab === 'ss3-mock-student'
-                        ? 'text-slate-950 font-bold'
-                        : 'text-amber-300 font-bold bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20'
-                    }`}
-                  >
-                    {activeTab === 'ss3-mock-student' && (
-                      <motion.div
-                        layoutId="activeSidebarIndicatorStudent"
-                        className="absolute inset-0 bg-amber-500 rounded-xl shadow-md shadow-amber-500/20 z-0"
-                        transition={{ type: 'spring', stiffness: 450, damping: 32 }}
-                      />
-                    )}
-                    <span className="relative z-10 flex items-center gap-3">
-                      <Award className={`w-4 h-4 shrink-0 ${activeTab === 'ss3-mock-student' ? 'text-slate-950' : 'text-amber-400'}`} />
-                      Check SS3 Mock Result
-                    </span>
-                  </motion.button>
-                )}
-
                 <motion.button
                   whileHover={{ x: 2 }}
                   whileTap={{ scale: 0.98 }}
@@ -941,16 +958,6 @@ export default function App() {
 
                 {isStudent && (
                   <>
-                    {isSS3Student && (
-                      <button
-                        onClick={() => { setActiveTab('ss3-mock-student'); setMobileMenuOpen(false); }}
-                        className={`w-full text-left px-3 py-2 text-xs rounded-lg font-bold transition ${
-                          activeTab === 'ss3-mock-student' ? 'bg-amber-500 text-slate-950' : 'text-amber-300 hover:bg-slate-700'
-                        }`}
-                      >
-                        Check SS3 Mock Result (Over 400)
-                      </button>
-                    )}
                     <button
                       onClick={() => { setActiveTab('take-quiz'); setMobileMenuOpen(false); }}
                       className={`w-full text-left px-3 py-2 text-xs rounded-lg transition ${
