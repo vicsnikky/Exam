@@ -676,6 +676,8 @@ export const SS3MockTeacherModule: React.FC = () => {
     setBroadsheetLoading(true);
     try {
       let data: any = null;
+
+      // 1. Fetch live from backend
       try {
         const res = await fetch(`/api/ss3-mock/broadsheet?weekNumber=${week}`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -683,17 +685,93 @@ export const SS3MockTeacherModule: React.FC = () => {
         if (res.ok) {
           const text = await res.text();
           if (text && (text.startsWith('{') || text.startsWith('['))) {
-            data = JSON.parse(text);
+            const parsed = JSON.parse(text);
+            if (parsed && Array.isArray(parsed.rows) && parsed.rows.length > 0) {
+              data = parsed;
+            }
           }
         }
       } catch (netErr) {
         console.warn('Backend broadsheet unavailable:', netErr);
       }
 
-      if (data) {
-        setBroadsheetData(data);
-      } else {
-        // Calculate broadsheet strictly from actual registered students
+      // 2. Query Supabase ss3_mock_scores table if backend had no rows
+      if (!data) {
+        try {
+          const { data: supaRows } = await supabase
+            .from('ss3_mock_scores')
+            .select('*, students(id, student_id, first_name, surname, gender, current_class), subjects(id, name, code)')
+            .eq('week_number', week);
+
+          if (supaRows && supaRows.length > 0) {
+            const studentMap = new Map<string, any>();
+            for (const item of supaRows) {
+              const stId = item.student_id;
+              const key = String(stId);
+              if (!studentMap.has(key)) {
+                studentMap.set(key, {
+                  student: {
+                    id: item.students?.id || stId,
+                    studentId: item.students?.student_id || `FEN-SS3-${stId}`,
+                    firstName: item.students?.first_name || 'Scholar',
+                    surname: item.students?.surname || '',
+                    gender: item.students?.gender || 'Scholar',
+                  },
+                  subjects: {},
+                  subjectsList: [],
+                });
+              }
+              const entry = studentMap.get(key);
+              const subName = item.subjects?.name || item.subject_name || 'Subject';
+              const isEng = subName.toLowerCase().includes('english') && !subName.toLowerCase().includes('literature');
+              const subObj = {
+                subjectId: item.subject_id,
+                subjectName: subName,
+                rawScore: item.raw_score !== undefined ? item.raw_score : Math.round((item.score || 0) * (isEng ? 0.6 : 0.4)),
+                maxRawScore: isEng ? 60 : 40,
+                scaledScore: item.score || item.percentage || 0,
+                isEnglish: isEng,
+              };
+              entry.subjects[subName] = subObj;
+              entry.subjectsList.push(subObj);
+            }
+
+            const rows = Array.from(studentMap.values()).map((r: any) => {
+              const accepted = r.subjectsList.slice(0, 4);
+              const total = accepted.reduce((sum: number, s: any) => sum + (Number(s.scaledScore) || 0), 0);
+              const pct = Math.round((total / 400) * 1000) / 10;
+              return {
+                student: r.student,
+                subjects: r.subjects,
+                subjectsList: r.subjectsList,
+                subjectsCount: r.subjectsList.length,
+                totalScore400: total,
+                averagePercentage: pct,
+                rank: 1,
+              };
+            });
+
+            rows.sort((a, b) => b.totalScore400 - a.totalScore400);
+            rows.forEach((r, i) => { r.rank = i + 1; });
+            const sumTotal = rows.reduce((acc, r) => acc + r.totalScore400, 0);
+
+            data = {
+              weekNumber: week,
+              totalStudents: rows.length,
+              participatingStudents: rows.filter((r) => r.subjectsCount > 0).length,
+              classAverage: Math.round((sumTotal / (rows.length || 1)) * 10) / 10,
+              highestScore: rows[0]?.totalScore400 || 0,
+              lowestScore: rows[rows.length - 1]?.totalScore400 || 0,
+              rows,
+            };
+          }
+        } catch (supaErr) {
+          console.warn('Supabase broadsheet fallback note:', supaErr);
+        }
+      }
+
+      // 3. Fallback to localStorage fis_mock_scores_v2
+      if (!data) {
         try {
           const storedRaw = localStorage.getItem('fis_mock_scores_v2');
           const storedList = storedRaw ? JSON.parse(storedRaw) : [];
@@ -701,58 +779,93 @@ export const SS3MockTeacherModule: React.FC = () => {
 
           if (weekScores.length > 0) {
             const rows = weekScores.map((s: any, idx: number) => {
-              const scoresMap: Record<string, number> = {};
+              const subjectsMap: Record<string, any> = {};
+              const subjectsList: any[] = [];
               (s.subjects || []).forEach((sub: any) => {
-                scoresMap[sub.subjectName] = sub.scaledScore !== undefined ? sub.scaledScore : sub.score;
+                const subName = sub.subjectName || 'Subject';
+                const isEng = sub.isEnglish || (subName.toLowerCase().includes('english') && !subName.toLowerCase().includes('literature'));
+                const subObj = {
+                  subjectId: sub.subjectId,
+                  subjectName: subName,
+                  rawScore: sub.rawScore !== undefined ? sub.rawScore : '',
+                  maxRawScore: isEng ? 60 : 40,
+                  scaledScore: sub.scaledScore !== undefined ? sub.scaledScore : (sub.score || 0),
+                  isEnglish: isEng,
+                };
+                subjectsMap[subName] = subObj;
+                subjectsList.push(subObj);
               });
-              const total = s.totalScore400 || Object.values(scoresMap).reduce((a: any, b: any) => Number(a) + Number(b), 0);
+
+              const total = s.totalScore400 !== undefined
+                ? Number(s.totalScore400)
+                : subjectsList.slice(0, 4).reduce((sum, sub) => sum + (sub.scaledScore || 0), 0);
               const pct = Math.round((Number(total) / 400) * 1000) / 10;
+
+              const rawName = (s.studentName || 'Student Scholar').trim();
+              const nameParts = rawName.split(' ');
+              const fName = nameParts[0] || 'Candidate';
+              const sName = nameParts.slice(1).join(' ') || '';
+
               return {
-                studentId: s.studentNumber,
-                studentName: s.studentName,
-                gender: s.gender || 'Scholar',
-                scores: scoresMap,
+                student: {
+                  id: s.studentId || idx + 1,
+                  studentId: s.studentNumber || (typeof s.studentId === 'string' ? s.studentId : `FEN-SS3-${s.studentId || idx + 1}`),
+                  firstName: fName,
+                  surname: sName,
+                  gender: s.gender || 'Scholar',
+                },
+                subjects: subjectsMap,
+                subjectsList,
+                subjectsCount: subjectsList.length,
                 totalScore400: Number(total),
-                percentage: pct,
+                averagePercentage: pct,
                 grade: pct >= 75 ? 'A1' : pct >= 70 ? 'B2' : pct >= 65 ? 'B3' : pct >= 50 ? 'C4' : 'F9',
                 rank: idx + 1,
                 remark: Number(total) >= 300 ? 'Distinction - Ready for WAEC/UTME' : 'Commendable Performance',
               };
             });
+
             rows.sort((a: any, b: any) => b.totalScore400 - a.totalScore400);
             rows.forEach((r: any, i: number) => { r.rank = i + 1; });
             const sumTotal = rows.reduce((acc: number, r: any) => acc + r.totalScore400, 0);
-            setBroadsheetData({
+
+            data = {
               weekNumber: week,
-              totalCandidates: rows.length,
-              classAverage: Math.round((sumTotal / rows.length) * 10) / 10,
+              totalStudents: rows.length,
+              participatingStudents: rows.length,
+              classAverage: Math.round((sumTotal / (rows.length || 1)) * 10) / 10,
               highestScore: rows[0]?.totalScore400 || 0,
               lowestScore: rows[rows.length - 1]?.totalScore400 || 0,
               rows,
-            });
-          } else {
-            setBroadsheetData({
-              weekNumber: week,
-              totalCandidates: 0,
-              classAverage: 0,
-              highestScore: 0,
-              lowestScore: 0,
-              rows: [],
-            });
+            };
           }
-        } catch (_) {
-          setBroadsheetData({
-            weekNumber: week,
-            totalCandidates: 0,
-            classAverage: 0,
-            highestScore: 0,
-            lowestScore: 0,
-            rows: [],
-          });
-        }
+        } catch (_) {}
+      }
+
+      if (data && Array.isArray(data.rows)) {
+        setBroadsheetData(data);
+      } else {
+        setBroadsheetData({
+          weekNumber: week,
+          totalStudents: 0,
+          participatingStudents: 0,
+          classAverage: 0,
+          highestScore: 0,
+          lowestScore: 0,
+          rows: [],
+        });
       }
     } catch (err: any) {
       console.warn('Broadsheet warning:', err);
+      setBroadsheetData({
+        weekNumber: week,
+        totalStudents: 0,
+        participatingStudents: 0,
+        classAverage: 0,
+        highestScore: 0,
+        lowestScore: 0,
+        rows: [],
+      });
     } finally {
       setBroadsheetLoading(false);
     }
@@ -1165,7 +1278,7 @@ export const SS3MockTeacherModule: React.FC = () => {
             <div className="p-12 text-center text-slate-400 text-xs">
               Loading SS3 mock broadsheet...
             </div>
-          ) : !broadsheetData || broadsheetData.rows.length === 0 ? (
+          ) : !broadsheetData || !Array.isArray(broadsheetData.rows) || broadsheetData.rows.length === 0 ? (
             <div className="p-8 text-center text-slate-400 text-xs">
               No mock assessment records entered for Week {broadsheetWeek} yet.
             </div>
@@ -1189,12 +1302,34 @@ export const SS3MockTeacherModule: React.FC = () => {
                 </thead>
                 <tbody className="divide-y divide-slate-700/60">
                   {broadsheetData.rows.map((row: any, idx: number) => {
-                    const subsList = Object.values(row.subjects) as any[];
-                    const engSub = subsList.find((s) => s.isEnglish);
-                    const otherSubs = subsList.filter((s) => !s.isEnglish);
+                    const student = row?.student || {};
+                    const studentName = student.firstName || student.surname
+                      ? `${student.firstName || ''} ${student.surname || ''}`.trim()
+                      : row.studentName || 'SS3 Candidate';
+                    const studentId = student.studentId || row.studentNumber || row.studentId || `FEN-SS3-${idx + 1}`;
+                    const rowKey = student.id || studentId || idx;
+
+                    let subsList: any[] = [];
+                    if (Array.isArray(row.subjectsList) && row.subjectsList.length > 0) {
+                      subsList = row.subjectsList;
+                    } else if (Array.isArray(row.subjects)) {
+                      subsList = row.subjects;
+                    } else if (row.subjects && typeof row.subjects === 'object') {
+                      subsList = Object.values(row.subjects);
+                    } else if (row.scores && typeof row.scores === 'object') {
+                      subsList = Object.entries(row.scores).map(([name, score]: [string, any]) => ({
+                        subjectName: name,
+                        rawScore: typeof score === 'object' ? score.rawScore : score,
+                        scaledScore: typeof score === 'object' ? score.scaledScore : score,
+                        isEnglish: name.toLowerCase().includes('english') && !name.toLowerCase().includes('literature'),
+                      }));
+                    }
+
+                    const engSub = subsList.find((s) => s.isEnglish || (s.subjectName && s.subjectName.toLowerCase().includes('english') && !s.subjectName.toLowerCase().includes('literature')));
+                    const otherSubs = subsList.filter((s) => s !== engSub);
 
                     return (
-                      <tr key={row.student.id} className="hover:bg-slate-750 transition">
+                      <tr key={rowKey} className="hover:bg-slate-750 transition">
                         <td className="py-3 px-3 text-center font-bold">
                           {row.rank ? (
                             <span
@@ -1214,11 +1349,11 @@ export const SS3MockTeacherModule: React.FC = () => {
                         </td>
 
                         <td className="py-3 px-3 font-bold text-white">
-                          {row.student.firstName} {row.student.surname}
+                          {studentName}
                         </td>
 
                         <td className="py-3 px-3 font-mono text-slate-400 text-[11px]">
-                          {row.student.studentId}
+                          {studentId}
                         </td>
 
                         {/* English Column */}
@@ -1226,10 +1361,10 @@ export const SS3MockTeacherModule: React.FC = () => {
                           {engSub ? (
                             <div>
                               <span className="font-bold text-emerald-400 text-sm">
-                                {engSub.scaledScore}
+                                {engSub.scaledScore ?? engSub.score ?? 0}
                               </span>
                               <span className="text-[10px] text-slate-500 block">
-                                (raw {engSub.rawScore}/60)
+                                (raw {engSub.rawScore ?? '-'}/60)
                               </span>
                             </div>
                           ) : (
@@ -1245,10 +1380,10 @@ export const SS3MockTeacherModule: React.FC = () => {
                               {s ? (
                                 <div>
                                   <span className="font-bold text-slate-200">
-                                    {s.scaledScore}
+                                    {s.scaledScore ?? s.score ?? 0}
                                   </span>
                                   <span className="text-[10px] text-slate-500 block truncate max-w-[90px] mx-auto">
-                                    {s.subjectName} ({s.rawScore}/40)
+                                    {s.subjectName || `Subject ${subIdx + 2}`} ({s.rawScore ?? '-'}/40)
                                   </span>
                                 </div>
                               ) : (
@@ -1260,12 +1395,12 @@ export const SS3MockTeacherModule: React.FC = () => {
 
                         {/* Total Score / 400 */}
                         <td className="py-3 px-3 text-center font-mono font-black text-amber-300 text-sm bg-slate-900/40">
-                          {row.totalScore400} / 400
+                          {row.totalScore400 ?? 0} / 400
                         </td>
 
                         {/* Avg % */}
                         <td className="py-3 px-3 text-center font-semibold text-emerald-400">
-                          {row.averagePercentage}%
+                          {row.averagePercentage ?? 0}%
                         </td>
                       </tr>
                     );
