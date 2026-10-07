@@ -19,7 +19,9 @@ import {
   Trash2,
   TrendingUp,
   ShieldCheck,
-  Info
+  Info,
+  Edit2,
+  X
 } from 'lucide-react';
 import { Student, Subject } from '../types/index.ts';
 import { getLocalStudents, fetchAllStudentsUnified } from '../lib/schoolStore.ts';
@@ -66,6 +68,13 @@ export const SS3MockTeacherModule: React.FC = () => {
   const [broadsheetWeek, setBroadsheetWeek] = useState<number>(1);
   const [broadsheetData, setBroadsheetData] = useState<any | null>(null);
   const [broadsheetLoading, setBroadsheetLoading] = useState(false);
+
+  // Direct Broadsheet Cell / Student Edit Modal
+  const [broadsheetEditModalOpen, setBroadsheetEditModalOpen] = useState(false);
+  const [broadsheetActiveRow, setBroadsheetActiveRow] = useState<any | null>(null);
+  const [broadsheetActiveSubject, setBroadsheetActiveSubject] = useState<any | null>(null);
+  const [broadsheetEditRawScore, setBroadsheetEditRawScore] = useState<string>('');
+  const [broadsheetEditSaving, setBroadsheetEditSaving] = useState(false);
 
   // Fetch initial SS3 students & subjects
   useEffect(() => {
@@ -877,6 +886,114 @@ export const SS3MockTeacherModule: React.FC = () => {
     }
   }, [activeTab, broadsheetWeek]);
 
+  // Open modal to edit score or subject directly from broadsheet view
+  const handleOpenBroadsheetEdit = (row: any, subject?: any) => {
+    setBroadsheetActiveRow(row);
+    setBroadsheetActiveSubject(subject || null);
+    setBroadsheetEditRawScore(subject?.rawScore !== undefined && subject?.rawScore !== null ? String(subject.rawScore) : '');
+    setBroadsheetEditModalOpen(true);
+  };
+
+  // Save edited score directly from broadsheet modal
+  const handleSaveBroadsheetEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!broadsheetActiveRow || !broadsheetActiveSubject) return;
+
+    setBroadsheetEditSaving(true);
+    try {
+      const student = broadsheetActiveRow.student || {};
+      const targetStId = student.id || broadsheetActiveRow.studentId;
+      const targetStNumber = student.studentId || broadsheetActiveRow.studentNumber || '';
+
+      const isEng = broadsheetActiveSubject.isEnglish ||
+        (broadsheetActiveSubject.subjectName && broadsheetActiveSubject.subjectName.toLowerCase().includes('english') && !broadsheetActiveSubject.subjectName.toLowerCase().includes('literature'));
+      const maxRaw = isEng ? 60 : 40;
+      const numRaw = Math.min(Math.max(0, parseFloat(broadsheetEditRawScore) || 0), maxRaw);
+      const scaled = Math.min(100, Math.ceil((numRaw / maxRaw) * 100));
+
+      const payload = {
+        studentId: targetStId,
+        studentNumber: targetStNumber,
+        weekNumber: broadsheetWeek,
+        session,
+        term,
+        scores: [
+          {
+            subjectId: broadsheetActiveSubject.subjectId,
+            subjectName: broadsheetActiveSubject.subjectName,
+            rawScore: numRaw,
+            score: scaled,
+            remark: scaled >= 75 ? 'Distinction' : scaled >= 50 ? 'Credit' : 'Good Progress',
+          },
+        ],
+      };
+
+      // 1. Post to live backend
+      try {
+        await fetch('/api/ss3-mock/scores', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify(payload),
+        });
+      } catch (_) {}
+
+      // 2. Update local storage fis_mock_scores_v2
+      try {
+        const raw = localStorage.getItem('fis_mock_scores_v2');
+        const list = raw ? JSON.parse(raw) : [];
+        const entryIdx = list.findIndex(
+          (m: any) =>
+            (String(m.studentId) === String(targetStId) || (targetStNumber && m.studentNumber === targetStNumber)) &&
+            m.weekNumber === broadsheetWeek
+        );
+
+        if (entryIdx !== -1) {
+          const entry = list[entryIdx];
+          if (Array.isArray(entry.subjects)) {
+            const subIdx = entry.subjects.findIndex(
+              (s: any) =>
+                s.subjectId === broadsheetActiveSubject.subjectId ||
+                (s.subjectName || '').toLowerCase().trim() === (broadsheetActiveSubject.subjectName || '').toLowerCase().trim()
+            );
+            const updatedSub = {
+              ...broadsheetActiveSubject,
+              rawScore: numRaw,
+              maxRawScore: maxRaw,
+              score: scaled,
+              scaledScore: scaled,
+              isEnglish: isEng,
+            };
+            if (subIdx !== -1) {
+              entry.subjects[subIdx] = updatedSub;
+            } else {
+              entry.subjects.push(updatedSub);
+            }
+            entry.totalScore400 = entry.subjects.slice(0, 4).reduce((sum: number, s: any) => sum + (s.score || s.scaledScore || 0), 0);
+            entry.averagePercentage = Math.round((entry.totalScore400 / 400) * 1000) / 10;
+          }
+          list[entryIdx] = entry;
+          localStorage.setItem('fis_mock_scores_v2', JSON.stringify(list));
+        }
+      } catch (_) {}
+
+      setStatusMessage({
+        type: 'success',
+        text: `Score for ${broadsheetActiveSubject.subjectName} updated to raw ${numRaw}/${maxRaw} (${scaled}%) in Week ${broadsheetWeek} Broadsheet!`,
+      });
+
+      setBroadsheetEditModalOpen(false);
+      setBroadsheetActiveRow(null);
+      setBroadsheetActiveSubject(null);
+
+      // Refresh broadsheet
+      fetchBroadsheet(broadsheetWeek);
+    } catch (err: any) {
+      console.error('Error updating broadsheet score:', err);
+    } finally {
+      setBroadsheetEditSaving(false);
+    }
+  };
+
   const filteredStudents = ss3Students.filter(
     (s) =>
       `${s.firstName} ${s.surname}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -1357,18 +1474,25 @@ export const SS3MockTeacherModule: React.FC = () => {
                         </td>
 
                         {/* English Column */}
-                        <td className="py-3 px-3 text-center font-mono">
+                        <td
+                          onClick={() => handleOpenBroadsheetEdit(row, engSub || { subjectName: 'English Language', isEnglish: true })}
+                          className="py-3 px-3 text-center font-mono cursor-pointer hover:bg-slate-700/60 transition group/cell"
+                          title="Click to edit raw score"
+                        >
                           {engSub ? (
-                            <div>
+                            <div className="relative">
                               <span className="font-bold text-emerald-400 text-sm">
                                 {engSub.scaledScore ?? engSub.score ?? 0}
                               </span>
                               <span className="text-[10px] text-slate-500 block">
                                 (raw {engSub.rawScore ?? '-'}/60)
                               </span>
+                              <Edit2 className="w-3 h-3 text-amber-400 absolute right-0 top-0 opacity-0 group-hover/cell:opacity-100 transition" />
                             </div>
                           ) : (
-                            <span className="text-slate-600">Pending</span>
+                            <span className="text-slate-600 group-hover/cell:text-amber-400 transition text-[11px] flex items-center justify-center gap-1">
+                              <Plus className="w-3 h-3" /> Add
+                            </span>
                           )}
                         </td>
 
@@ -1376,15 +1500,21 @@ export const SS3MockTeacherModule: React.FC = () => {
                         {[0, 1, 2].map((subIdx) => {
                           const s = otherSubs[subIdx];
                           return (
-                            <td key={subIdx} className="py-3 px-3 text-center font-mono">
+                            <td
+                              key={subIdx}
+                              onClick={() => s && handleOpenBroadsheetEdit(row, s)}
+                              className={`py-3 px-3 text-center font-mono ${s ? 'cursor-pointer hover:bg-slate-700/60' : ''} transition group/cell`}
+                              title={s ? `Click to edit ${s.subjectName || 'subject'} score` : undefined}
+                            >
                               {s ? (
-                                <div>
+                                <div className="relative">
                                   <span className="font-bold text-slate-200">
                                     {s.scaledScore ?? s.score ?? 0}
                                   </span>
                                   <span className="text-[10px] text-slate-500 block truncate max-w-[90px] mx-auto">
                                     {s.subjectName || `Subject ${subIdx + 2}`} ({s.rawScore ?? '-'}/40)
                                   </span>
+                                  <Edit2 className="w-3 h-3 text-amber-400 absolute right-0 top-0 opacity-0 group-hover/cell:opacity-100 transition" />
                                 </div>
                               ) : (
                                 <span className="text-slate-600">-</span>
@@ -1409,6 +1539,105 @@ export const SS3MockTeacherModule: React.FC = () => {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Broadsheet Score Edit Modal */}
+      {broadsheetEditModalOpen && broadsheetActiveRow && broadsheetActiveSubject && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <Edit2 className="w-4 h-4 text-amber-400" />
+                  Edit Score: {broadsheetActiveSubject.subjectName || 'Subject'}
+                </h3>
+                <span className="text-xs text-slate-400">
+                  {broadsheetActiveRow.student?.firstName || broadsheetActiveRow.studentName} {broadsheetActiveRow.student?.surname || ''} • Week {broadsheetWeek} Broadsheet
+                </span>
+              </div>
+              <button
+                onClick={() => setBroadsheetEditModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveBroadsheetEdit} className="space-y-4">
+              {(() => {
+                const isEng = broadsheetActiveSubject.isEnglish ||
+                  (broadsheetActiveSubject.subjectName && broadsheetActiveSubject.subjectName.toLowerCase().includes('english') && !broadsheetActiveSubject.subjectName.toLowerCase().includes('literature'));
+                const maxRaw = isEng ? 60 : 40;
+                const num = parseFloat(broadsheetEditRawScore) || 0;
+                const clamped = Math.min(Math.max(0, num), maxRaw);
+                const scaled = Math.min(100, Math.ceil((clamped / maxRaw) * 100));
+
+                return (
+                  <>
+                    <div className="p-3 bg-slate-800/60 border border-slate-700 rounded-xl text-xs text-slate-300">
+                      <strong>Score Rule:</strong> {isEng ? 'English Language is compulsory and marked over 60.' : `${broadsheetActiveSubject.subjectName || 'Elective'} is marked over 40.`} Scores automatically scale to 100.
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">
+                        Raw Mark Awarded (over {maxRaw})
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          min={0}
+                          max={maxRaw}
+                          step="any"
+                          required
+                          value={broadsheetEditRawScore}
+                          onChange={(e) => setBroadsheetEditRawScore(e.target.value)}
+                          placeholder={`0 - ${maxRaw}`}
+                          className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm font-mono text-white focus:outline-none focus:border-amber-400"
+                        />
+                        <span className="absolute right-3 top-2.5 text-xs text-slate-500 font-mono">
+                          / {maxRaw}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl flex items-center justify-between">
+                      <div>
+                        <span className="text-[11px] text-slate-400 block">Scaled Score (over 100):</span>
+                        <span className="text-xl font-black text-amber-300 font-mono">
+                          {scaled} / 100
+                        </span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[11px] text-slate-400 block">Formula:</span>
+                        <span className="text-xs font-mono text-slate-300">
+                          ({clamped} ÷ {maxRaw}) × 100
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end gap-3 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setBroadsheetEditModalOpen(false)}
+                        className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold transition cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={broadsheetEditSaving}
+                        className="px-5 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow disabled:opacity-50"
+                      >
+                        <Save className="w-4 h-4 text-amber-400" />
+                        {broadsheetEditSaving ? 'Saving...' : 'Update Score in Broadsheet'}
+                      </button>
+                    </div>
+                  </>
+                );
+              })()}
+            </form>
+          </div>
         </div>
       )}
 

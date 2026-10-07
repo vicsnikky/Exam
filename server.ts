@@ -908,6 +908,42 @@ app.post('/api/subjects', authenticate, async (req: AuthRequest, res) => {
   }
 });
 
+app.put('/api/subjects/:id', authenticate, async (req: AuthRequest, res) => {
+  try {
+    if (req.appUser?.role === 'student' || req.appUser?.role === 'bursar') {
+      return res.status(403).json({ error: 'Academic faculty only' });
+    }
+    const subId = Number(req.params.id);
+    if (!subId || isNaN(subId)) {
+      return res.status(400).json({ error: 'Valid subject ID is required' });
+    }
+    const { name, code, description } = req.body;
+    if (!name && !code) {
+      return res.status(400).json({ error: 'Subject name or code is required' });
+    }
+
+    const existing = await db.select().from(subjects).where(eq(subjects.id, subId)).limit(1);
+    if (existing.length === 0) {
+      return res.status(404).json({ error: 'Subject not found' });
+    }
+
+    const [updated] = await db
+      .update(subjects)
+      .set({
+        name: name ? name.trim() : existing[0].name,
+        code: code ? code.trim().toUpperCase() : existing[0].code,
+        description: description !== undefined ? (description ? description.trim() : null) : existing[0].description,
+      })
+      .where(eq(subjects.id, subId))
+      .returning();
+
+    return res.json({ subject: updated, message: 'Subject updated successfully' });
+  } catch (error: any) {
+    console.error('Subject update error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to update subject' });
+  }
+});
+
 // ----------------------------------------------------
 // 5. SCORE ENTRY & RECORDING (Multi-subject, existing student never re-registered)
 // ----------------------------------------------------
@@ -1845,6 +1881,184 @@ app.delete('/api/ss3-mock/scores', authenticate, async (req: AuthRequest, res) =
     return res.json({ success: true, message: 'Subject mock score removed successfully' });
   } catch (error: any) {
     return res.status(500).json({ error: error.message });
+  }
+});
+
+// Update / Edit an existing assessment score
+app.put('/api/scores/:id', authenticate, async (req: AuthRequest, res) => {
+  try {
+    if (req.appUser?.role === 'student' || req.appUser?.role === 'bursar') {
+      return res.status(403).json({ error: 'Permission denied. Academic faculty only. Students and bursars cannot modify scores.' });
+    }
+
+    const scoreId = Number(req.params.id);
+    if (!scoreId || isNaN(scoreId)) {
+      return res.status(400).json({ error: 'Valid score ID is required' });
+    }
+
+    const {
+      score,
+      maxScore,
+      subjectId,
+      assessmentType,
+      assessmentTitle,
+      session,
+      term,
+      teacherComment,
+    } = req.body;
+
+    const existing = await db.select().from(assessments).where(eq(assessments.id, scoreId)).limit(1);
+    if (existing.length === 0) {
+      return res.status(404).json({ error: 'Assessment score record not found' });
+    }
+
+    const currentRecord = existing[0];
+    const numScore = score !== undefined ? Number(score) : Number(currentRecord.score);
+    const numMax = maxScore !== undefined ? Number(maxScore) : Number(currentRecord.maxScore || 100);
+    const { grade, percentage } = calculateGrade(numScore, numMax);
+
+    const updatePayload: any = {
+      score: numScore.toString(),
+      maxScore: numMax.toString(),
+      percentage: percentage.toString(),
+      grade,
+    };
+
+    if (subjectId) updatePayload.subjectId = Number(subjectId);
+    if (assessmentType) updatePayload.assessmentType = assessmentType.trim();
+    if (assessmentTitle) updatePayload.assessmentTitle = assessmentTitle.trim();
+    if (session) updatePayload.session = session.trim();
+    if (term) updatePayload.term = term.trim();
+    if (teacherComment !== undefined) updatePayload.teacherComment = teacherComment ? teacherComment.trim() : null;
+
+    const [updated] = await db
+      .update(assessments)
+      .set(updatePayload)
+      .where(eq(assessments.id, scoreId))
+      .returning();
+
+    // Audit log
+    await db.insert(auditLogs).values({
+      actorName: `${req.appUser?.firstName} ${req.appUser?.lastName}`,
+      actorRole: req.appUser?.role || 'teacher',
+      action: 'SCORE_UPDATED',
+      targetEntity: 'assessments',
+      details: `Updated score #${scoreId} to ${numScore}/${numMax} (${percentage}%, ${grade})`,
+      schoolId: req.appUser?.schoolId || 1,
+    });
+
+    return res.json({ message: 'Score record successfully updated', assessment: updated });
+  } catch (error: any) {
+    console.error('Score update error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to update score' });
+  }
+});
+
+// Delete an existing assessment score
+app.delete('/api/scores/:id', authenticate, async (req: AuthRequest, res) => {
+  try {
+    if (req.appUser?.role === 'student' || req.appUser?.role === 'bursar') {
+      return res.status(403).json({ error: 'Permission denied. Academic faculty only. Students and bursars cannot delete scores.' });
+    }
+
+    const scoreId = Number(req.params.id);
+    if (!scoreId || isNaN(scoreId)) {
+      return res.status(400).json({ error: 'Valid score ID is required' });
+    }
+
+    const existing = await db.select().from(assessments).where(eq(assessments.id, scoreId)).limit(1);
+    if (existing.length === 0) {
+      return res.status(404).json({ error: 'Assessment score record not found' });
+    }
+
+    await db.delete(assessments).where(eq(assessments.id, scoreId));
+
+    // Audit log
+    await db.insert(auditLogs).values({
+      actorName: `${req.appUser?.firstName} ${req.appUser?.lastName}`,
+      actorRole: req.appUser?.role || 'teacher',
+      action: 'SCORE_DELETED',
+      targetEntity: 'assessments',
+      details: `Deleted score record #${scoreId}`,
+      schoolId: req.appUser?.schoolId || 1,
+    });
+
+    return res.json({ success: true, message: 'Score record successfully deleted' });
+  } catch (error: any) {
+    console.error('Score delete error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to delete score' });
+  }
+});
+
+// General Class Broadsheet (Secondary and Primary/Lower classes)
+app.get('/api/broadsheet/class', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const classFilter = (req.query.class as string || 'SS 3').trim();
+    const term = (req.query.term as string || 'First Term').trim();
+    const session = (req.query.session as string || '2026/2027').trim();
+    const examPeriod = (req.query.examPeriod as string || 'terminal').trim(); // 'first-half' | 'terminal'
+
+    // Fetch class students
+    const classStudents = await db
+      .select({
+        id: students.id,
+        studentId: students.studentId,
+        firstName: students.firstName,
+        middleName: students.middleName,
+        surname: students.surname,
+        currentClass: students.currentClass,
+        school: students.school,
+        session: students.session,
+      })
+      .from(students)
+      .where(ilike(students.currentClass, `%${classFilter}%`))
+      .orderBy(students.surname, students.firstName);
+
+    // Fetch all active subjects
+    const allSubjects = await db.select().from(subjects).orderBy(subjects.name);
+
+    // Fetch assessments for these students
+    const conditions: any[] = [
+      eq(assessments.term, term),
+      eq(assessments.session, session),
+    ];
+
+    const classScores = await db
+      .select({
+        id: assessments.id,
+        studentId: assessments.studentId,
+        subjectId: assessments.subjectId,
+        assessmentType: assessments.assessmentType,
+        assessmentTitle: assessments.assessmentTitle,
+        score: assessments.score,
+        maxScore: assessments.maxScore,
+        percentage: assessments.percentage,
+        grade: assessments.grade,
+        teacherComment: assessments.teacherComment,
+        term: assessments.term,
+      })
+      .from(assessments)
+      .innerJoin(students, eq(assessments.studentId, students.id))
+      .where(
+        and(
+          ilike(students.currentClass, `%${classFilter}%`),
+          ...conditions
+        )
+      );
+
+    return res.json({
+      class: classFilter,
+      term,
+      session,
+      examPeriod,
+      totalStudents: classStudents.length,
+      students: classStudents,
+      subjects: allSubjects,
+      scores: classScores,
+    });
+  } catch (error: any) {
+    console.error('Class broadsheet error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to fetch class broadsheet' });
   }
 });
 

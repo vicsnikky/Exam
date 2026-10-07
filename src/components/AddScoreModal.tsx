@@ -17,6 +17,7 @@ import { Subject, Student } from '../types/index.ts';
 import { fetchAllSubjectsUnified } from '../lib/subjectStore.ts';
 import { fetchAllStudentsUnified, getLocalStudents } from '../lib/schoolStore.ts';
 import { supabase } from '../supabaseConfig.ts';
+import { isSecondaryClass } from './ClassBroadsheet.tsx';
 
 interface AddScoreModalProps {
   preselectedStudent?: Student | null;
@@ -40,10 +41,11 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
 
   // Score Entry Fields
   const [selectedSubjectId, setSelectedSubjectId] = useState<string | number>('');
-  const [assessmentType, setAssessmentType] = useState('CA');
-  const [assessmentTitle, setAssessmentTitle] = useState('Continuous Assessment 1');
-  const [score, setScore] = useState<number | string>('78');
-  const [maxScore, setMaxScore] = useState<number | string>('100');
+  const [examPeriod, setExamPeriod] = useState<'first-half' | 'terminal'>('terminal');
+  const [assessmentType, setAssessmentType] = useState('Examination');
+  const [assessmentTitle, setAssessmentTitle] = useState('Terminal Examination');
+  const [score, setScore] = useState<number | string>('60');
+  const [maxScore, setMaxScore] = useState<number | string>('60');
   const [session, setSession] = useState('2026/2027');
   const [term, setTerm] = useState('First Term');
   const [teacherComment, setTeacherComment] = useState('Very good academic performance.');
@@ -376,9 +378,55 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
       {/* Step 2: Score Details Form */}
       {matchedStudent && (
         <form onSubmit={handleSaveScore} className="bg-slate-800/80 border border-slate-700 p-6 rounded-2xl space-y-4">
-          <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider pb-2 border-b border-slate-700">
-            2. Assessment & Subject Score Details
-          </h3>
+          <div className="flex items-center justify-between pb-2 border-b border-slate-700">
+            <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
+              2. Assessment & Subject Score Details
+            </h3>
+            {matchedStudent && isSecondaryClass(matchedStudent.currentClass) ? (
+              <span className="text-[11px] font-bold text-amber-300 bg-amber-500/10 px-2.5 py-0.5 rounded-lg border border-amber-500/30">
+                Secondary Class: 2 Exams/Term (1st Half &amp; Terminal, each CA /40 + Exam /60 = 100)
+              </span>
+            ) : (
+              <span className="text-[11px] font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded-lg border border-emerald-500/30">
+                Primary / Lower Class: 1 Exam/Term (Terminal Exam: CA /40 + Exam /60 = 100)
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-slate-900/60 border border-slate-700 rounded-xl text-xs">
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                Examination Period {matchedStudent && isSecondaryClass(matchedStudent.currentClass) ? '(Secondary - 2 per term)' : '(Primary - 1 per term)'}
+              </label>
+              {matchedStudent && isSecondaryClass(matchedStudent.currentClass) ? (
+                <select
+                  value={examPeriod}
+                  onChange={(e) => {
+                    const p = e.target.value as 'first-half' | 'terminal';
+                    setExamPeriod(p);
+                    if (p === 'first-half') {
+                      setAssessmentTitle('1st Half (6th Week) Assessment');
+                    } else {
+                      setAssessmentTitle('Terminal Examination');
+                    }
+                  }}
+                  className="w-full bg-slate-800 border border-amber-500/40 text-amber-300 font-bold rounded-xl px-3 py-2 text-xs focus:outline-none"
+                >
+                  <option value="first-half">1st Half Exam (6th Week) — CA /40 + Main Exam /60 = 100</option>
+                  <option value="terminal">Terminal Exam — CA /40 + Main Exam /60 = 100</option>
+                </select>
+              ) : (
+                <div className="w-full bg-slate-800 border border-emerald-500/40 text-emerald-300 font-bold rounded-xl px-3 py-2 text-xs">
+                  Terminal Exam (Once a Term: CA /40 + Main Exam /60 = 100)
+                </div>
+              )}
+            </div>
+            <div className="flex items-center text-slate-300 text-[11px]">
+              <span>
+                Standard Grading: CA / Test score is marked over <strong>40</strong> and Exam score is marked over <strong>60</strong>, totaling <strong>100</strong> per subject. Each subject score remains saved when another is entered; student average calculates automatically.
+              </span>
+            </div>
+          </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
@@ -388,45 +436,39 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
                 onChange={(e) => {
                   const subId = e.target.value;
                   setSelectedSubjectId(subId);
-                  const matchedSub = subjects.find((s) => String(s.id) === subId);
-                  if (matchedSub) {
-                    const lName = matchedSub.name.toLowerCase();
-                    if (lName.includes('literature')) {
-                      setMaxScore('40');
-                    } else if (lName.includes('english')) {
-                      setMaxScore('60');
-                    } else if (maxScore === '60') {
-                      setMaxScore('40');
-                    }
-                  }
                 }}
                 className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
               >
                 {subjects.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.name} ({s.code}) {s.name.toLowerCase().includes('literature') ? '— Elective (over 40)' : s.name.toLowerCase().includes('english') ? '— Compulsory (over 60)' : ''}
+                    {s.name} ({s.code})
                   </option>
                 ))}
               </select>
-              {selectedSubjectId && subjects.find((s) => String(s.id) === selectedSubjectId)?.name.toLowerCase().includes('literature') && (
-                <span className="text-[11px] text-amber-300 mt-1 block font-medium">
-                  • Literature in English is an elective subject graded over 40 (not compulsory).
-                </span>
-              )}
             </div>
 
             <div>
               <label className="block text-xs font-medium text-slate-300 mb-1">Assessment Type *</label>
               <select
                 value={assessmentType}
-                onChange={(e) => setAssessmentType(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setAssessmentType(val);
+                  if (val === 'CA' || val === 'Test' || val === 'Quiz' || val === 'Assignment') {
+                    setMaxScore('40');
+                    if (Number(score) > 40) setScore('40');
+                  } else if (val === 'Examination') {
+                    setMaxScore('60');
+                    if (Number(score) > 60) setScore('60');
+                  }
+                }}
                 className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
               >
-                <option value="CA">Continuous Assessment (CA)</option>
-                <option value="Test">Mid-Term Test</option>
-                <option value="Examination">Terminal Examination</option>
-                <option value="Assignment">Practical / Homework</option>
-                <option value="Quiz">Quick Quiz</option>
+                <option value="CA">Continuous Assessment (CA - max 40)</option>
+                <option value="Test">6th Week / Mid-Term Test (max 40)</option>
+                <option value="Examination">Main Examination (max 60)</option>
+                <option value="Assignment">Practical / Homework (max 40)</option>
+                <option value="Quiz">Quick Quiz (max 40)</option>
               </select>
             </div>
           </div>

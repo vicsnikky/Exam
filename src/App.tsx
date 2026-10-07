@@ -678,7 +678,7 @@ export default function App() {
                   )}
                   <span className="relative z-10 flex items-center gap-3">
                     <FileText className="w-4 h-4 shrink-0" />
-                    Results & Ledgers
+                    Class Broadsheet & Results
                   </span>
                 </motion.button>
 

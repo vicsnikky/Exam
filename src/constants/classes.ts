@@ -65,3 +65,21 @@ export function isSameClass(classA?: string | null, classB?: string | null): boo
   if (classA.toLowerCase() === 'all' || classB.toLowerCase() === 'all') return true;
   return normalizeClassName(classA) === normalizeClassName(classB);
 }
+
+export function isSecondaryClass(className?: string | null): boolean {
+  if (!className) return false;
+  const c = className.toUpperCase().trim();
+  return (
+    c.includes('JSS') ||
+    c.includes('JS ') ||
+    c.includes('JS1') ||
+    c.includes('JS2') ||
+    c.includes('JS3') ||
+    c.includes('SSS') ||
+    c.includes('SS ') ||
+    c.includes('SS1') ||
+    c.includes('SS2') ||
+    c.includes('SS3') ||
+    c.includes('SECONDARY')
+  );
+}
