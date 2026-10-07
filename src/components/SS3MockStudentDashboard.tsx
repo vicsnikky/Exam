@@ -17,7 +17,8 @@ import {
   ArrowUpRight,
   Lock,
   Download,
-  Info
+  Info,
+  Trash2
 } from 'lucide-react';
 import { SS3MockWeeklySummary, SS3MockProgressPoint } from '../types/index.ts';
 import { supabase } from '../supabaseConfig.ts';
@@ -480,6 +481,54 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
     window.print();
   };
 
+  const handleDeleteActiveWeekResult = async () => {
+    if (!activeWeekSummary) return;
+    const week = activeWeekSummary.weekNumber;
+    const targetId = studentDbId || user?.id;
+    const targetNumber = user?.studentId || activeWeekSummary.subjects[0]?.studentNumber;
+    const studentName = activeWeekSummary.subjects[0]?.studentName || 'this student';
+
+    const confirmed = window.confirm(
+      `⚠️ Delete Weekly Mock Result:\n\nAre you sure you want to delete Week ${week} mock examination result for ${studentName}?\n\nThis will remove all recorded scores for Week ${week}.`
+    );
+    if (!confirmed) return;
+
+    try {
+      await fetch(`/api/ss3-mock/scores?studentId=${targetId}&weekNumber=${week}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      // LocalStorage update
+      try {
+        const raw = localStorage.getItem('fis_mock_scores_v2');
+        if (raw) {
+          const list = JSON.parse(raw);
+          const filtered = list.filter(
+            (m: any) =>
+              !(
+                (String(m.studentId) === String(targetId) || (targetNumber && m.studentNumber === targetNumber)) &&
+                Number(m.weekNumber) === Number(week)
+              )
+          );
+          localStorage.setItem('fis_mock_scores_v2', JSON.stringify(filtered));
+        }
+        localStorage.removeItem(`fis_mock_${targetId}_week_${week}`);
+      } catch (_) {}
+
+      window.dispatchEvent(
+        new CustomEvent('fis:mock-scores-updated', {
+          detail: { studentId: targetId, weekNumber: week },
+        })
+      );
+
+      // Reload student mock data
+      await fetchMockScores();
+    } catch (e: any) {
+      alert(e.message || 'Failed to delete mock result');
+    }
+  };
+
   const hasAdminPrivileges =
     user?.role === 'super_admin' ||
     user?.role === 'director' ||
@@ -547,6 +596,17 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
           </div>
 
           <div className="flex items-center gap-2 self-start md:self-auto">
+            {!isStudent && activeWeekSummary && (
+              <button
+                type="button"
+                onClick={handleDeleteActiveWeekResult}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/30 hover:bg-rose-500/20 text-xs font-semibold shadow transition cursor-pointer"
+                title={`Delete Week ${activeWeekSummary.weekNumber} mock result for this student`}
+              >
+                <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                Delete Week {activeWeekSummary.weekNumber} Result
+              </button>
+            )}
             <button
               onClick={handlePrintSlip}
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 text-slate-200 border border-slate-700 hover:bg-slate-700 text-xs font-semibold shadow transition cursor-pointer"

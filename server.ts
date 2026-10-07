@@ -1830,7 +1830,7 @@ app.post('/api/ss3-mock/scores', authenticate, async (req: AuthRequest, res) => 
   }
 });
 
-// Delete Subject Mock Score for Student (e.g. mistakenly added subject)
+// Delete Weekly Mock Score / Result (Student's entire week result, single subject, or entire week)
 app.delete('/api/ss3-mock/scores', authenticate, async (req: AuthRequest, res) => {
   try {
     if (req.appUser?.role === 'student' || req.appUser?.role === 'bursar') {
@@ -1842,10 +1842,35 @@ app.delete('/api/ss3-mock/scores', authenticate, async (req: AuthRequest, res) =
     const subjectId = req.query.subjectId ? Number(req.query.subjectId) : null;
     const subjectName = (req.query.subjectName as string || '').toLowerCase().trim();
 
-    if (!studentIdParam || !weekNumber) {
-      return res.status(400).json({ error: 'studentId and weekNumber are required' });
+    if (!weekNumber || isNaN(weekNumber)) {
+      return res.status(400).json({ error: 'A valid weekNumber is required' });
     }
 
+    // Case 1: Delete all mock scores for this week across all students
+    if (!studentIdParam) {
+      await db.delete(assessments).where(
+        and(
+          eq(assessments.assessmentType, 'SS3_MOCK'),
+          eq(assessments.term, `Week ${weekNumber}`)
+        )
+      );
+
+      await db.insert(auditLogs).values({
+        actorName: `${req.appUser?.firstName || 'Faculty'} ${req.appUser?.lastName || ''}`,
+        actorRole: req.appUser?.role || 'teacher',
+        action: 'SS3_MOCK_WEEK_DELETED',
+        targetEntity: 'assessments',
+        details: `Deleted all SS3 weekly mock examination scores for Week ${weekNumber}`,
+        schoolId: req.appUser?.schoolId || 1,
+      });
+
+      return res.json({
+        success: true,
+        message: `All mock examination results for Week ${weekNumber} have been deleted successfully`,
+      });
+    }
+
+    // Case 2: Resolve student
     let resolvedStudent: any[] = [];
     if (!isNaN(Number(studentIdParam))) {
       resolvedStudent = await db.select().from(students).where(eq(students.id, Number(studentIdParam))).limit(1);
@@ -1868,6 +1893,7 @@ app.delete('/api/ss3-mock/scores', authenticate, async (req: AuthRequest, res) =
     }
 
     if (targetSubjectId) {
+      // Delete specific subject score for this student in this week
       await db.delete(assessments).where(
         and(
           eq(assessments.studentId, currentStudent.id),
@@ -1876,9 +1902,35 @@ app.delete('/api/ss3-mock/scores', authenticate, async (req: AuthRequest, res) =
           eq(assessments.subjectId, targetSubjectId)
         )
       );
-    }
 
-    return res.json({ success: true, message: 'Subject mock score removed successfully' });
+      return res.json({
+        success: true,
+        message: `Subject mock score removed successfully for ${currentStudent.firstName} ${currentStudent.surname}`,
+      });
+    } else {
+      // Delete the student's entire mock result for this week
+      await db.delete(assessments).where(
+        and(
+          eq(assessments.studentId, currentStudent.id),
+          eq(assessments.assessmentType, 'SS3_MOCK'),
+          eq(assessments.term, `Week ${weekNumber}`)
+        )
+      );
+
+      await db.insert(auditLogs).values({
+        actorName: `${req.appUser?.firstName || 'Faculty'} ${req.appUser?.lastName || ''}`,
+        actorRole: req.appUser?.role || 'teacher',
+        action: 'SS3_MOCK_RESULT_DELETED',
+        targetEntity: 'assessments',
+        details: `Deleted Week ${weekNumber} mock result for ${currentStudent.firstName} ${currentStudent.surname} (${currentStudent.studentId})`,
+        schoolId: req.appUser?.schoolId || 1,
+      });
+
+      return res.json({
+        success: true,
+        message: `Week ${weekNumber} mock result for ${currentStudent.firstName} ${currentStudent.surname} deleted successfully`,
+      });
+    }
   } catch (error: any) {
     return res.status(500).json({ error: error.message });
   }

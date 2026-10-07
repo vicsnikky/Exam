@@ -365,6 +365,244 @@ export const SS3MockTeacherModule: React.FC = () => {
     });
   };
 
+  // Delete an entire weekly mock result for a student
+  const handleDeleteStudentWeeklyMock = async (stId: number | string, week: number, studentName?: string) => {
+    const sName = studentName || selectedStudentObj?.firstName || 'this student';
+    const confirmed = window.confirm(
+      `⚠️ Delete Weekly Mock Result:\n\nAre you sure you want to delete Week ${week} mock examination result for ${sName}?\n\nThis will remove all recorded subject scores for Week ${week} and recalculate rankings.`
+    );
+    if (!confirmed) return;
+
+    setLoading(true);
+    setStatusMessage(null);
+    try {
+      const student = ss3Students.find((s) => String(s.id) === String(stId) || s.studentId === String(stId));
+      const candidateStudentId = student?.id || stId;
+      const candidateStudentNumber = student?.studentId || '';
+
+      // 1. Call Backend DELETE endpoint
+      try {
+        await fetch(
+          `/api/ss3-mock/scores?studentId=${candidateStudentId}&weekNumber=${week}`,
+          {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
+      } catch (e) {
+        console.warn('Backend delete error:', e);
+      }
+
+      // 2. Direct Supabase cleanup
+      try {
+        if (candidateStudentNumber) {
+          const { data: stRow } = await supabase
+            .from('students')
+            .select('id')
+            .eq('student_id', candidateStudentNumber)
+            .limit(1);
+          const supaStId = stRow && stRow.length > 0 ? stRow[0].id : null;
+          if (supaStId) {
+            await supabase
+              .from('assessments')
+              .delete()
+              .eq('student_id', supaStId)
+              .eq('assessment_type', 'SS3_MOCK')
+              .eq('term', `Week ${week}`);
+
+            await supabase
+              .from('ss3_mock_scores')
+              .delete()
+              .eq('student_id', supaStId)
+              .eq('week_number', week);
+          }
+        }
+      } catch (_) {}
+
+      // 3. Remove from localStorage fis_mock_scores_v2 & student cache
+      try {
+        const raw = localStorage.getItem('fis_mock_scores_v2');
+        if (raw) {
+          const list = JSON.parse(raw);
+          const filtered = list.filter(
+            (m: any) =>
+              !(
+                (String(m.studentId) === String(candidateStudentId) ||
+                  (candidateStudentNumber && m.studentNumber === candidateStudentNumber)) &&
+                Number(m.weekNumber) === Number(week)
+              )
+          );
+          localStorage.setItem('fis_mock_scores_v2', JSON.stringify(filtered));
+        }
+        localStorage.removeItem(`fis_mock_${candidateStudentId}_week_${week}`);
+      } catch (_) {}
+
+      // 4. Dispatch update event
+      window.dispatchEvent(
+        new CustomEvent('fis:mock-scores-updated', {
+          detail: {
+            studentId: candidateStudentId,
+            studentNumber: candidateStudentNumber,
+            weekNumber: week,
+          },
+        })
+      );
+
+      // 5. Refresh Broadsheet
+      await fetchBroadsheet(week);
+
+      // 6. Reset form if this student & week are active in enter-scores tab
+      if (String(selectedStudentId) === String(candidateStudentId) && selectedWeek === week) {
+        setupDepartmentPreset('science');
+      }
+
+      setStatusMessage({
+        type: 'success',
+        text: `Week ${week} mock examination result for ${sName} has been completely deleted.`,
+      });
+    } catch (err: any) {
+      setStatusMessage({
+        type: 'error',
+        text: err.message || 'Failed to delete mock result',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Delete all mock examination results for an entire week
+  const handleDeleteWholeWeekMock = async (week: number) => {
+    const confirmed = window.confirm(
+      `⚠️ DANGER: Delete All Week ${week} Results:\n\nAre you sure you want to delete ALL student examination results for Week ${week}?\n\nThis will completely clear the broadsheet and remove all candidate records for Week ${week}. This action cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setBroadsheetLoading(true);
+    setStatusMessage(null);
+    try {
+      // 1. Call Backend DELETE endpoint
+      try {
+        await fetch(`/api/ss3-mock/scores?weekNumber=${week}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      } catch (e) {
+        console.warn('Backend delete whole week note:', e);
+      }
+
+      // 2. Direct Supabase cleanup
+      try {
+        await supabase
+          .from('assessments')
+          .delete()
+          .eq('assessment_type', 'SS3_MOCK')
+          .eq('term', `Week ${week}`);
+
+        await supabase
+          .from('ss3_mock_scores')
+          .delete()
+          .eq('week_number', week);
+      } catch (_) {}
+
+      // 3. Remove all week entries from localStorage
+      try {
+        const raw = localStorage.getItem('fis_mock_scores_v2');
+        if (raw) {
+          const list = JSON.parse(raw);
+          const filtered = list.filter((m: any) => Number(m.weekNumber) !== Number(week));
+          localStorage.setItem('fis_mock_scores_v2', JSON.stringify(filtered));
+        }
+      } catch (_) {}
+
+      // 4. Dispatch update event
+      window.dispatchEvent(
+        new CustomEvent('fis:mock-scores-updated', {
+          detail: { weekNumber: week },
+        })
+      );
+
+      // 5. Refresh Broadsheet
+      await fetchBroadsheet(week);
+
+      setStatusMessage({
+        type: 'success',
+        text: `All mock examination results for Week ${week} have been deleted successfully.`,
+      });
+    } catch (err: any) {
+      setStatusMessage({
+        type: 'error',
+        text: err.message || 'Failed to delete week mock results',
+      });
+    } finally {
+      setBroadsheetLoading(false);
+    }
+  };
+
+  // Delete a specific subject score from broadsheet modal
+  const handleDeleteBroadsheetSubjectScore = async () => {
+    if (!broadsheetActiveRow || !broadsheetActiveSubject) return;
+    const subName = broadsheetActiveSubject.subjectName || 'this subject';
+    const confirmed = window.confirm(`Remove ${subName} score for this student in Week ${broadsheetWeek}?`);
+    if (!confirmed) return;
+
+    setBroadsheetEditSaving(true);
+    try {
+      const student = broadsheetActiveRow.student || {};
+      const targetStId = student.id || broadsheetActiveRow.studentId;
+      const targetStNumber = student.studentId || broadsheetActiveRow.studentNumber || '';
+
+      // Backend delete
+      try {
+        await fetch(
+          `/api/ss3-mock/scores?studentId=${targetStId}&weekNumber=${broadsheetWeek}&subjectId=${broadsheetActiveSubject.subjectId}&subjectName=${encodeURIComponent(subName)}`,
+          {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
+      } catch (_) {}
+
+      // LocalStorage update
+      try {
+        const raw = localStorage.getItem('fis_mock_scores_v2');
+        if (raw) {
+          const list = JSON.parse(raw);
+          const entryIdx = list.findIndex(
+            (m: any) =>
+              (String(m.studentId) === String(targetStId) || (targetStNumber && m.studentNumber === targetStNumber)) &&
+              Number(m.weekNumber) === Number(broadsheetWeek)
+          );
+          if (entryIdx !== -1) {
+            const entry = list[entryIdx];
+            if (Array.isArray(entry.subjects)) {
+              entry.subjects = entry.subjects.filter(
+                (s: any) =>
+                  s.subjectId !== broadsheetActiveSubject.subjectId &&
+                  (s.subjectName || '').toLowerCase().trim() !== (subName || '').toLowerCase().trim()
+              );
+              entry.totalScore400 = entry.subjects.slice(0, 4).reduce((sum: number, s: any) => sum + (s.score || s.scaledScore || 0), 0);
+              entry.averagePercentage = Math.round((entry.totalScore400 / 400) * 1000) / 10;
+            }
+            list[entryIdx] = entry;
+            localStorage.setItem('fis_mock_scores_v2', JSON.stringify(list));
+          }
+        }
+      } catch (_) {}
+
+      window.dispatchEvent(new CustomEvent('fis:mock-scores-updated', { detail: { weekNumber: broadsheetWeek } }));
+      await fetchBroadsheet(broadsheetWeek);
+      setBroadsheetEditModalOpen(false);
+      setStatusMessage({
+        type: 'success',
+        text: `Removed ${subName} score for ${student.firstName || 'student'} in Week ${broadsheetWeek}. Broadsheet updated.`,
+      });
+    } catch (err: any) {
+      setStatusMessage({ type: 'error', text: err.message || 'Failed to remove subject score' });
+    } finally {
+      setBroadsheetEditSaving(false);
+    }
+  };
+
   const handleRawScoreChange = (index: number, val: string) => {
     const updated = [...subjectEntries];
     const item = updated[index];
@@ -1337,6 +1575,24 @@ export const SS3MockTeacherModule: React.FC = () => {
               </div>
 
               <div className="flex items-center gap-3">
+                {subjectEntries.some((s) => s.rawScore !== '' && s.rawScore !== undefined) && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleDeleteStudentWeeklyMock(
+                        selectedStudentId,
+                        selectedWeek,
+                        selectedStudentObj ? `${selectedStudentObj.firstName} ${selectedStudentObj.surname}` : 'Student'
+                      )
+                    }
+                    disabled={loading}
+                    className="px-4 py-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 hover:border-rose-400 font-semibold text-xs transition cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                    title={`Delete this student's Week ${selectedWeek} mock examination result`}
+                  >
+                    <Trash2 className="w-4 h-4 text-rose-400" />
+                    Delete Week {selectedWeek} Result
+                  </button>
+                )}
                 <button
                   type="submit"
                   disabled={loading}
@@ -1388,6 +1644,18 @@ export const SS3MockTeacherModule: React.FC = () => {
                 <Printer className="w-3.5 h-3.5 text-emerald-400" />
                 Print Broadsheet
               </button>
+
+              {broadsheetData && Array.isArray(broadsheetData.rows) && broadsheetData.rows.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => handleDeleteWholeWeekMock(broadsheetWeek)}
+                  className="px-3 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 hover:border-rose-400 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1.5"
+                  title={`Delete all student mock scores for Week ${broadsheetWeek}`}
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                  Delete Week {broadsheetWeek} Results
+                </button>
+              )}
             </div>
           </div>
 
@@ -1415,6 +1683,7 @@ export const SS3MockTeacherModule: React.FC = () => {
                       Total (/400)
                     </th>
                     <th className="py-3 px-3 text-center">Avg (%)</th>
+                    <th className="py-3 px-3 text-center">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-700/60">
@@ -1532,6 +1801,41 @@ export const SS3MockTeacherModule: React.FC = () => {
                         <td className="py-3 px-3 text-center font-semibold text-emerald-400">
                           {row.averagePercentage ?? 0}%
                         </td>
+
+                        {/* Actions: Edit all or Delete this student's week result */}
+                        <td className="py-3 px-3 text-center">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const candidateId = row.student?.id || row.studentId;
+                                if (candidateId) {
+                                  setSelectedStudentId(candidateId);
+                                  setSelectedWeek(broadsheetWeek);
+                                  setActiveTab('enter-scores');
+                                }
+                              }}
+                              title={`Edit all scores for ${studentName} in Week ${broadsheetWeek}`}
+                              className="p-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-amber-300 hover:text-white transition cursor-pointer"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleDeleteStudentWeeklyMock(
+                                  row.student?.id || row.studentId,
+                                  broadsheetWeek,
+                                  studentName
+                                )
+                              }
+                              title={`Delete Week ${broadsheetWeek} mock result for ${studentName}`}
+                              className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/25 text-rose-400 hover:text-rose-300 border border-rose-500/30 hover:border-rose-400 transition cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     );
                   })}
@@ -1616,22 +1920,35 @@ export const SS3MockTeacherModule: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="flex justify-end gap-3 pt-2">
+                    <div className="flex items-center justify-between pt-2 border-t border-slate-800">
                       <button
                         type="button"
-                        onClick={() => setBroadsheetEditModalOpen(false)}
-                        className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold transition cursor-pointer"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="submit"
+                        onClick={handleDeleteBroadsheetSubjectScore}
                         disabled={broadsheetEditSaving}
-                        className="px-5 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow disabled:opacity-50"
+                        className="px-3.5 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 hover:border-rose-400 rounded-xl text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition disabled:opacity-50"
+                        title="Delete this subject score for this student in this week"
                       >
-                        <Save className="w-4 h-4 text-amber-400" />
-                        {broadsheetEditSaving ? 'Saving...' : 'Update Score in Broadsheet'}
+                        <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                        Delete Subject Score
                       </button>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setBroadsheetEditModalOpen(false)}
+                          className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold transition cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={broadsheetEditSaving}
+                          className="px-5 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow disabled:opacity-50"
+                        >
+                          <Save className="w-4 h-4 text-amber-400" />
+                          {broadsheetEditSaving ? 'Saving...' : 'Update Score in Broadsheet'}
+                        </button>
+                      </div>
                     </div>
                   </>
                 );
@@ -1657,17 +1974,37 @@ export const SS3MockTeacherModule: React.FC = () => {
               </div>
             </div>
 
-            <select
-              value={selectedStudentId}
-              onChange={(e) => setSelectedStudentId(Number(e.target.value))}
-              className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white"
-            >
-              {ss3Students.map((st) => (
-                <option key={st.id} value={st.id}>
-                  {st.firstName} {st.surname} ({st.studentId})
-                </option>
-              ))}
-            </select>
+            <div className="flex items-center gap-3">
+              <select
+                value={selectedStudentId}
+                onChange={(e) => setSelectedStudentId(Number(e.target.value))}
+                className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white"
+              >
+                {ss3Students.map((st) => (
+                  <option key={st.id} value={st.id}>
+                    {st.firstName} {st.surname} ({st.studentId})
+                  </option>
+                ))}
+              </select>
+
+              {selectedStudentId && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleDeleteStudentWeeklyMock(
+                      selectedStudentId,
+                      selectedWeek,
+                      selectedStudentObj ? `${selectedStudentObj.firstName} ${selectedStudentObj.surname}` : 'Student'
+                    )
+                  }
+                  className="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition"
+                  title={`Delete Week ${selectedWeek} mock result for this student`}
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                  Delete Week {selectedWeek} Result
+                </button>
+              )}
+            </div>
           </div>
 
           <SS3MockStudentDashboard
