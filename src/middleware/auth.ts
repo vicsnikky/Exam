@@ -70,7 +70,7 @@ export const authenticate = async (
           lastName: foundUser?.lastName || 'Director',
           role: 'director',
           schoolId: 1,
-          teacherProfile: { id: 101, teacherId: 'DIR-GLOBAL', schoolName: 'Fenster International School' },
+          teacherProfile: { id: 1, teacherId: 'DIR-GLOBAL', schoolName: 'Fenster International School' },
         };
         return next();
       }
@@ -96,7 +96,7 @@ export const authenticate = async (
           lastName: foundUser?.lastName || 'Principal',
           role: 'principal',
           schoolId: 1,
-          teacherProfile: { id: 102, teacherId: 'PRN-GLOBAL', schoolName: 'Fenster International School' },
+          teacherProfile: { id: 1, teacherId: 'PRN-GLOBAL', schoolName: 'Fenster International School' },
         };
         return next();
       }

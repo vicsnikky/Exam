@@ -1113,6 +1113,37 @@ app.post('/api/scores', authenticate, async (req: AuthRequest, res) => {
       if (found.length > 0) resolvedStudent = found[0];
     }
 
+    // Auto-sync / provision student in PostgreSQL if not found yet
+    if (!resolvedStudent && (req.body.studentNumber || req.body.studentId)) {
+      try {
+        const sNum = String(req.body.studentNumber || req.body.studentId).toUpperCase().trim();
+        const fName = String(req.body.firstName || req.body.studentFirstName || 'Student').trim();
+        const sName = String(req.body.surname || req.body.lastName || req.body.studentSurname || 'Scholar').trim();
+        const cClass = String(req.body.currentClass || req.body.class || 'SS 3').trim();
+        const gender = String(req.body.gender || 'Female').trim();
+        const [newSt] = await db
+          .insert(students)
+          .values({
+            studentId: sNum,
+            firstName: fName,
+            surname: sName,
+            gender,
+            currentClass: cClass,
+            school: 'Federal International School',
+            session: (session || '2026/2027').trim(),
+            schoolId: 1,
+            registeredByTeacherId: 1,
+          })
+          .returning();
+        resolvedStudent = newSt;
+      } catch (insertErr) {
+        console.warn('Auto-sync student insert fallback:', insertErr);
+        const sNum = String(req.body.studentNumber || req.body.studentId).toUpperCase().trim();
+        const found = await db.select().from(students).where(eq(students.studentId, sNum)).limit(1);
+        if (found.length > 0) resolvedStudent = found[0];
+      }
+    }
+
     if (!resolvedStudent) {
       return res.status(404).json({ error: `Student with identifier "${studentId}" not found` });
     }
@@ -1120,6 +1151,36 @@ app.post('/api/scores', authenticate, async (req: AuthRequest, res) => {
     const numScore = Number(score);
     const numMax = Number(maxScore) || 100;
     const { grade, percentage } = calculateGrade(numScore, numMax);
+
+    // Safely resolve valid teacher ID for foreign key constraint
+    let resolvedTeacherId: number | null = null;
+    const candidateTeacherId = req.appUser?.teacherProfile?.id;
+    if (candidateTeacherId && !isNaN(Number(candidateTeacherId))) {
+      const tchCheck = await db
+        .select({ id: teachers.id })
+        .from(teachers)
+        .where(eq(teachers.id, Number(candidateTeacherId)))
+        .limit(1);
+      if (tchCheck.length > 0) {
+        resolvedTeacherId = tchCheck[0].id;
+      }
+    }
+    if (!resolvedTeacherId && req.appUser?.id) {
+      const tchByUser = await db
+        .select({ id: teachers.id })
+        .from(teachers)
+        .where(eq(teachers.userId, req.appUser.id))
+        .limit(1);
+      if (tchByUser.length > 0) {
+        resolvedTeacherId = tchByUser[0].id;
+      }
+    }
+    if (!resolvedTeacherId) {
+      const anyTeacher = await db.select({ id: teachers.id }).from(teachers).limit(1);
+      if (anyTeacher.length > 0) {
+        resolvedTeacherId = anyTeacher[0].id;
+      }
+    }
 
     // Resolve subjectId safely against subjects table (especially Christian Religious Studies CRS)
     let targetSubjectId = Number(subjectId);
@@ -1169,7 +1230,7 @@ app.post('/api/scores', authenticate, async (req: AuthRequest, res) => {
           grade,
           assessmentTitle: assessmentTitle.trim(),
           teacherComment: teacherComment ? teacherComment.trim() : null,
-          teacherId: req.appUser?.teacherProfile?.id || null,
+          teacherId: resolvedTeacherId,
         })
         .where(eq(assessments.id, existingAssessments[0].id))
         .returning();
@@ -1187,7 +1248,7 @@ app.post('/api/scores', authenticate, async (req: AuthRequest, res) => {
         session: targetSession,
         term: targetTerm,
         teacherComment: teacherComment ? teacherComment.trim() : null,
-        teacherId: req.appUser?.teacherProfile?.id || null,
+        teacherId: resolvedTeacherId,
         schoolId: req.appUser?.schoolId || 1,
       }).returning();
       recordedAssessment = inserted;

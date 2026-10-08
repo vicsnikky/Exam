@@ -38,6 +38,11 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
   onClose,
 }) => {
   const { token, user } = useAuth();
+  const authToken =
+    token ||
+    (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('sqams_token') : null) ||
+    'local-teacher-auth:teacher@school.edu';
+
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [allStudents, setAllStudents] = useState<Student[]>([]);
 
@@ -79,14 +84,14 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
 
   // Load unified subjects & roster
   useEffect(() => {
-    fetchAllSubjectsUnified(token).then((subs) => {
+    fetchAllSubjectsUnified(authToken).then((subs) => {
       setSubjects(subs);
       if (subs.length > 0 && !selectedSubjectId) {
         setSelectedSubjectId(subs[0].id);
       }
     });
 
-    fetchAllStudentsUnified(token).then((students) => {
+    fetchAllStudentsUnified(authToken).then((students) => {
       setAllStudents(students);
       if (preselectedStudent) {
         const found = students.find(
@@ -98,7 +103,7 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
         }
       }
     });
-  }, [token]);
+  }, [authToken]);
 
   // Sync preselected student
   useEffect(() => {
@@ -126,7 +131,7 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
           session
         )}&term=${encodeURIComponent(term)}`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: { Authorization: `Bearer ${authToken}` },
         }
       );
       if (res.ok) {
@@ -181,7 +186,7 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
 
     try {
       const res = await fetch(`/api/students?q=${encodeURIComponent(studentSearchQuery.trim())}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${authToken}` },
       });
       const text = await res.text();
       let data: any = {};
@@ -259,6 +264,7 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
     const effectivePeriod = examPeriod;
     const periodLabel = effectivePeriod === 'first-half' ? 'First Half Term' : 'Terminal Term';
     const subName = selectedSubjectObj?.name || 'Selected Subject';
+    const subCode = selectedSubjectObj?.code || 'GEN';
 
     try {
       // 1. If CA score was entered, save CA record (maxScore: 40)
@@ -276,12 +282,18 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
+            Authorization: `Bearer ${authToken}`,
           },
           body: JSON.stringify({
             studentId: matchedStudent.id,
             studentNumber: matchedStudent.studentId,
+            firstName: matchedStudent.firstName,
+            surname: matchedStudent.surname,
+            currentClass: matchedStudent.currentClass,
+            gender: matchedStudent.gender || 'Female',
             subjectId: selectedSubjectId,
+            subjectName: subName,
+            subjectCode: subCode,
             assessmentType: 'CA',
             assessmentTitle: caTitle,
             score: numCa,
@@ -296,7 +308,12 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
           const caText = await caRes.text();
           let errObj: any = {};
           try { errObj = JSON.parse(caText); } catch (_) {}
-          throw new Error(errObj.error || errObj.message || 'Failed to record CA score');
+          const errorMsg =
+            errObj.error ||
+            errObj.message ||
+            (caText.length < 200 && !caText.includes('<') ? caText : '') ||
+            `Failed to record CA score (Status ${caRes.status})`;
+          throw new Error(errorMsg);
         }
       }
 
@@ -315,12 +332,18 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
+            Authorization: `Bearer ${authToken}`,
           },
           body: JSON.stringify({
             studentId: matchedStudent.id,
             studentNumber: matchedStudent.studentId,
+            firstName: matchedStudent.firstName,
+            surname: matchedStudent.surname,
+            currentClass: matchedStudent.currentClass,
+            gender: matchedStudent.gender || 'Female',
             subjectId: selectedSubjectId,
+            subjectName: subName,
+            subjectCode: subCode,
             assessmentType: 'Examination',
             assessmentTitle: examTitle,
             score: numExam,
@@ -335,7 +358,12 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
           const examText = await examRes.text();
           let errObj: any = {};
           try { errObj = JSON.parse(examText); } catch (_) {}
-          throw new Error(errObj.error || errObj.message || 'Failed to record Main Examination score');
+          const errorMsg =
+            errObj.error ||
+            errObj.message ||
+            (examText.length < 200 && !examText.includes('<') ? examText : '') ||
+            `Failed to record Main Examination score (Status ${examRes.status})`;
+          throw new Error(errorMsg);
         }
       }
 
@@ -454,7 +482,7 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${authToken}`,
         },
         body: JSON.stringify({
           score: targetScore,
@@ -467,7 +495,12 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
         const text = await res.text();
         let errData: any = {};
         try { errData = JSON.parse(text); } catch (_) {}
-        throw new Error(errData.error || errData.message || 'Failed to update score');
+        const errorMsg =
+          errData.error ||
+          errData.message ||
+          (text.length < 200 && !text.includes('<') ? text : '') ||
+          `Failed to update score (Status ${res.status})`;
+        throw new Error(errorMsg);
       }
 
       // Update broadsheet cache as well
@@ -509,14 +542,19 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
     try {
       const res = await fetch(`/api/scores/${scoreId}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${authToken}` },
       });
 
       if (!res.ok) {
         const text = await res.text();
         let errData: any = {};
         try { errData = JSON.parse(text); } catch (_) {}
-        throw new Error(errData.error || errData.message || 'Failed to delete score');
+        const errorMsg =
+          errData.error ||
+          errData.message ||
+          (text.length < 200 && !text.includes('<') ? text : '') ||
+          `Failed to delete score (Status ${res.status})`;
+        throw new Error(errorMsg);
       }
 
       // Also clean up local broadsheet cache

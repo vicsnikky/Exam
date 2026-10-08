@@ -1516,15 +1516,20 @@ export const SS3MockTeacherModule: React.FC = () => {
                       )}
                     </label>
                     <select
-                      value={item.subjectId}
+                      value={String(item.subjectId)}
                       onChange={(e) => handleSubjectPickerChange(idx, Number(e.target.value))}
                       className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-medium focus:outline-none focus:border-emerald-500"
                     >
                       {availableSubjects.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.name} ({s.code})
+                        <option key={s.id} value={String(s.id)}>
+                          {s.name} ({s.code}) {s.code === 'CRS' ? '✝️ Core Elective' : ''}
                         </option>
                       ))}
+                      {!availableSubjects.some((s) => String(s.id) === String(item.subjectId)) && (
+                        <option value={String(item.subjectId)}>
+                          {item.subjectName}
+                        </option>
+                      )}
                     </select>
                   </div>
 
