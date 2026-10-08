@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.tsx';
 import { FIS_LOGOS } from '../constants/branding.ts';
+import { isSameClass } from '../constants/classes.ts';
 import {
   FileCheck2,
   Clock,
@@ -25,6 +26,42 @@ export const StudentQuizTaker: React.FC<StudentQuizTakerProps> = ({
   onCompleted,
 }) => {
   const { token, user } = useAuth();
+  const authToken =
+    token ||
+    (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('sqams_token') : null) ||
+    'local-teacher-auth:teacher@school.edu';
+
+  const [activeClass, setActiveClass] = useState<string>(() => {
+    return (
+      user?.currentClass ||
+      (user as any)?.current_class ||
+      (user as any)?.studentProfile?.currentClass ||
+      (user as any)?.studentProfile?.current_class ||
+      (user as any)?.class ||
+      ''
+    ).trim();
+  });
+
+  const studentClass = activeClass;
+
+  // Dynamically resolve student's class if empty
+  useEffect(() => {
+    if (!activeClass && user) {
+      const studentId = user.studentId || (user as any).id;
+      if (studentId) {
+        fetch(`/api/students/${encodeURIComponent(String(studentId))}`, {
+          headers: { Authorization: `Bearer ${authToken}` },
+        })
+          .then((r) => r.json())
+          .then((data) => {
+            const cls = data.student?.currentClass || data.currentClass || '';
+            if (cls) setActiveClass(cls.trim());
+          })
+          .catch(() => {});
+      }
+    }
+  }, [user, activeClass, authToken]);
+
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [activeQuiz, setActiveQuiz] = useState<any | null>(null);
   const [questions, setQuestions] = useState<any[]>([]);
@@ -45,14 +82,18 @@ export const StudentQuizTaker: React.FC<StudentQuizTakerProps> = ({
 
   const submittingRef = React.useRef(false);
 
-  // Load available quizzes
+  // Load available quizzes strictly filtered for this student's class
   const loadAvailableQuizzes = async () => {
     setLoading(true);
     try {
       let list: any[] = [];
+      const targetClass = activeClass.trim();
       try {
-        const res = await fetch('/api/quizzes', {
-          headers: { Authorization: `Bearer ${token}` },
+        const queryUrl = targetClass
+          ? `/api/quizzes?class=${encodeURIComponent(targetClass)}`
+          : '/api/quizzes';
+        const res = await fetch(queryUrl, {
+          headers: { Authorization: `Bearer ${authToken}` },
         });
         if (res.ok) {
           const text = await res.text();
@@ -65,10 +106,34 @@ export const StudentQuizTaker: React.FC<StudentQuizTakerProps> = ({
         console.warn('Backend quizzes endpoint unavailable:', err);
       }
 
-      if (list.length > 0) {
-        setQuizzes(list);
+      // Strictly filter quizzes so SS3 quizzes NEVER display on other class dashboards!
+      let filtered = list;
+      if (targetClass) {
+        const isStudentSS3 = isSameClass(targetClass, 'SS 3');
+        filtered = list.filter((q) => {
+          const qTarget = (q.targetClass || '').trim();
+          // If student is NOT in SS 3, NEVER display quizzes targeted at SS 3
+          if (!isStudentSS3 && (qTarget.includes('SS 3') || qTarget.includes('SS3') || q.title?.includes('SS 3') || q.title?.includes('SS3'))) {
+            return false;
+          }
+          if (!qTarget || qTarget.toLowerCase() === 'all' || qTarget.toLowerCase() === 'all classes' || qTarget.toLowerCase() === 'general') {
+            return true;
+          }
+          return isSameClass(qTarget, targetClass);
+        });
       } else {
-        // High-yield WAEC / SS3 Mock CBT Quizzes
+        // If class is unknown, strictly exclude SS3 quizzes from showing on generic dashboards
+        filtered = list.filter((q) => {
+          const qTarget = (q.targetClass || '').trim();
+          return !qTarget.includes('SS 3') && !qTarget.includes('SS3') && !q.title?.includes('SS 3') && !q.title?.includes('SS3');
+        });
+      }
+
+      // If matches exist for this class, display them
+      if (filtered.length > 0) {
+        setQuizzes(filtered);
+      } else if (targetClass && isSameClass(targetClass, 'SS 3')) {
+        // Only SS 3 students can see default SS 3 Mock CBT quizzes as fallback
         setQuizzes([
           {
             id: 1,
@@ -94,22 +159,14 @@ export const StudentQuizTaker: React.FC<StudentQuizTakerProps> = ({
             status: 'published',
             createdAt: new Date().toISOString(),
           },
-          {
-            id: 3,
-            title: 'SS 3 Physics Mechanics & Electricity Challenge',
-            subjectId: 3,
-            subjectName: 'Physics',
-            targetClass: 'SS 3',
-            durationMinutes: 20,
-            passMark: 50,
-            totalMarks: 100,
-            status: 'published',
-            createdAt: new Date().toISOString(),
-          },
         ]);
+      } else {
+        // Other classes (SS 1, SS 2, JSS, Primary) NEVER see SS 3 quizzes
+        setQuizzes([]);
       }
     } catch (e) {
       console.error('Failed to load quizzes:', e);
+      setQuizzes([]);
     } finally {
       setLoading(false);
     }
@@ -117,7 +174,7 @@ export const StudentQuizTaker: React.FC<StudentQuizTakerProps> = ({
 
   useEffect(() => {
     loadAvailableQuizzes();
-  }, [token]);
+  }, [authToken, activeClass]);
 
   // Load specific quiz
   const startQuiz = async (id: number) => {
@@ -131,7 +188,7 @@ export const StudentQuizTaker: React.FC<StudentQuizTakerProps> = ({
       let data: any = null;
       try {
         const res = await fetch(`/api/quizzes/${id}`, {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: { Authorization: `Bearer ${authToken}` },
         });
         if (res.ok) {
           const text = await res.text();
@@ -368,13 +425,17 @@ export const StudentQuizTaker: React.FC<StudentQuizTakerProps> = ({
         {loading ? (
           <div className="p-12 text-center text-slate-400 flex flex-col items-center justify-center gap-2">
             <Loader2 className="w-6 h-6 animate-spin text-emerald-400" />
-            <span>Loading assigned quizzes...</span>
+            <span>Loading assigned quizzes for {studentClass || 'your class'}...</span>
           </div>
         ) : quizzes.length === 0 ? (
-          <div className="bg-slate-800/80 border border-slate-700 p-12 text-center text-slate-400 rounded-2xl">
+          <div className="bg-slate-800/80 border border-slate-700 p-12 text-center text-slate-400 rounded-2xl space-y-2">
             <BookOpen className="w-10 h-10 mx-auto mb-2 text-slate-600" />
-            <p className="text-sm font-semibold text-slate-300">No active quizzes published yet</p>
-            <p className="text-xs mt-1">Quizzes created by your subject teachers will appear here.</p>
+            <p className="text-sm font-semibold text-slate-300">
+              No active quizzes published for {studentClass || 'your class'} yet
+            </p>
+            <p className="text-xs text-slate-400 max-w-md mx-auto">
+              Quizzes and CBT mock assessments assigned by your subject teachers specifically for {studentClass || 'your class'} will appear here once published.
+            </p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

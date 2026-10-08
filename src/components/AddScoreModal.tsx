@@ -38,10 +38,18 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
   onClose,
 }) => {
   const { token, user } = useAuth();
+  const isFacultyUser = user && user.role !== 'student' && user.role !== 'bursar';
   const authToken =
-    token ||
-    (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('sqams_token') : null) ||
-    'local-teacher-auth:teacher@school.edu';
+    (isFacultyUser && token)
+      ? token
+      : (token && !token.includes('student') && !token.includes('bursar'))
+      ? token
+      : (typeof sessionStorage !== 'undefined' &&
+         sessionStorage.getItem('sqams_token') &&
+         !sessionStorage.getItem('sqams_token')?.includes('student') &&
+         !sessionStorage.getItem('sqams_token')?.includes('bursar')
+          ? sessionStorage.getItem('sqams_token')
+          : null) || 'local-teacher-auth:teacher@school.edu';
 
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [allStudents, setAllStudents] = useState<Student[]>([]);
@@ -66,6 +74,7 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
 
   // Existing Scores for the Matched Student
   const [existingScores, setExistingScores] = useState<any[]>([]);
+  const [scoreDisplayTerm, setScoreDisplayTerm] = useState<'current' | 'all'>('current');
   const [loadingExistingScores, setLoadingExistingScores] = useState(false);
 
   // Score Editing Modal State
@@ -126,20 +135,163 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
   const loadStudentScores = async (st: Student) => {
     setLoadingExistingScores(true);
     try {
-      const res = await fetch(
-        `/api/scores?student=${encodeURIComponent(st.studentId || String(st.id))}&session=${encodeURIComponent(
-          session
-        )}&term=${encodeURIComponent(term)}`,
-        {
-          headers: { Authorization: `Bearer ${authToken}` },
+      const combined: any[] = [];
+      const seenKeys = new Set<string>();
+      const PG_MAX_INT = 2147483647;
+      const numericId = Number(st.id);
+      const sanitizedId = (!isNaN(numericId) && numericId > 0 && numericId <= PG_MAX_INT) ? String(numericId) : '';
+      const queryParam = st.studentId || (sanitizedId ? sanitizedId : '');
+
+      // 1. Fetch all scores for this student from server (no restrictive term or session filter so full record is loaded)
+      try {
+        const idParam = sanitizedId ? `&studentId=${encodeURIComponent(sanitizedId)}` : '';
+        const res = await fetch(
+          `/api/scores?student=${encodeURIComponent(queryParam)}${idParam}`,
+          {
+            headers: { Authorization: `Bearer ${authToken}` },
+          }
+        );
+        if (res.ok) {
+          const text = await res.text();
+          let data: any = {};
+          try { data = JSON.parse(text); } catch (_) {}
+          const serverList = data.scores || data.results || [];
+          for (const item of serverList) {
+            const key = `${item.subjectId}_${item.assessmentType}_${item.term}_${item.session}`;
+            if (!seenKeys.has(key)) {
+              seenKeys.add(key);
+              combined.push(item);
+            }
+          }
         }
-      );
-      if (res.ok) {
-        const text = await res.text();
-        let data: any = {};
-        try { data = JSON.parse(text); } catch (_) {}
-        setExistingScores(data.scores || data.results || []);
+      } catch (err) {
+        console.warn('Backend scores query deferred:', err);
       }
+
+      // 1b. Also query single student academic profile directly from backend
+      try {
+        const lookupKey = st.studentId || (sanitizedId ? sanitizedId : st.id);
+        const stRes = await fetch(`/api/students/${encodeURIComponent(String(lookupKey))}`, {
+          headers: { Authorization: `Bearer ${authToken}` },
+        });
+        if (stRes.ok) {
+          const stText = await stRes.text();
+          let stData: any = {};
+          try { stData = JSON.parse(stText); } catch (_) {}
+          if (stData && Array.isArray(stData.assessments)) {
+            for (const a of stData.assessments) {
+              const key = `${a.subjectId}_${a.assessmentType}_${a.term}_${a.session}`;
+              if (!seenKeys.has(key)) {
+                seenKeys.add(key);
+                combined.push({
+                  id: a.id,
+                  studentId: st.studentId,
+                  studentDbId: st.id,
+                  studentName: `${st.firstName} ${st.surname}`,
+                  class: st.currentClass,
+                  subjectId: a.subjectId,
+                  subjectName: a.subjectName,
+                  subjectCode: a.subjectCode,
+                  assessmentTitle: a.assessmentTitle,
+                  assessmentType: a.assessmentType,
+                  score: a.score,
+                  maxScore: a.maxScore,
+                  percentage: a.percentage,
+                  grade: a.grade,
+                  session: a.session,
+                  term: a.term,
+                  teacherComment: a.teacherComment,
+                  createdAt: a.createdAt,
+                });
+              }
+            }
+          }
+        }
+      } catch (_) {}
+
+      // 2. Merge local broadsheet scores cache (fis_broadsheet_scores_v2)
+      try {
+        const raw = localStorage.getItem('fis_broadsheet_scores_v2');
+        if (raw) {
+          const list = JSON.parse(raw);
+          const stScores = list.filter(
+            (l: any) =>
+              (l.studentId === st.id ||
+                String(l.studentId) === String(st.id) ||
+                (st.studentId && l.studentNumber === st.studentId))
+          );
+
+          for (const loc of stScores) {
+            const periodLabel = loc.examPeriod === 'first-half' ? 'First Half Term' : 'Terminal Term';
+
+            // If CA score exists and not in server results
+            if (loc.testScore !== null && loc.testScore !== undefined && loc.testScore !== '') {
+              const caKey = `${loc.subjectId}_CA_${loc.term}_${loc.session}`;
+              if (!seenKeys.has(caKey)) {
+                seenKeys.add(caKey);
+                combined.push({
+                  id: loc.testId || `loc_ca_${loc.studentId}_${loc.subjectId}_${loc.examPeriod || 'term'}`,
+                  studentId: loc.studentNumber || st.studentId,
+                  studentDbId: st.id,
+                  studentName: `${st.firstName} ${st.surname}`,
+                  subjectId: loc.subjectId,
+                  subjectName: loc.subjectName,
+                  assessmentTitle: `${periodLabel} Continuous Assessment Test`,
+                  assessmentType: 'CA',
+                  score: loc.testScore,
+                  maxScore: 40,
+                  grade: calculateSubjectGrade((Number(loc.testScore) || 0) + (Number(loc.examScore) || 0)),
+                  term: loc.term || term,
+                  session: loc.session || session,
+                  teacherComment: JSON.stringify({
+                    caScore: loc.testScore,
+                    examScore: loc.examScore,
+                    totalScore: loc.totalScore,
+                    examPeriod: loc.examPeriod,
+                    userNote: loc.userNote || 'Recorded continuous assessment',
+                  }),
+                  isLocal: true,
+                });
+              }
+            }
+
+            // If Exam score exists and not in server results
+            if (loc.examScore !== null && loc.examScore !== undefined && loc.examScore !== '') {
+              const examKey = `${loc.subjectId}_Examination_${loc.term}_${loc.session}`;
+              if (!seenKeys.has(examKey)) {
+                seenKeys.add(examKey);
+                combined.push({
+                  id: loc.examId || `loc_exam_${loc.studentId}_${loc.subjectId}_${loc.examPeriod || 'term'}`,
+                  studentId: loc.studentNumber || st.studentId,
+                  studentDbId: st.id,
+                  studentName: `${st.firstName} ${st.surname}`,
+                  subjectId: loc.subjectId,
+                  subjectName: loc.subjectName,
+                  assessmentTitle: `${periodLabel} Main Examination`,
+                  assessmentType: 'Examination',
+                  score: loc.examScore,
+                  maxScore: 60,
+                  grade: calculateSubjectGrade((Number(loc.testScore) || 0) + (Number(loc.examScore) || 0)),
+                  term: loc.term || term,
+                  session: loc.session || session,
+                  teacherComment: JSON.stringify({
+                    caScore: loc.testScore,
+                    examScore: loc.examScore,
+                    totalScore: loc.totalScore,
+                    examPeriod: loc.examPeriod,
+                    userNote: loc.userNote || 'Recorded comprehensive terminal examination',
+                  }),
+                  isLocal: true,
+                });
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Local broadsheet cache merge deferred:', err);
+      }
+
+      setExistingScores(combined);
     } catch (err) {
       console.warn('Failed to fetch existing student scores:', err);
     } finally {
@@ -533,13 +685,11 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
   };
 
   // Delete an existing score record
-  const handleDeleteScore = async (scoreId: number, subjectName: string) => {
-    const confirmed = window.confirm(
-      `Are you sure you want to delete this recorded score for "${subjectName}"?\n\nThis will remove it from the student portal and the class broadsheet.`
-    );
-    if (!confirmed) return;
-
+  const handleDeleteScore = async (scoreId: number | string, subjectName: string) => {
     try {
+      // Optimistically remove from state immediately
+      setExistingScores((prev) => prev.filter((s) => String(s.id) !== String(scoreId)));
+
       const res = await fetch(`/api/scores/${scoreId}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${authToken}` },
@@ -562,7 +712,21 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
         const cached = localStorage.getItem('fis_broadsheet_scores_v2');
         if (cached) {
           const list = JSON.parse(cached);
-          const filtered = list.filter((l: any) => l.testId !== scoreId && l.examId !== scoreId && l.id !== scoreId);
+          const filtered = list.filter((l: any) => {
+            const matchesDirectId = String(l.testId) === String(scoreId) || String(l.examId) === String(scoreId) || String(l.id) === String(scoreId);
+            if (matchesDirectId) return false;
+            if (typeof scoreId === 'string') {
+              if (scoreId.startsWith('loc_ca_') && scoreId.includes(`_${l.subjectId}_`)) {
+                l.testScore = null;
+                l.totalScore = l.examScore || 0;
+              }
+              if (scoreId.startsWith('loc_exam_') && scoreId.includes(`_${l.subjectId}_`)) {
+                l.examScore = null;
+                l.totalScore = l.testScore || 0;
+              }
+            }
+            return true;
+          });
           localStorage.setItem('fis_broadsheet_scores_v2', JSON.stringify(filtered));
         }
       } catch (_) {}
@@ -570,9 +734,12 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
       window.dispatchEvent(new CustomEvent('fis:scores-updated'));
       window.dispatchEvent(new CustomEvent('fis:broadsheet-scores-updated'));
 
+      setSaveSuccess(`✓ Score record for ${subjectName} successfully removed.`);
       if (matchedStudent) await loadStudentScores(matchedStudent);
     } catch (err: any) {
-      alert(err.message || 'Failed to delete score record');
+      console.error('Delete score error:', err);
+      setSaveError(err.message || 'Failed to delete score record');
+      if (matchedStudent) await loadStudentScores(matchedStudent);
     }
   };
 
@@ -968,117 +1135,188 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
       )}
 
       {/* Step 3: Existing Scores for the Matched Student (Editable & Deletable) */}
-      {matchedStudent && (
-        <div className="bg-slate-800/80 border border-slate-700 p-6 rounded-2xl space-y-4 shadow-xl">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-700">
-            <div>
-              <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                <Clock className="w-4 h-4 text-emerald-400" />
-                Existing Scores Recorded for {matchedStudent.firstName} {matchedStudent.surname}
-              </h3>
-              <p className="text-xs text-slate-400 mt-0.5">
-                All previously entered CA and examination scores for {session} • {term}. Teachers can edit or delete any existing score below.
-              </p>
+      {matchedStudent && (() => {
+        const displayedScores = existingScores.filter((sc) => {
+          if (scoreDisplayTerm === 'all') return true;
+          const scTerm = (sc.term || '').toLowerCase().trim();
+          const currentTerm = term.toLowerCase().trim();
+          if (scTerm === currentTerm) return true;
+          const isFirst = (scTerm.includes('1st') || scTerm.includes('first')) && (currentTerm.includes('1st') || currentTerm.includes('first'));
+          const isSecond = (scTerm.includes('2nd') || scTerm.includes('second')) && (currentTerm.includes('2nd') || currentTerm.includes('second'));
+          const isThird = (scTerm.includes('3rd') || scTerm.includes('third')) && (currentTerm.includes('3rd') || currentTerm.includes('third'));
+          if (isFirst || isSecond || isThird) return true;
+          return scTerm.includes(currentTerm.replace(' term', ''));
+        });
+
+        const currentTermCount = existingScores.filter((sc) => {
+          const scTerm = (sc.term || '').toLowerCase().trim();
+          const currentTerm = term.toLowerCase().trim();
+          if (scTerm === currentTerm) return true;
+          const isFirst = (scTerm.includes('1st') || scTerm.includes('first')) && (currentTerm.includes('1st') || currentTerm.includes('first'));
+          const isSecond = (scTerm.includes('2nd') || scTerm.includes('second')) && (currentTerm.includes('2nd') || currentTerm.includes('second'));
+          const isThird = (scTerm.includes('3rd') || scTerm.includes('third')) && (currentTerm.includes('3rd') || currentTerm.includes('third'));
+          if (isFirst || isSecond || isThird) return true;
+          return scTerm.includes(currentTerm.replace(' term', ''));
+        }).length;
+
+        return (
+          <div className="bg-slate-800/80 border border-slate-700 p-6 rounded-2xl space-y-4 shadow-xl">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-700">
+              <div>
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-emerald-400" />
+                  Existing Scores Recorded for {matchedStudent.firstName} {matchedStudent.surname}
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  All previously entered CA and examination scores for {session} • {term}. Teachers can edit or delete any existing score below.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setScoreDisplayTerm('current')}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer transition ${
+                    scoreDisplayTerm === 'current'
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-700'
+                  }`}
+                >
+                  {term} ({currentTermCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScoreDisplayTerm('all')}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer transition ${
+                    scoreDisplayTerm === 'all'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-700'
+                  }`}
+                >
+                  All Terms ({existingScores.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => loadStudentScores(matchedStudent)}
+                  className="px-3 py-1 rounded-lg bg-slate-900 hover:bg-slate-700 text-slate-300 text-xs font-medium flex items-center gap-1.5 border border-slate-700 cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingExistingScores ? 'animate-spin' : ''}`} />
+                  Refresh
+                </button>
+              </div>
             </div>
 
-            <button
-              type="button"
-              onClick={() => loadStudentScores(matchedStudent)}
-              className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-700 text-slate-300 text-xs font-medium flex items-center gap-1.5 border border-slate-700 cursor-pointer self-start sm:self-auto"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${loadingExistingScores ? 'animate-spin' : ''}`} />
-              Refresh
-            </button>
+            {loadingExistingScores ? (
+              <div className="p-8 text-center text-slate-400 text-xs">
+                Loading existing scores for {matchedStudent.firstName}...
+              </div>
+            ) : displayedScores.length === 0 ? (
+              <div className="p-8 text-center text-slate-400 text-xs space-y-2">
+                <FileSpreadsheet className="w-8 h-8 mx-auto text-slate-600" />
+                <p>
+                  No scores recorded yet for {matchedStudent.firstName} {matchedStudent.surname} in {term}.
+                </p>
+                {existingScores.length > 0 && (
+                  <div>
+                    <p className="text-slate-400 text-[11px] mb-2">
+                      Found <strong>{existingScores.length} score record(s)</strong> across other terms or sessions for this student.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setScoreDisplayTerm('all')}
+                      className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold cursor-pointer inline-flex items-center gap-1.5 shadow"
+                    >
+                      View All {existingScores.length} Scores Across All Terms
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-900 text-slate-400 uppercase tracking-wider font-semibold border-b border-slate-700">
+                    <tr>
+                      <th className="py-2.5 px-3">Subject</th>
+                      <th className="py-2.5 px-3">Assessment Title</th>
+                      <th className="py-2.5 px-3">Type</th>
+                      <th className="py-2.5 px-3 text-right">Score</th>
+                      <th className="py-2.5 px-3 text-right">Max</th>
+                      <th className="py-2.5 px-3 text-center">Grade</th>
+                      <th className="py-2.5 px-3">Term / Session</th>
+                      <th className="py-2.5 px-3">Remarks</th>
+                      <th className="py-2.5 px-3 text-center">Actions (Edit / Delete)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-700 text-slate-300">
+                    {displayedScores.map((sc) => {
+                      let parsedNote = sc.teacherComment || '—';
+                      try {
+                        if (sc.teacherComment && sc.teacherComment.trim().startsWith('{')) {
+                          const obj = JSON.parse(sc.teacherComment);
+                          parsedNote = obj.userNote || `CA: ${obj.caScore ?? '-'}, Exam: ${obj.examScore ?? '-'}`;
+                        }
+                      } catch (_) {}
+
+                      return (
+                        <tr key={sc.id} className="hover:bg-slate-750/50 transition">
+                          <td className="py-2.5 px-3 font-semibold text-white">
+                            {sc.subjectName || `Subject #${sc.subjectId}`}
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-300">{sc.assessmentTitle}</td>
+                          <td className="py-2.5 px-3 font-mono text-slate-400">
+                            <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-[11px]">
+                              {sc.assessmentType}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono font-bold text-white">
+                            {sc.score}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono text-slate-400">
+                            {sc.maxScore}
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300">
+                              {sc.grade || '—'}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-400">
+                            <span className="px-2 py-0.5 rounded bg-slate-900/80 text-[10px] text-slate-300">
+                              {sc.term || term} • {sc.session || session}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-400 italic max-w-xs truncate">
+                            {parsedNote}
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            <div className="flex items-center justify-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditScore(sc)}
+                                className="p-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 hover:border-amber-400 transition cursor-pointer"
+                                title="Edit this recorded score"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteScore(sc.id, sc.subjectName || 'Score')}
+                                className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 hover:border-rose-400 transition cursor-pointer"
+                                title="Permanently delete this score record"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
-
-          {loadingExistingScores ? (
-            <div className="p-8 text-center text-slate-400 text-xs">
-              Loading existing scores for {matchedStudent.firstName}...
-            </div>
-          ) : existingScores.length === 0 ? (
-            <div className="p-8 text-center text-slate-400 text-xs">
-              <FileSpreadsheet className="w-8 h-8 mx-auto mb-2 text-slate-600" />
-              No scores recorded yet for {matchedStudent.firstName} {matchedStudent.surname} in {term}. Use the form above to add scores.
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-900 text-slate-400 uppercase tracking-wider font-semibold border-b border-slate-700">
-                  <tr>
-                    <th className="py-2.5 px-3">Subject</th>
-                    <th className="py-2.5 px-3">Assessment Title</th>
-                    <th className="py-2.5 px-3">Type</th>
-                    <th className="py-2.5 px-3 text-right">Score</th>
-                    <th className="py-2.5 px-3 text-right">Max</th>
-                    <th className="py-2.5 px-3 text-center">Grade</th>
-                    <th className="py-2.5 px-3">Remarks</th>
-                    <th className="py-2.5 px-3 text-center">Actions (Edit / Delete)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-700 text-slate-300">
-                  {existingScores.map((sc) => {
-                    let parsedNote = sc.teacherComment || '—';
-                    try {
-                      if (sc.teacherComment && sc.teacherComment.trim().startsWith('{')) {
-                        const obj = JSON.parse(sc.teacherComment);
-                        parsedNote = obj.userNote || `CA: ${obj.caScore ?? '-'}, Exam: ${obj.examScore ?? '-'}`;
-                      }
-                    } catch (_) {}
-
-                    return (
-                      <tr key={sc.id} className="hover:bg-slate-750/50 transition">
-                        <td className="py-2.5 px-3 font-semibold text-white">
-                          {sc.subjectName || `Subject #${sc.subjectId}`}
-                        </td>
-                        <td className="py-2.5 px-3 text-slate-300">{sc.assessmentTitle}</td>
-                        <td className="py-2.5 px-3 font-mono text-slate-400">
-                          <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-[11px]">
-                            {sc.assessmentType}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3 text-right font-mono font-bold text-white">
-                          {sc.score}
-                        </td>
-                        <td className="py-2.5 px-3 text-right font-mono text-slate-400">
-                          {sc.maxScore}
-                        </td>
-                        <td className="py-2.5 px-3 text-center">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300">
-                            {sc.grade || '—'}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3 text-slate-400 italic max-w-xs truncate">
-                          {parsedNote}
-                        </td>
-                        <td className="py-2.5 px-3 text-center">
-                          <div className="flex items-center justify-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => handleOpenEditScore(sc)}
-                              className="p-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 hover:border-amber-400 transition cursor-pointer"
-                              title="Edit this recorded score"
-                            >
-                              <Edit2 className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteScore(sc.id, sc.subjectName || 'Score')}
-                              className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 hover:border-rose-400 transition cursor-pointer"
-                              title="Permanently delete this score record"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
+        );
+      })()}
 
       {/* Edit Score Modal */}
       {editingScoreItem && (

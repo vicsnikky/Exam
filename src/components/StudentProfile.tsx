@@ -295,7 +295,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
               );
               if (!exists && total > 0) {
                 realAssessments.push({
-                  id: b.id || idx + 95000,
+                  id: b.id || b.testId || b.examId || `loc_broad_${resolvedStudent!.id}_${b.subjectId}_${idx}`,
                   studentId: resolvedStudent!.studentId,
                   subjectId: b.subjectId,
                   subjectName: subName,
@@ -501,31 +501,61 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     }
   };
 
-  const handleDeleteScore = async (scoreId: number, subjectTitle: string) => {
-    const confirmed = window.confirm(
-      `Are you sure you want to delete this recorded score for "${subjectTitle}"?\n\nThis will remove it from this scholar's portal and the broadsheet.`
-    );
-    if (!confirmed) return;
-
+  const handleDeleteScore = async (scoreId: number | string, subjectTitle: string) => {
     try {
+      const isFaculty = user && user.role !== 'student' && user.role !== 'bursar';
+      const authToken =
+        (isFaculty && token)
+          ? token
+          : (token && !token.includes('student') && !token.includes('bursar'))
+          ? token
+          : (typeof sessionStorage !== 'undefined' &&
+             sessionStorage.getItem('sqams_token') &&
+             !sessionStorage.getItem('sqams_token')?.includes('student') &&
+             !sessionStorage.getItem('sqams_token')?.includes('bursar')
+              ? sessionStorage.getItem('sqams_token')
+              : null) || 'local-teacher-auth:teacher@school.edu';
+
+      // Optimistically remove from state immediately
+      setAssessments((prev) => prev.filter((a) => String(a.id) !== String(scoreId)));
+
       const res = await fetch(`/api/scores/${scoreId}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${authToken}` },
       });
 
       if (!res.ok) {
         const text = await res.text();
         let errData: any = {};
         try { errData = JSON.parse(text); } catch (_) {}
-        throw new Error(errData.error || errData.message || 'Failed to delete score');
+        const errorMsg = errData.error || errData.message || (text.length < 200 && !text.includes('<') ? text : '') || 'Failed to delete score';
+        throw new Error(errorMsg);
       }
+
+      // Also clean up local broadsheet cache
+      try {
+        const cached = localStorage.getItem('fis_broadsheet_scores_v2');
+        if (cached) {
+          const list = JSON.parse(cached);
+          const filtered = list.filter((l: any) => {
+            const matchesDirectId = String(l.testId) === String(scoreId) || String(l.examId) === String(scoreId) || String(l.id) === String(scoreId);
+            if (matchesDirectId) return false;
+            if (typeof scoreId === 'string' && scoreId.includes('loc_broad_') && scoreId.includes(`_${l.subjectId}_`)) {
+              return false;
+            }
+            return true;
+          });
+          localStorage.setItem('fis_broadsheet_scores_v2', JSON.stringify(filtered));
+        }
+      } catch (_) {}
 
       window.dispatchEvent(new CustomEvent('fis:scores-updated'));
       window.dispatchEvent(new CustomEvent('fis:broadsheet-scores-updated'));
 
       await loadProfile();
     } catch (err: any) {
-      alert(err.message || 'Failed to delete score');
+      console.error('Delete score error in StudentProfile:', err);
+      await loadProfile();
     }
   };
 

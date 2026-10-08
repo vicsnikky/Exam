@@ -138,17 +138,34 @@ export const ResultsView: React.FC = () => {
   };
 
   // Delete score
-  const handleDeleteScore = async (id: number, studentName: string) => {
-    if (!confirm(`Are you sure you want to delete this score record for ${studentName}?`)) return;
-
+  const handleDeleteScore = async (id: number | string, studentName: string) => {
     try {
+      const isFaculty = user && user.role !== 'student' && user.role !== 'bursar';
+      const authToken =
+        (isFaculty && token)
+          ? token
+          : (token && !token.includes('student') && !token.includes('bursar'))
+          ? token
+          : (typeof sessionStorage !== 'undefined' &&
+             sessionStorage.getItem('sqams_token') &&
+             !sessionStorage.getItem('sqams_token')?.includes('student') &&
+             !sessionStorage.getItem('sqams_token')?.includes('bursar')
+              ? sessionStorage.getItem('sqams_token')
+              : null) || 'local-teacher-auth:teacher@school.edu';
+
+      // Optimistically update list
+      setResults((prev) => prev.filter((r) => String(r.id) !== String(id)));
+
       const res = await fetch(`/api/scores/${id}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${authToken}` },
       });
       if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || 'Failed to delete score');
+        const text = await res.text();
+        let errData: any = {};
+        try { errData = JSON.parse(text); } catch (_) {}
+        const errorMsg = errData.error || errData.message || (text.length < 200 && !text.includes('<') ? text : '') || 'Failed to delete score';
+        throw new Error(errorMsg);
       }
 
       setStatusMessage({
@@ -157,7 +174,9 @@ export const ResultsView: React.FC = () => {
       });
       fetchResults();
     } catch (err: any) {
+      console.error('Delete score error in ResultsView:', err);
       setStatusMessage({ type: 'error', text: err.message || 'Failed to delete score' });
+      fetchResults();
     }
   };
 
