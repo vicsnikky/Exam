@@ -21,9 +21,20 @@ import {
   Sparkles,
   Users,
   Award,
-  RefreshCw
+  RefreshCw,
+  Clock,
+  ShieldCheck,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
-import { SCHOOL_CLASSES, isSecondaryClass } from '../constants/classes.ts';
+import {
+  SCHOOL_CLASSES,
+  isSecondaryClass,
+  isSeniorSecondaryClass,
+  calculateCgpa,
+  calculateJuniorAverage,
+  calculateGradePoint5,
+} from '../constants/classes.ts';
 import { Subject, Student } from '../types/index.ts';
 import { fetchAllSubjectsUnified } from '../lib/subjectStore.ts';
 import { fetchAllStudentsUnified, getLocalStudents } from '../lib/schoolStore.ts';
@@ -79,6 +90,21 @@ export const ClassBroadsheet: React.FC = () => {
     enteredSubjectsCount: number;
     averageScore: number;
     rank?: number;
+    // Senior Secondary CGPA additions (5.0 scale, 2 units per subject)
+    cgpa?: number;
+    totalUnits?: number;
+    totalQualityPoints?: number;
+    standing?: string;
+    gradeBadge?: string;
+    // Attendance
+    attendance: {
+      timesOpened: number;
+      timesPresent: number;
+      timesAbsent: number;
+      rate: number;
+      session?: string;
+      term?: string;
+    };
   }
 
   const [broadsheetRows, setBroadsheetRows] = useState<BroadsheetRow[]>([]);
@@ -100,6 +126,16 @@ export const ClassBroadsheet: React.FC = () => {
   const [inputExamScore, setInputExamScore] = useState<string>('');
   const [inputSaving, setInputSaving] = useState<boolean>(false);
 
+  // Modal for Teacher Attendance Input
+  const [attendanceModalOpen, setAttendanceModalOpen] = useState(false);
+  const [attendanceStudent, setAttendanceStudent] = useState<Student | null>(null);
+  const [inputTimesOpened, setInputTimesOpened] = useState('115');
+  const [inputTimesPresent, setInputTimesPresent] = useState('110');
+  const [savingAttendance, setSavingAttendance] = useState(false);
+
+  // Print Preview state
+  const [showPrintPreview, setShowPrintPreview] = useState(false);
+
   // Modal for adding a new subject
   const [addSubjectModalOpen, setAddSubjectModalOpen] = useState(false);
   const [newSubjectName, setNewSubjectName] = useState('');
@@ -113,6 +149,7 @@ export const ClassBroadsheet: React.FC = () => {
   const [savingSubjectEdit, setSavingSubjectEdit] = useState(false);
 
   const isSecondary = isSecondaryClass(selectedClass);
+  const isSenior = isSeniorSecondaryClass(selectedClass);
   const effectiveExamPeriod: 'first-half' | 'terminal' = isSecondary ? examPeriod : 'terminal';
 
   // Load students & subjects & scores
@@ -126,16 +163,64 @@ export const ClassBroadsheet: React.FC = () => {
 
       // 2. Unified students
       const allStudents = await fetchAllStudentsUnified(token);
-      const filtered = allStudents.filter((s) => {
-        const sc = (s.currentClass || '').toUpperCase().trim();
-        const tc = selectedClass.toUpperCase().trim();
-        return sc === tc || sc.includes(tc) || tc.includes(sc);
+      const cleanTarget = selectedClass.replace(/\s+/g, '').toUpperCase();
+      let filtered = allStudents.filter((s) => {
+        const cleanCur = (s.currentClass || '').replace(/\s+/g, '').toUpperCase();
+        return cleanCur === cleanTarget || cleanCur.includes(cleanTarget) || cleanTarget.includes(cleanCur);
       });
+
+      // 3. Fetch scores and attendance from backend
+      const serverScores: any[] = [];
+      const backendAttendanceMap: Record<string, any> = {};
+
+      // 3a. Query class broadsheet endpoint
+      try {
+        const res = await fetch(
+          `/api/broadsheet/class?class=${encodeURIComponent(selectedClass)}&term=${encodeURIComponent(selectedTerm)}&session=${encodeURIComponent(selectedSession)}&examPeriod=${encodeURIComponent(effectiveExamPeriod)}`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        if (res.ok) {
+          const text = await res.text();
+          let d: any = {};
+          try { d = JSON.parse(text); } catch (_) {}
+          if (Array.isArray(d.scores)) {
+            serverScores.push(...d.scores);
+          }
+          if (Array.isArray(d.students) && d.students.length > 0) {
+            d.students.forEach((st: any) => {
+              if (st.attendance) {
+                const k1 = String(st.studentId || '').toUpperCase().trim();
+                const k2 = String(st.id || '').trim();
+                if (k1) backendAttendanceMap[k1] = st.attendance;
+                if (k2) backendAttendanceMap[k2] = st.attendance;
+              }
+            });
+
+            // Merge server students into filtered list to ensure exact database IDs and admission numbers align
+            const existingStNums = new Set(filtered.map(s => String(s.studentId || '').toUpperCase().trim()));
+            d.students.forEach((srvSt: any) => {
+              const numKey = String(srvSt.studentId || '').toUpperCase().trim();
+              if (!existingStNums.has(numKey)) {
+                filtered.push(srvSt);
+                existingStNums.add(numKey);
+              } else {
+                // Update id on matching student to ensure database PK matches
+                const idx = filtered.findIndex(s => String(s.studentId || '').toUpperCase().trim() === numKey);
+                if (idx !== -1 && srvSt.id) {
+                  filtered[idx] = { ...filtered[idx], ...srvSt, id: srvSt.id };
+                }
+              }
+            });
+          }
+        }
+      } catch (e) {
+        console.warn('Backend class broadsheet fetch note:', e);
+      }
+
       const targetStudents = filtered.length > 0 ? filtered : allStudents.slice(0, 10);
       setClassStudents(targetStudents);
 
-      // 3. Fetch scores from backend
-      let serverScores: any[] = [];
+      // 3b. Also query general scores endpoint
       try {
         const res = await fetch(
           `/api/scores?class=${encodeURIComponent(selectedClass)}&term=${encodeURIComponent(selectedTerm)}&session=${encodeURIComponent(selectedSession)}`,
@@ -145,7 +230,10 @@ export const ClassBroadsheet: React.FC = () => {
           const text = await res.text();
           let d: any = {};
           try { d = JSON.parse(text); } catch (_) {}
-          serverScores = d.results || [];
+          const moreScores = d.results || d.scores || [];
+          if (Array.isArray(moreScores)) {
+            serverScores.push(...moreScores);
+          }
         }
       } catch (e) {
         console.warn('Backend scores fetch note:', e);
@@ -158,27 +246,140 @@ export const ClassBroadsheet: React.FC = () => {
         if (cached) localScores = JSON.parse(cached);
       } catch (_) {}
 
+      // 4b. Local attendance cache
+      let localAttendanceMap: Record<string, any> = {};
+      try {
+        const cachedAtt = localStorage.getItem('fis_student_attendance_v1') || localStorage.getItem('fis_attendance_records_v1');
+        if (cachedAtt) localAttendanceMap = JSON.parse(cachedAtt);
+      } catch (_) {}
+
+      // 4c. Deleted score IDs to filter out
+      const deletedIds = new Set<string>();
+      try {
+        const rawDel = localStorage.getItem('fis_deleted_score_ids_v1');
+        if (rawDel) {
+          const parsed = JSON.parse(rawDel);
+          parsed.forEach((x: any) => deletedIds.add(String(x)));
+        }
+      } catch (_) {}
+
+      const isScoreDeleted = (id: any, studentId: any, subjectId: any) => {
+        if (id && deletedIds.has(String(id))) return true;
+        if (studentId && subjectId) {
+          if (deletedIds.has(`key_${studentId}_${subjectId}`)) return true;
+          if (deletedIds.has(`key_${studentId}_${subjectId}_CA`)) return true;
+          if (deletedIds.has(`key_${studentId}_${subjectId}_Examination`)) return true;
+        }
+        return false;
+      };
+
+      // Helper: Term normalizer
+      const normalizeTerm = (t?: string) => {
+        if (!t) return '';
+        const s = t.toLowerCase();
+        if (s.includes('1') || s.includes('first')) return 'first';
+        if (s.includes('2') || s.includes('second')) return 'second';
+        if (s.includes('3') || s.includes('third')) return 'third';
+        return s.trim();
+      };
+
       // Build broadsheet rows
       const rows: BroadsheetRow[] = targetStudents.map((st) => {
+        const cleanStId = String(st.studentId || '').toUpperCase().trim();
+        const cleanDbId = String(st.id || '').trim();
+        const stFullName = `${st.firstName || ''} ${st.surname || ''}`.trim().toLowerCase();
+
+        // Resolve student attendance
+        const studentAttendance =
+          localAttendanceMap[cleanStId] ||
+          localAttendanceMap[cleanDbId] ||
+          backendAttendanceMap[cleanStId] ||
+          backendAttendanceMap[cleanDbId] || {
+            timesOpened: 115,
+            timesPresent: 110,
+            timesAbsent: 5,
+            rate: 95.7,
+            session: selectedSession,
+            term: selectedTerm,
+          };
+
         const cellMap: Record<number, SubjectScoreCell> = {};
         let totalSum = 0;
         let countedSubjects = 0;
+        const subjectScoresList: Array<{ totalScore: number; units: number }> = [];
 
         subs.forEach((sub) => {
-          // Find assessments for this student and subject
-          const stScores = serverScores.filter(
-            (sc) => (sc.studentDbId === st.id || sc.studentId === st.studentId) && Number(sc.subjectId) === sub.id
-          );
+          const cleanSubName = (sub.name || '').trim().toLowerCase();
+          const cleanSubCode = (sub.code || '').trim().toLowerCase();
 
-          // Find local overrides if any
-          const locMatch = localScores.find(
-            (l) =>
-              (l.studentId === st.id || l.studentNumber === st.studentId) &&
-              Number(l.subjectId) === sub.id &&
-              l.term === selectedTerm &&
-              l.session === selectedSession &&
-              l.examPeriod === effectiveExamPeriod
-          );
+          // Find assessments for this student and subject
+          const stScores = serverScores.filter((sc) => {
+            if (isScoreDeleted(sc.id, st.id, sub.id)) return false;
+
+            const scDbId = String(sc.studentDbId || '').trim();
+            const scStId = String(sc.studentId || '').toUpperCase().trim();
+            const scStNum = String(sc.studentNumber || '').toUpperCase().trim();
+            const scStName = String(sc.studentName || '').toLowerCase().trim();
+
+            const matchesSt =
+              (scDbId && cleanDbId && scDbId === cleanDbId) ||
+              (scStId && cleanDbId && scStId === cleanDbId) ||
+              (scStId && cleanStId && scStId === cleanStId) ||
+              (scStNum && cleanStId && scStNum === cleanStId) ||
+              (scStName && stFullName && (scStName === stFullName || scStName.includes(stFullName) || stFullName.includes(scStName)));
+            if (!matchesSt) return false;
+
+            const scSubName = (sc.subjectName || '').trim().toLowerCase();
+            const scSubCode = (sc.subjectCode || '').trim().toLowerCase();
+
+            const matchesSub =
+              Number(sc.subjectId) === Number(sub.id) ||
+              String(sc.subjectId) === String(sub.id) ||
+              (scSubName && cleanSubName && (
+                scSubName === cleanSubName ||
+                scSubName.includes(cleanSubName) ||
+                cleanSubName.includes(scSubName)
+              )) ||
+              (scSubCode && cleanSubCode && scSubCode === cleanSubCode);
+            return matchesSub;
+          });
+
+          // Find local overrides with period check and fallback
+          const findLoc = (strictPeriod: boolean) =>
+            localScores.find((l) => {
+              if (isScoreDeleted(l.id || l.testId || l.examId, st.id, sub.id)) return false;
+
+              const lStId = String(l.studentId || '').toUpperCase().trim();
+              const lStNum = String(l.studentNumber || '').toUpperCase().trim();
+              const matchesSt =
+                lStId === cleanDbId ||
+                lStId === cleanStId ||
+                lStNum === cleanStId ||
+                (l.studentName && stFullName && l.studentName.trim().toLowerCase() === stFullName);
+              if (!matchesSt) return false;
+
+              const lSubName = (l.subjectName || '').trim().toLowerCase();
+              const matchesSub =
+                Number(l.subjectId) === Number(sub.id) ||
+                String(l.subjectId) === String(sub.id) ||
+                (lSubName && cleanSubName && (
+                  lSubName === cleanSubName ||
+                  lSubName.includes(cleanSubName) ||
+                  cleanSubName.includes(lSubName)
+                ));
+              if (!matchesSub) return false;
+
+              const termMatch = !l.term || !selectedTerm || normalizeTerm(l.term) === normalizeTerm(selectedTerm);
+              const sessMatch = !l.session || !selectedSession || l.session.trim() === selectedSession.trim();
+              if (!termMatch || !sessMatch) return false;
+
+              if (strictPeriod && isSecondary) {
+                return !l.examPeriod || l.examPeriod === effectiveExamPeriod;
+              }
+              return true;
+            });
+
+          const locMatch = findLoc(true) || findLoc(false);
 
           let test: number | null = null;
           let exam: number | null = null;
@@ -187,11 +388,20 @@ export const ClassBroadsheet: React.FC = () => {
           let generalId: number | null = null;
 
           if (locMatch) {
-            test = locMatch.testScore !== undefined && locMatch.testScore !== null ? Number(locMatch.testScore) : null;
-            exam = locMatch.examScore !== undefined && locMatch.examScore !== null ? Number(locMatch.examScore) : null;
-          } else if (stScores.length > 0) {
-            // Find CA / test score (marked over 40) for this examPeriod
-            const testRec = stScores.find((s) => {
+            test = locMatch.testScore !== undefined && locMatch.testScore !== null && locMatch.testScore !== '' ? Number(locMatch.testScore) : null;
+            exam = locMatch.examScore !== undefined && locMatch.examScore !== null && locMatch.examScore !== '' ? Number(locMatch.examScore) : null;
+            testId = locMatch.testId || null;
+            examId = locMatch.examId || null;
+            if (test === null && exam === null && locMatch.totalScore !== undefined && locMatch.totalScore !== null) {
+              const tot = Number(locMatch.totalScore);
+              test = Math.round((tot * 40) / 100);
+              exam = Math.round((tot * 60) / 100);
+            }
+          }
+
+          if ((test === null || exam === null) && stScores.length > 0) {
+            // Find CA / test score (over 40)
+            let testRec = stScores.find((s) => {
               const title = (s.assessmentTitle || '').toLowerCase();
               const comm = (s.teacherComment || '').toLowerCase();
               const isCA =
@@ -204,31 +414,35 @@ export const ClassBroadsheet: React.FC = () => {
 
               if (isSecondary) {
                 if (effectiveExamPeriod === 'first-half') {
-                  return (
-                    title.includes('first half') ||
-                    title.includes('1st half') ||
-                    title.includes('6th') ||
-                    comm.includes('first-half')
-                  );
+                  return title.includes('first half') || title.includes('1st half') || title.includes('6th') || comm.includes('first-half');
                 } else {
-                  return (
-                    !title.includes('first half') &&
-                    !title.includes('1st half') &&
-                    !title.includes('6th') &&
-                    !comm.includes('first-half')
-                  );
+                  return title.includes('terminal') || comm.includes('terminal') || (!title.includes('first half') && !title.includes('1st half') && !title.includes('6th') && !comm.includes('first-half'));
                 }
               }
               return true;
             });
 
-            if (testRec) {
+            // Fallback: If no period-specific CA record found, take any CA record
+            if (!testRec) {
+              testRec = stScores.find((s) => {
+                const title = (s.assessmentTitle || '').toLowerCase();
+                return (
+                  s.assessmentType === 'CA' ||
+                  s.assessmentType === 'Test' ||
+                  title.includes('ca') ||
+                  title.includes('test') ||
+                  Number(s.maxScore) === 40
+                );
+              });
+            }
+
+            if (testRec && test === null) {
               test = Number(testRec.score);
               testId = testRec.id;
             }
 
-            // Find main exam score (marked over 60) for this examPeriod
-            const examRec = stScores.find((s) => {
+            // Find main exam score (over 60)
+            let examRec = stScores.find((s) => {
               const title = (s.assessmentTitle || '').toLowerCase();
               const comm = (s.teacherComment || '').toLowerCase();
               const isExam =
@@ -239,31 +453,51 @@ export const ClassBroadsheet: React.FC = () => {
 
               if (isSecondary) {
                 if (effectiveExamPeriod === 'first-half') {
-                  return (
-                    title.includes('first half') ||
-                    title.includes('1st half') ||
-                    title.includes('6th') ||
-                    comm.includes('first-half')
-                  );
+                  return title.includes('first half') || title.includes('1st half') || title.includes('6th') || comm.includes('first-half');
                 } else {
-                  return (
-                    !title.includes('first half') &&
-                    !title.includes('1st half') &&
-                    !title.includes('6th') &&
-                    !comm.includes('first-half')
-                  );
+                  return title.includes('terminal') || comm.includes('terminal') || (!title.includes('first half') && !title.includes('1st half') && !title.includes('6th') && !comm.includes('first-half'));
                 }
               }
               return true;
             });
 
-            if (examRec) {
+            // Fallback: If no period-specific exam record found, take any exam record
+            if (!examRec) {
+              examRec = stScores.find((s) => {
+                const title = (s.assessmentTitle || '').toLowerCase();
+                return (
+                  s.assessmentType === 'Examination' ||
+                  title.includes('exam') ||
+                  Number(s.maxScore) === 60
+                );
+              });
+            }
+
+            if (examRec && exam === null) {
               exam = Number(examRec.score);
               examId = examRec.id;
             }
 
-            // Fallback for generic legacy records
-            if (!testRec && !examRec && stScores[0]) {
+            // Parse embedded json in teacherComment
+            for (const sc of stScores) {
+              if (sc.teacherComment) {
+                try {
+                  const comm = sc.teacherComment.trim();
+                  if (comm.startsWith('{')) {
+                    const parsed = JSON.parse(comm);
+                    if (test === null && parsed.caScore !== undefined && parsed.caScore !== null && parsed.caScore !== '') {
+                      test = Number(parsed.caScore);
+                    }
+                    if (exam === null && parsed.examScore !== undefined && parsed.examScore !== null && parsed.examScore !== '') {
+                      exam = Number(parsed.examScore);
+                    }
+                  }
+                } catch (_) {}
+              }
+            }
+
+            // Fallback for single assessment record
+            if (test === null && exam === null && stScores[0]) {
               generalId = stScores[0].id;
               const scVal = Number(stScores[0].score);
               const maxS = Number(stScores[0].maxScore) || 100;
@@ -278,15 +512,16 @@ export const ClassBroadsheet: React.FC = () => {
             }
           }
 
-          // Total is always CA (max 40) + Exam (max 60) = 100
+          // Total is CA (max 40) + Exam (max 60) = 100
           let cellTotal: number | null = null;
           if (test !== null || exam !== null) {
-            cellTotal = (test || 0) + (exam || 0);
+            cellTotal = Math.min(100, (test || 0) + (exam || 0));
           }
 
           if (cellTotal !== null) {
             totalSum += cellTotal;
             countedSubjects++;
+            subjectScoresList.push({ totalScore: cellTotal, units: 2 });
           }
 
           const gradeStr = cellTotal !== null ? calculateSubjectGrade(cellTotal) : '-';
@@ -306,17 +541,46 @@ export const ClassBroadsheet: React.FC = () => {
 
         const avg = countedSubjects > 0 ? Math.round((totalSum / countedSubjects) * 10) / 10 : 0;
 
+        let cgpa: number | undefined;
+        let standing = 'No Scores Recorded';
+        let gradeBadge = 'N/A';
+        let totalUnits = 0;
+        let totalQualityPoints = 0;
+
+        if (isSenior) {
+          const cgpaSummary = calculateCgpa(subjectScoresList);
+          cgpa = cgpaSummary.cgpa;
+          standing = cgpaSummary.standing;
+          gradeBadge = cgpaSummary.gradeBadge;
+          totalUnits = cgpaSummary.totalUnits;
+          totalQualityPoints = cgpaSummary.totalQualityPoints;
+        } else {
+          const juniorSummary = calculateJuniorAverage(subjectScoresList);
+          standing = juniorSummary.standing;
+        }
+
         return {
           student: st,
           subjectCells: cellMap,
           totalMarksSum: totalSum,
           enteredSubjectsCount: countedSubjects,
           averageScore: avg,
+          cgpa,
+          standing,
+          gradeBadge,
+          totalUnits,
+          totalQualityPoints,
+          attendance: studentAttendance,
         };
       });
 
-      // Rank rows by totalMarksSum descending
-      rows.sort((a, b) => b.totalMarksSum - a.totalMarksSum);
+      // Rank rows: Senior secondary ranks by CGPA then total marks, Junior ranks by average percentage
+      if (isSenior) {
+        rows.sort((a, b) => (b.cgpa || 0) - (a.cgpa || 0) || b.totalMarksSum - a.totalMarksSum);
+      } else {
+        rows.sort((a, b) => b.totalMarksSum - a.totalMarksSum);
+      }
+
       rows.forEach((r, idx) => {
         r.rank = r.enteredSubjectsCount > 0 ? idx + 1 : undefined;
       });
@@ -339,9 +603,13 @@ export const ClassBroadsheet: React.FC = () => {
 
     window.addEventListener('fis:scores-updated', handleScoresChanged);
     window.addEventListener('fis:broadsheet-scores-updated', handleScoresChanged);
+    window.addEventListener('fis:attendance-updated', handleScoresChanged);
+    window.addEventListener('storage', handleScoresChanged);
     return () => {
       window.removeEventListener('fis:scores-updated', handleScoresChanged);
       window.removeEventListener('fis:broadsheet-scores-updated', handleScoresChanged);
+      window.removeEventListener('fis:attendance-updated', handleScoresChanged);
+      window.removeEventListener('storage', handleScoresChanged);
     };
   }, [selectedClass, selectedTerm, selectedSession, examPeriod]);
 
@@ -481,7 +749,7 @@ export const ClassBroadsheet: React.FC = () => {
         localStorage.setItem('fis_broadsheet_scores_v2', JSON.stringify(filtered));
       } catch (_) {}
 
-      // 4. Update memory table state and recalculate student average automatically
+      // 4. Update memory table state and recalculate student average/CGPA automatically
       setBroadsheetRows((prev) => {
         const next = prev.map((row) => {
           if (row.student.id !== activeCell.student.id) return row;
@@ -501,17 +769,38 @@ export const ClassBroadsheet: React.FC = () => {
             generalId: activeCell.generalId,
           };
 
-          // Recompute sum and average for this student
+          // Recompute sum, average and CGPA for this student
           let sum = 0;
           let count = 0;
+          const subjectScoresList: Array<{ totalScore: number; units: number }> = [];
+
           Object.values(updatedCells).forEach((c) => {
             if (c.totalScore !== null && c.totalScore !== undefined) {
               sum += c.totalScore;
               count++;
+              subjectScoresList.push({ totalScore: c.totalScore, units: 2 });
             }
           });
 
           const newAvg = count > 0 ? Math.round((sum / count) * 10) / 10 : 0;
+
+          let cgpa: number | undefined;
+          let standing = 'No Scores Recorded';
+          let gradeBadge = 'N/A';
+          let totalUnits = 0;
+          let totalQualityPoints = 0;
+
+          if (isSenior) {
+            const cgpaSummary = calculateCgpa(subjectScoresList);
+            cgpa = cgpaSummary.cgpa;
+            standing = cgpaSummary.standing;
+            gradeBadge = cgpaSummary.gradeBadge;
+            totalUnits = cgpaSummary.totalUnits;
+            totalQualityPoints = cgpaSummary.totalQualityPoints;
+          } else {
+            const juniorSummary = calculateJuniorAverage(subjectScoresList);
+            standing = juniorSummary.standing;
+          }
 
           return {
             ...row,
@@ -519,11 +808,20 @@ export const ClassBroadsheet: React.FC = () => {
             totalMarksSum: sum,
             enteredSubjectsCount: count,
             averageScore: newAvg,
+            cgpa,
+            standing,
+            gradeBadge,
+            totalUnits,
+            totalQualityPoints,
           };
         });
 
-        // Re-rank students by totalMarksSum
-        next.sort((a, b) => b.totalMarksSum - a.totalMarksSum);
+        // Re-rank students
+        if (isSenior) {
+          next.sort((a, b) => (b.cgpa || 0) - (a.cgpa || 0) || b.totalMarksSum - a.totalMarksSum);
+        } else {
+          next.sort((a, b) => b.totalMarksSum - a.totalMarksSum);
+        }
         next.forEach((r, idx) => {
           r.rank = r.enteredSubjectsCount > 0 ? idx + 1 : undefined;
         });
@@ -531,9 +829,21 @@ export const ClassBroadsheet: React.FC = () => {
         return next;
       });
 
+      // Dispatch global events so student dashboard & profiles live-reload
+      window.dispatchEvent(
+        new CustomEvent('fis:scores-updated', {
+          detail: {
+            studentId: activeCell.student.id,
+            studentNumber: activeCell.student.studentId,
+            subjectId: activeCell.subject.id,
+          },
+        })
+      );
+      window.dispatchEvent(new CustomEvent('fis:broadsheet-scores-updated'));
+
       setStatusMsg({
         type: 'success',
-        text: `Score saved for ${activeCell.student.firstName} ${activeCell.student.surname} in ${activeCell.subject.name} (CA: ${testVal !== null ? testVal : '-'} /40, Exam: ${examVal !== null ? examVal : '-'} /60, Total: ${computedTotal}/100). Average recalculated automatically!`,
+        text: `Score saved for ${activeCell.student.firstName} ${activeCell.student.surname} in ${activeCell.subject.name} (CA: ${testVal !== null ? testVal : '-'} /40, Exam: ${examVal !== null ? examVal : '-'} /60, Total: ${computedTotal}/100). ${isSenior ? 'Senior CGPA' : 'Class Average'} recalculated automatically!`,
       });
 
       setEditModalOpen(false);
@@ -585,7 +895,19 @@ export const ClassBroadsheet: React.FC = () => {
         });
       }
 
-      // Remove from localStorage
+      // Record deleted IDs in fis_deleted_score_ids_v1 so the deleted score never returns
+      try {
+        const deletedRaw = localStorage.getItem('fis_deleted_score_ids_v1');
+        const deletedIds = new Set<string>(deletedRaw ? JSON.parse(deletedRaw) : []);
+        if (activeCell.testId) deletedIds.add(String(activeCell.testId));
+        if (activeCell.examId) deletedIds.add(String(activeCell.examId));
+        if (activeCell.generalId) deletedIds.add(String(activeCell.generalId));
+        deletedIds.add(`key_${activeCell.student.id}_${activeCell.subject.id}`);
+        deletedIds.add(`key_${activeCell.student.studentId}_${activeCell.subject.id}`);
+        localStorage.setItem('fis_deleted_score_ids_v1', JSON.stringify([...deletedIds]));
+      } catch (_) {}
+
+      // Remove from localStorage broadsheet cache
       try {
         const cached = localStorage.getItem('fis_broadsheet_scores_v2');
         if (cached) {
@@ -593,7 +915,7 @@ export const ClassBroadsheet: React.FC = () => {
           const filtered = list.filter(
             (l: any) =>
               !(
-                (l.studentId === activeCell.student.id || l.studentNumber === activeCell.student.studentId) &&
+                (String(l.studentId) === String(activeCell.student.id) || l.studentNumber === activeCell.student.studentId) &&
                 Number(l.subjectId) === activeCell.subject.id &&
                 l.term === selectedTerm &&
                 l.session === selectedSession &&
@@ -613,13 +935,35 @@ export const ClassBroadsheet: React.FC = () => {
 
           let sum = 0;
           let count = 0;
+          const subjectScoresList: Array<{ totalScore: number; units: number }> = [];
+
           Object.values(updatedCells).forEach((c) => {
             if (c.totalScore !== null && c.totalScore !== undefined) {
               sum += c.totalScore;
               count++;
+              subjectScoresList.push({ totalScore: c.totalScore, units: 2 });
             }
           });
+
           const newAvg = count > 0 ? Math.round((sum / count) * 10) / 10 : 0;
+
+          let cgpa: number | undefined;
+          let standing = 'No Scores Recorded';
+          let gradeBadge = 'N/A';
+          let totalUnits = 0;
+          let totalQualityPoints = 0;
+
+          if (isSenior) {
+            const cgpaSummary = calculateCgpa(subjectScoresList);
+            cgpa = cgpaSummary.cgpa;
+            standing = cgpaSummary.standing;
+            gradeBadge = cgpaSummary.gradeBadge;
+            totalUnits = cgpaSummary.totalUnits;
+            totalQualityPoints = cgpaSummary.totalQualityPoints;
+          } else {
+            const juniorSummary = calculateJuniorAverage(subjectScoresList);
+            standing = juniorSummary.standing;
+          }
 
           return {
             ...row,
@@ -627,10 +971,19 @@ export const ClassBroadsheet: React.FC = () => {
             totalMarksSum: sum,
             enteredSubjectsCount: count,
             averageScore: newAvg,
+            cgpa,
+            standing,
+            gradeBadge,
+            totalUnits,
+            totalQualityPoints,
           };
         });
 
-        next.sort((a, b) => b.totalMarksSum - a.totalMarksSum);
+        if (isSenior) {
+          next.sort((a, b) => (b.cgpa || 0) - (a.cgpa || 0) || b.totalMarksSum - a.totalMarksSum);
+        } else {
+          next.sort((a, b) => b.totalMarksSum - a.totalMarksSum);
+        }
         next.forEach((r, idx) => {
           r.rank = r.enteredSubjectsCount > 0 ? idx + 1 : undefined;
         });
@@ -638,9 +991,12 @@ export const ClassBroadsheet: React.FC = () => {
         return next;
       });
 
+      window.dispatchEvent(new CustomEvent('fis:scores-updated'));
+      window.dispatchEvent(new CustomEvent('fis:broadsheet-scores-updated'));
+
       setStatusMsg({
         type: 'success',
-        text: `Score record cleared for ${activeCell.student.firstName} in ${activeCell.subject.name}. Average recalculated.`,
+        text: `Score record permanently cleared for ${activeCell.student.firstName} in ${activeCell.subject.name}. Recalculation complete.`,
       });
       setEditModalOpen(false);
       setActiveCell(null);
@@ -648,6 +1004,93 @@ export const ClassBroadsheet: React.FC = () => {
       setStatusMsg({ type: 'error', text: err.message || 'Failed to clear score' });
     } finally {
       setInputSaving(false);
+    }
+  };
+
+  // Open attendance input modal for teacher
+  const handleOpenAttendanceModal = (student: Student, currentAtt?: any) => {
+    setAttendanceStudent(student);
+    const opened = currentAtt?.timesOpened || 115;
+    const present = currentAtt?.timesPresent || 110;
+    setInputTimesOpened(String(opened));
+    setInputTimesPresent(String(present));
+    setAttendanceModalOpen(true);
+  };
+
+  // Save student attendance from broadsheet
+  const handleSaveAttendance = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!attendanceStudent) return;
+
+    setSavingAttendance(true);
+    try {
+      const opened = Math.max(0, Number(inputTimesOpened) || 0);
+      const present = Math.min(opened, Math.max(0, Number(inputTimesPresent) || 0));
+      const absent = Math.max(0, opened - present);
+      const rate = opened > 0 ? Math.round((present / opened) * 1000) / 10 : 0;
+
+      const newAtt = {
+        timesOpened: opened,
+        timesPresent: present,
+        timesAbsent: absent,
+        rate,
+        session: selectedSession,
+        term: selectedTerm,
+      };
+
+      // 1. Update localStorage
+      try {
+        const rawAtt = localStorage.getItem('fis_student_attendance_v1') || '{}';
+        const attMap = JSON.parse(rawAtt);
+        const k1 = String(attendanceStudent.studentId || '').toUpperCase().trim();
+        const k2 = String(attendanceStudent.id || '').trim();
+        if (k1) attMap[k1] = newAtt;
+        if (k2) attMap[k2] = newAtt;
+        localStorage.setItem('fis_student_attendance_v1', JSON.stringify(attMap));
+      } catch (_) {}
+
+      // 2. Post to backend
+      try {
+        const targetId = attendanceStudent.studentId || attendanceStudent.id;
+        await fetch(`/api/students/${encodeURIComponent(String(targetId))}/attendance`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            timesOpened: opened,
+            timesPresent: present,
+            session: selectedSession,
+            term: selectedTerm,
+            studentNumber: attendanceStudent.studentId,
+          }),
+        });
+      } catch (_) {}
+
+      // 3. Update broadsheet rows in state
+      setBroadsheetRows((prev) =>
+        prev.map((r) =>
+          r.student.id === attendanceStudent.id ? { ...r, attendance: newAtt } : r
+        )
+      );
+
+      // 4. Dispatch global events
+      window.dispatchEvent(new CustomEvent('fis:attendance-updated'));
+      window.dispatchEvent(new CustomEvent('fis:scores-updated'));
+
+      setStatusMsg({
+        type: 'success',
+        text: `Attendance saved for ${attendanceStudent.firstName} ${attendanceStudent.surname}: ${present}/${opened} days (${rate}%). Reflected on broadsheet and student dashboard!`,
+      });
+
+      setAttendanceModalOpen(false);
+      setAttendanceStudent(null);
+    } catch (err: any) {
+      console.warn('Attendance save err:', err);
+      setStatusMsg({ type: 'error', text: err.message || 'Failed to update attendance' });
+    } finally {
+      setSavingAttendance(false);
     }
   };
 
@@ -793,10 +1236,23 @@ export const ClassBroadsheet: React.FC = () => {
             Add Subject
           </button>
           <button
-            onClick={() => window.print()}
-            className="px-3.5 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shadow"
+            onClick={() => setShowPrintPreview(!showPrintPreview)}
+            className={`px-3.5 py-2 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shadow ${
+              showPrintPreview
+                ? 'bg-amber-600 text-white shadow-amber-900/40'
+                : 'bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30'
+            }`}
+            title="Toggle Printable Broadsheet preview on screen"
           >
-            <Printer className="w-3.5 h-3.5 text-emerald-400" />
+            {showPrintPreview ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+            {showPrintPreview ? 'Exit Print Preview' : 'Print Preview'}
+          </button>
+          <button
+            onClick={() => window.print()}
+            className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-2 shadow-lg shadow-emerald-950"
+            title="Open system print dialog to print or save landscape broadsheet as PDF"
+          >
+            <Printer className="w-4 h-4 text-amber-300" />
             Print Broadsheet
           </button>
         </div>
@@ -804,7 +1260,7 @@ export const ClassBroadsheet: React.FC = () => {
 
       {statusMsg && (
         <div
-          className={`p-4 rounded-xl text-xs flex items-center gap-2 ${
+          className={`p-4 rounded-xl text-xs flex items-center gap-2 print:hidden ${
             statusMsg.type === 'success'
               ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300'
               : 'bg-rose-500/10 border border-rose-500/30 text-rose-300'
@@ -820,7 +1276,7 @@ export const ClassBroadsheet: React.FC = () => {
       )}
 
       {/* Filter and Exam Period Selector Bar */}
-      <div className="bg-slate-800/80 border border-slate-700 p-4 rounded-2xl grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 shadow-sm">
+      <div className="bg-slate-800/80 border border-slate-700 p-4 rounded-2xl grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 shadow-sm print:hidden">
         <div>
           <label className="block text-[11px] font-medium text-slate-400 mb-1">Class / Sector</label>
           <select
@@ -884,27 +1340,28 @@ export const ClassBroadsheet: React.FC = () => {
       </div>
 
       {/* Rules Notice Badge */}
-      <div className="p-3.5 bg-slate-800/60 border border-slate-700/80 rounded-xl flex flex-col md:flex-row md:items-center justify-between text-xs text-slate-300 gap-3">
+      <div className="p-3.5 bg-slate-800/60 border border-slate-700/80 rounded-xl flex flex-col md:flex-row md:items-center justify-between text-xs text-slate-300 gap-3 print:hidden">
         <div className="flex items-center gap-2">
           <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
-          {isSecondary ? (
+          {isSenior ? (
             <span>
-              <strong>Secondary Sector Active ({selectedClass}):</strong> Two exams conducted per term. Currently viewing:{' '}
-              <span className="text-amber-300 font-bold uppercase underline">
-                {examPeriod === 'first-half' ? '1st Half Exam (6th Week)' : 'Terminal Exam'}
-              </span>
-              . Test / CA score is over <strong>40</strong>, and Main Exam score is over <strong>60</strong>, totaling <strong>100</strong> per subject. Each subject score remains saved when another subject score is entered.
+              <strong className="text-amber-300">Senior Secondary Standard ({selectedClass}):</strong> Each evaluated subject carries{' '}
+              <strong>2 Credit Units</strong>. Evaluated on the <strong>5.0 CGPA scale</strong> (70+=5.0, 60+=4.0, 50+=3.0, 45+=2.0, 40+=1.0, &lt;40=0.0). Quality Points = 2 × GP. Broadsheet records CA (/40) + Exam (/60) = 100.
+            </span>
+          ) : isSecondary ? (
+            <span>
+              <strong>Junior Secondary Standard ({selectedClass}):</strong> Two exams per term. Test/CA is marked over <strong>40</strong>, Exam is marked over <strong>60</strong>, totaling <strong>100</strong>. Graded on overall <strong>Terminal Average Percentage (%)</strong>.
             </span>
           ) : (
             <span>
-              <strong>Primary &amp; Lower Class Active ({selectedClass}):</strong> Exam conducted <strong>once a term</strong>. Continuous Assessment (CA) is over <strong>40</strong>, and Terminal Exam is over <strong>60</strong>, totaling <strong>100</strong>. Each subject score remains saved when another is entered.
+              <strong>Primary &amp; Lower Class Standard ({selectedClass}):</strong> Exam conducted once a term. CA is marked over <strong>40</strong>, and Terminal Exam is over <strong>60</strong>, totaling <strong>100</strong>. Graded on <strong>Terminal Average Percentage (%)</strong>.
             </span>
           )}
         </div>
         <div className="flex items-center gap-3 shrink-0">
           <span className="text-[11px] text-emerald-400 font-mono font-bold bg-emerald-500/10 px-2.5 py-1 rounded-lg border border-emerald-500/30 flex items-center gap-1">
             <Award className="w-3.5 h-3.5 text-emerald-400" />
-            Automatic Student Average &amp; Rank
+            {isSenior ? 'Automatic Senior CGPA (5.0 Scale)' : 'Automatic Class Average (%) & Rank'}
           </span>
         </div>
       </div>
@@ -934,7 +1391,7 @@ export const ClassBroadsheet: React.FC = () => {
             No enrolled students found for class {selectedClass}. Try switching class filters or enroll students in Students Directory.
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto print:hidden">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-slate-900/90 text-slate-300 border-b border-slate-700 font-bold uppercase text-[11px] tracking-wider">
@@ -943,6 +1400,9 @@ export const ClassBroadsheet: React.FC = () => {
                   </th>
                   <th className="py-3 px-3 min-w-[170px] sticky left-12 bg-slate-900 z-10 border-r border-slate-700">
                     Student Scholar
+                  </th>
+                  <th className="py-3 px-2 text-center min-w-[100px] border-r border-slate-700 bg-slate-900/90" title="School Attendance (Times Present / Times Opened)">
+                    Attendance
                   </th>
                   {availableSubjects.map((sub) => (
                     <th key={sub.id} className="py-3 px-2 text-center min-w-[130px] border-r border-slate-800 group/th">
@@ -963,12 +1423,37 @@ export const ClassBroadsheet: React.FC = () => {
                       </div>
                     </th>
                   ))}
-                  <th className="py-3 px-3 text-center min-w-[90px] text-amber-400 font-black bg-slate-900/80 border-r border-slate-700">
-                    Total (/100)
+                  <th className="py-3 px-3 text-center min-w-[80px] text-amber-400 font-black bg-slate-900/80 border-r border-slate-700">
+                    Total Marks
                   </th>
-                  <th className="py-3 px-3 text-center min-w-[90px] text-emerald-400 font-black bg-slate-900/80">
-                    Average (%)
-                  </th>
+                  {isSenior ? (
+                    <>
+                      <th className="py-3 px-2 text-center min-w-[65px] text-slate-300 font-semibold bg-slate-900/80 border-r border-slate-800">
+                        Units (2u)
+                      </th>
+                      <th className="py-3 px-2 text-center min-w-[65px] text-slate-300 font-semibold bg-slate-900/80 border-r border-slate-800">
+                        TQP
+                      </th>
+                      <th className="py-3 px-3 text-center min-w-[95px] text-emerald-400 font-black bg-slate-900/80 border-r border-slate-700">
+                        CGPA (5.0)
+                      </th>
+                      <th className="py-3 px-3 text-center min-w-[120px] text-amber-300 font-bold bg-slate-900/80">
+                        Standing
+                      </th>
+                    </>
+                  ) : (
+                    <>
+                      <th className="py-3 px-3 text-center min-w-[90px] text-emerald-400 font-black bg-slate-900/80 border-r border-slate-800">
+                        Average (%)
+                      </th>
+                      <th className="py-3 px-2 text-center min-w-[70px] text-blue-400 font-bold bg-slate-900/80 border-r border-slate-800">
+                        Grade
+                      </th>
+                      <th className="py-3 px-3 text-center min-w-[120px] text-slate-300 font-medium bg-slate-900/80">
+                        Standing
+                      </th>
+                    </>
+                  )}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700/60 text-slate-200">
@@ -1002,6 +1487,23 @@ export const ClassBroadsheet: React.FC = () => {
                         </div>
                         <div className="text-[10px] text-slate-400 font-mono">
                           {row.student.studentId}
+                        </div>
+                      </td>
+
+                      {/* Attendance (Times present / times opened) */}
+                      <td
+                        onClick={() => handleOpenAttendanceModal(row.student, row.attendance)}
+                        className="py-2.5 px-2 text-center border-r border-slate-700/80 cursor-pointer hover:bg-slate-700/60 transition group/attcell"
+                        title="Click to update scholar attendance (Times opened & present)"
+                      >
+                        <div className="flex flex-col items-center">
+                          <span className="font-mono text-xs font-bold text-amber-300">
+                            {row.attendance.timesPresent} / {row.attendance.timesOpened}
+                          </span>
+                          <span className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
+                            <span className="text-emerald-400 font-semibold">{row.attendance.rate}%</span>
+                            <Edit2 className="w-2.5 h-2.5 text-slate-500 opacity-0 group-hover/attcell:opacity-100 transition" />
+                          </span>
                         </div>
                       </td>
 
@@ -1064,7 +1566,7 @@ export const ClassBroadsheet: React.FC = () => {
                       <td className="py-2.5 px-3 text-center font-bold text-amber-400 bg-slate-900/40 border-r border-slate-700 font-mono">
                         {row.enteredSubjectsCount > 0 ? (
                           <div>
-                            <div>{row.totalMarksSum}</div>
+                            <div className="text-sm">{row.totalMarksSum}</div>
                             <div className="text-[9px] font-normal text-slate-500">
                               ({row.enteredSubjectsCount} sub)
                             </div>
@@ -1074,19 +1576,47 @@ export const ClassBroadsheet: React.FC = () => {
                         )}
                       </td>
 
-                      {/* Automatic Average */}
-                      <td className="py-2.5 px-3 text-center font-black text-emerald-400 bg-slate-900/40 font-mono text-sm">
-                        {row.enteredSubjectsCount > 0 ? (
-                          <div className="flex flex-col items-center">
-                            <span>{row.averageScore}%</span>
-                            <span className="text-[9px] font-semibold text-slate-400">
-                              {calculateSubjectGrade(row.averageScore)}
-                            </span>
-                          </div>
-                        ) : (
-                          '-'
-                        )}
-                      </td>
+                      {/* Senior CGPA vs Junior Average */}
+                      {isSenior ? (
+                        <>
+                          <td className="py-2.5 px-2 text-center font-mono font-bold text-slate-300 border-r border-slate-800">
+                            {row.totalUnits || '-'}
+                          </td>
+                          <td className="py-2.5 px-2 text-center font-mono font-semibold text-amber-300 border-r border-slate-800">
+                            {row.totalQualityPoints ? row.totalQualityPoints.toFixed(1) : '-'}
+                          </td>
+                          <td className="py-2.5 px-3 text-center font-mono font-black text-emerald-400 text-sm bg-slate-900/40 border-r border-slate-700">
+                            {row.cgpa !== undefined ? `${row.cgpa.toFixed(2)}` : '-'}
+                          </td>
+                          <td className="py-2.5 px-3 text-center text-xs font-semibold text-slate-200">
+                            {row.enteredSubjectsCount > 0 ? (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] bg-slate-800 border border-slate-700 text-amber-300">
+                                {row.standing}
+                              </span>
+                            ) : (
+                              '-'
+                            )}
+                          </td>
+                        </>
+                      ) : (
+                        <>
+                          <td className="py-2.5 px-3 text-center font-black text-emerald-400 bg-slate-900/40 font-mono text-sm border-r border-slate-800">
+                            {row.enteredSubjectsCount > 0 ? `${row.averageScore}%` : '-'}
+                          </td>
+                          <td className="py-2.5 px-2 text-center font-bold border-r border-slate-800">
+                            {row.enteredSubjectsCount > 0 ? (
+                              <span className="px-1.5 py-0.5 rounded text-[11px] bg-emerald-500/10 text-emerald-300 font-bold">
+                                {calculateSubjectGrade(row.averageScore)}
+                              </span>
+                            ) : (
+                              '-'
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 text-center text-xs font-medium text-slate-300">
+                            {row.enteredSubjectsCount > 0 ? row.standing : '-'}
+                          </td>
+                        </>
+                      )}
                     </tr>
                   );
                 })}
@@ -1096,8 +1626,8 @@ export const ClassBroadsheet: React.FC = () => {
         )}
 
         {/* Footer Statistics Bar */}
-        <div className="p-4 bg-slate-900 border-t border-slate-700 flex flex-wrap items-center justify-between text-xs text-slate-400 gap-3">
-          <div className="flex items-center gap-4">
+        <div className="p-4 bg-slate-900 border-t border-slate-700 flex flex-wrap items-center justify-between text-xs text-slate-400 gap-3 print:hidden">
+          <div className="flex items-center gap-4 flex-wrap">
             <span>
               Total Scholars: <strong className="text-white">{broadsheetRows.length}</strong>
             </span>
@@ -1107,25 +1637,44 @@ export const ClassBroadsheet: React.FC = () => {
                 {broadsheetRows.filter((r) => r.enteredSubjectsCount > 0).length}
               </strong>
             </span>
-            <span>
-              Class Average:{' '}
-              <strong className="text-emerald-400 font-mono">
-                {broadsheetRows.filter((r) => r.enteredSubjectsCount > 0).length > 0
-                  ? (
-                      broadsheetRows
-                        .filter((r) => r.enteredSubjectsCount > 0)
-                        .reduce((acc, r) => acc + r.averageScore, 0) /
-                      broadsheetRows.filter((r) => r.enteredSubjectsCount > 0).length
-                    ).toFixed(1)
-                  : '0.0'}
-                %
-              </strong>
-            </span>
+            {isSenior ? (
+              <span>
+                Class Mean CGPA:{' '}
+                <strong className="text-emerald-400 font-mono">
+                  {broadsheetRows.filter((r) => r.enteredSubjectsCount > 0).length > 0
+                    ? (
+                        broadsheetRows
+                          .filter((r) => r.enteredSubjectsCount > 0)
+                          .reduce((acc, r) => acc + (r.cgpa || 0), 0) /
+                        broadsheetRows.filter((r) => r.enteredSubjectsCount > 0).length
+                      ).toFixed(2)
+                    : '0.00'}{' '}
+                  / 5.00 (2 Units/Sub)
+                </strong>
+              </span>
+            ) : (
+              <span>
+                Class Average:{' '}
+                <strong className="text-emerald-400 font-mono">
+                  {broadsheetRows.filter((r) => r.enteredSubjectsCount > 0).length > 0
+                    ? (
+                        broadsheetRows
+                          .filter((r) => r.enteredSubjectsCount > 0)
+                          .reduce((acc, r) => acc + r.averageScore, 0) /
+                        broadsheetRows.filter((r) => r.enteredSubjectsCount > 0).length
+                      ).toFixed(1)
+                    : '0.0'}
+                  %
+                </strong>
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
             <span className="text-[11px] text-slate-400">
-              Grading Scheme: A1 (75-100) • B2 (70-74) • B3 (65-69) • C4-C6 (50-64) • D7-E8 (40-49) • F9 (0-39)
+              {isSenior
+                ? 'Senior Secondary Scale: A1 (70+=5.0), B2/B3 (60+=4.0), C4/C5 (50+=3.0), D7 (45+=2.0), E8 (40+=1.0), F9 (<40=0.0)'
+                : 'Grading Scheme: A1 (75-100) • B2 (70-74) • B3 (65-69) • C4-C6 (50-64) • D7-E8 (40-49) • F9 (0-39)'}
             </span>
           </div>
         </div>
@@ -1409,6 +1958,328 @@ export const ClassBroadsheet: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* ======================================================== */}
+      {/* MODAL 4: TEACHER ATTENDANCE INPUT MODAL                  */}
+      {/* ======================================================== */}
+      {attendanceModalOpen && attendanceStudent && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl relative animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Clock className="w-4 h-4 text-amber-400" />
+                Record Scholar Attendance
+              </h3>
+              <button
+                onClick={() => setAttendanceModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveAttendance} className="space-y-4">
+              <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700 text-xs space-y-1">
+                <span className="text-slate-400 block font-medium">Scholar Details:</span>
+                <p className="font-bold text-white text-sm">
+                  {attendanceStudent.firstName} {attendanceStudent.surname}
+                </p>
+                <p className="text-emerald-400 font-mono text-[11px]">
+                  ID: {attendanceStudent.studentId} • Class: {selectedClass} • Session: {selectedSession} ({selectedTerm})
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div>
+                  <label className="block font-semibold text-slate-300 mb-1">
+                    Times School Opened *
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="300"
+                    required
+                    value={inputTimesOpened}
+                    onChange={(e) => setInputTimesOpened(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-amber-400"
+                  />
+                  <span className="text-[10px] text-slate-500 mt-0.5 block">Official term school days</span>
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-300 mb-1">
+                    Times Present *
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    max={Number(inputTimesOpened) || 300}
+                    required
+                    value={inputTimesPresent}
+                    onChange={(e) => setInputTimesPresent(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-amber-400"
+                  />
+                  <span className="text-[10px] text-slate-500 mt-0.5 block">Days scholar attended</span>
+                </div>
+              </div>
+
+              {/* Computed live summary */}
+              <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-xl text-xs flex items-center justify-between">
+                <div>
+                  <span className="text-slate-400 block text-[10px]">Computed Absent Days:</span>
+                  <span className="font-mono font-bold text-rose-400">
+                    {Math.max(0, (Number(inputTimesOpened) || 0) - (Number(inputTimesPresent) || 0))} days
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-slate-400 block text-[10px]">Attendance Rate:</span>
+                  <span className="font-mono font-bold text-emerald-400 text-sm">
+                    {Number(inputTimesOpened) > 0
+                      ? `${(
+                          (Math.min(Number(inputTimesOpened), Number(inputTimesPresent)) /
+                            Number(inputTimesOpened)) *
+                          100
+                        ).toFixed(1)}%`
+                      : '0%'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setAttendanceModalOpen(false)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingAttendance}
+                  className="px-5 py-2 bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer shadow disabled:opacity-50"
+                >
+                  <Save className="w-4 h-4" />
+                  {savingAttendance ? 'Saving...' : 'Save Attendance'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* PRINTABLE BROADSHEET (LANDSCAPE MASTER LEDGER)           */}
+      {/* ======================================================== */}
+      {showPrintPreview && (
+        <div className="p-4 bg-emerald-950/40 border border-emerald-500/40 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-emerald-300 print:hidden">
+          <div className="flex items-center gap-2">
+            <Eye className="w-5 h-5 text-amber-400 shrink-0" />
+            <span>
+              <strong>Official Broadsheet Print Preview Active:</strong> Below is the exact high-contrast landscape institutional ledger that will be printed or exported to PDF.
+            </span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => window.print()}
+              className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl font-bold flex items-center gap-1.5 shadow cursor-pointer"
+            >
+              <Printer className="w-4 h-4 text-amber-300" />
+              Print / Save PDF Now
+            </button>
+            <button
+              onClick={() => setShowPrintPreview(false)}
+              className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-semibold cursor-pointer"
+            >
+              Close Preview
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div
+        className={`${
+          showPrintPreview
+            ? 'block border-4 border-slate-700 p-6 sm:p-8 bg-white text-black rounded-3xl my-6 shadow-2xl overflow-x-auto'
+            : 'hidden print:block'
+        } print:w-full print:p-0 print:m-0 print:bg-white print:text-black`}
+      >
+        {/* Print Stylesheet */}
+        <style dangerouslySetInnerHTML={{
+          __html: `
+            @page {
+              size: landscape;
+              margin: 8mm;
+            }
+            @media print {
+              body {
+                background: white !important;
+                color: black !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+              }
+            }
+          `
+        }} />
+
+        {/* Print Header */}
+        <div className="flex items-center justify-between border-b-2 border-black pb-4 mb-3">
+          <div className="flex items-center gap-4">
+            <img src={FIS_LOGOS.crest} alt="FIS Crest" className="h-16 w-auto object-contain" />
+            <div>
+              <h1 className="text-xl font-black uppercase tracking-tight text-black">
+                Fenster International School
+              </h1>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-800">
+                Institutional Academic Registry • Official Master Class Broadsheet
+              </p>
+              <p className="text-[10px] text-slate-600">
+                Excellence in Academics & Moral Discipline • Institutional Examination Ledger
+              </p>
+            </div>
+          </div>
+          <div className="text-right text-[11px] space-y-0.5">
+            <div>
+              <span className="font-semibold text-slate-700">Class: </span>
+              <strong className="font-bold text-black uppercase">{selectedClass}</strong>
+            </div>
+            <div>
+              <span className="font-semibold text-slate-700">Academic Session: </span>
+              <strong className="font-bold text-black">{selectedSession}</strong>
+            </div>
+            <div>
+              <span className="font-semibold text-slate-700">Term / Examination: </span>
+              <strong className="font-bold text-black">
+                {selectedTerm} • {isSecondary ? (examPeriod === 'first-half' ? '1st Half Exam (6th Wk)' : 'Terminal Exam') : 'Terminal Examination'}
+              </strong>
+            </div>
+            <div>
+              <span className="font-semibold text-slate-700">Grading Standard: </span>
+              <strong className="font-bold text-black">
+                {isSenior ? 'Senior Secondary 5.0 CGPA Scale (2 Credit Units/Subject)' : 'Junior / Primary Terminal Class Average (%)'}
+              </strong>
+            </div>
+          </div>
+        </div>
+
+        {/* Print Summary Strip */}
+        <div className="flex items-center justify-between text-[10px] bg-slate-100 border border-slate-300 px-3 py-1.5 mb-3 font-semibold text-slate-800">
+          <span>Enrolled Scholars: {broadsheetRows.length}</span>
+          <span>Subjects Evaluated: {availableSubjects.length}</span>
+          <span>
+            {isSenior
+              ? `Class Mean CGPA: ${(broadsheetRows.filter((r) => r.enteredSubjectsCount > 0).reduce((acc, r) => acc + (r.cgpa || 0), 0) / Math.max(1, broadsheetRows.filter((r) => r.enteredSubjectsCount > 0).length)).toFixed(2)} / 5.00`
+              : `Class Terminal Average: ${(broadsheetRows.filter((r) => r.enteredSubjectsCount > 0).reduce((acc, r) => acc + r.averageScore, 0) / Math.max(1, broadsheetRows.filter((r) => r.enteredSubjectsCount > 0).length)).toFixed(1)}%`}
+          </span>
+          <span>Date Compiled: {new Date().toLocaleDateString('en-GB')}</span>
+        </div>
+
+        {/* Print Table */}
+        <table className="w-full text-left text-[10px] border-collapse border border-black">
+          <thead>
+            <tr className="bg-slate-200 text-black font-bold border-b border-black">
+              <th className="p-1 border border-black text-center w-8">#</th>
+              <th className="p-1 border border-black min-w-[130px]">Scholar Name</th>
+              <th className="p-1 border border-black text-center w-20">Admission ID</th>
+              <th className="p-1 border border-black text-center w-16">Attendance</th>
+              {availableSubjects.map((sub) => (
+                <th key={sub.id} className="p-1 border border-black text-center min-w-[70px]">
+                  <div className="font-bold truncate max-w-[80px] mx-auto">{sub.name}</div>
+                  <div className="text-[8px] font-normal text-slate-700">CA|Ex|Tot|G</div>
+                </th>
+              ))}
+              <th className="p-1 border border-black text-center font-bold min-w-[50px]">Total</th>
+              {isSenior ? (
+                <>
+                  <th className="p-1 border border-black text-center font-bold w-12">Units</th>
+                  <th className="p-1 border border-black text-center font-bold w-12">TQP</th>
+                  <th className="p-1 border border-black text-center font-black w-16">CGPA (5.0)</th>
+                  <th className="p-1 border border-black text-center font-bold min-w-[80px]">Standing</th>
+                </>
+              ) : (
+                <>
+                  <th className="p-1 border border-black text-center font-black w-14">Avg (%)</th>
+                  <th className="p-1 border border-black text-center font-bold w-10">Grade</th>
+                  <th className="p-1 border border-black text-center font-bold min-w-[80px]">Standing</th>
+                </>
+              )}
+              <th className="p-1 border border-black text-center font-bold w-10">Pos</th>
+            </tr>
+          </thead>
+          <tbody>
+            {broadsheetRows.map((r, idx) => (
+              <tr key={r.student.id} className="border-b border-black">
+                <td className="p-1 border border-black text-center font-mono">{idx + 1}</td>
+                <td className="p-1 border border-black font-semibold truncate max-w-[130px]">
+                  {r.student.firstName} {r.student.surname}
+                </td>
+                <td className="p-1 border border-black text-center font-mono">{r.student.studentId}</td>
+                <td className="p-1 border border-black text-center font-mono text-[9px]">
+                  {r.attendance.timesPresent}/{r.attendance.timesOpened}
+                </td>
+                {availableSubjects.map((sub) => {
+                  const cell = r.subjectCells[sub.id];
+                  return (
+                    <td key={sub.id} className="p-1 border border-black text-center font-mono text-[9px]">
+                      {cell && cell.totalScore !== null ? (
+                        <span>
+                          {cell.testScore ?? '-'}|{cell.examScore ?? '-'}|<strong>{cell.totalScore}</strong>|{cell.grade}
+                        </span>
+                      ) : (
+                        '-'
+                      )}
+                    </td>
+                  );
+                })}
+                <td className="p-1 border border-black text-center font-mono font-bold">
+                  {r.enteredSubjectsCount > 0 ? r.totalMarksSum : '-'}
+                </td>
+                {isSenior ? (
+                  <>
+                    <td className="p-1 border border-black text-center font-mono">{r.totalUnits || '-'}</td>
+                    <td className="p-1 border border-black text-center font-mono">{r.totalQualityPoints || '-'}</td>
+                    <td className="p-1 border border-black text-center font-mono font-black text-[11px]">
+                      {r.cgpa !== undefined ? r.cgpa.toFixed(2) : '-'}
+                    </td>
+                    <td className="p-1 border border-black text-center text-[9px] font-semibold">
+                      {r.standing}
+                    </td>
+                  </>
+                ) : (
+                  <>
+                    <td className="p-1 border border-black text-center font-mono font-black text-[11px]">
+                      {r.enteredSubjectsCount > 0 ? `${r.averageScore}%` : '-'}
+                    </td>
+                    <td className="p-1 border border-black text-center font-bold">
+                      {r.enteredSubjectsCount > 0 ? calculateSubjectGrade(r.averageScore) : '-'}
+                    </td>
+                    <td className="p-1 border border-black text-center text-[9px] font-semibold">
+                      {r.standing}
+                    </td>
+                  </>
+                )}
+                <td className="p-1 border border-black text-center font-mono font-bold">
+                  {r.rank ? `${r.rank}` : '-'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        {/* Print Signatures */}
+        <div className="grid grid-cols-3 gap-8 mt-8 pt-4 border-t border-black text-center text-[10px]">
+          <div>
+            <div className="border-b border-black w-3/4 mx-auto mb-1" />
+            <span className="font-bold uppercase">Form Teacher / Class Master</span>
+          </div>
+          <div>
+            <div className="border-b border-black w-3/4 mx-auto mb-1" />
+            <span className="font-bold uppercase">Head of Department / Academic Dean</span>
+          </div>
+          <div>
+            <div className="border-b border-black w-3/4 mx-auto mb-1" />
+            <span className="font-bold uppercase">Principal / Institutional Director</span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

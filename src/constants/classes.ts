@@ -96,3 +96,193 @@ export function calculateSubjectGrade(totalScore: number): string {
   if (totalScore >= 40) return 'E8';
   return 'F9';
 }
+
+// Check if class is Senior Secondary (SS 1, SS 2, SS 3 / SSS 1-3)
+export function isSeniorSecondaryClass(className?: string | null): boolean {
+  if (!className) return false;
+  const c = className.trim().toUpperCase().replace(/\s+/g, ' ');
+  return (
+    c.includes('SS 1') ||
+    c.includes('SS 2') ||
+    c.includes('SS 3') ||
+    c.includes('SSS 1') ||
+    c.includes('SSS 2') ||
+    c.includes('SSS 3') ||
+    c.includes('SS1') ||
+    c.includes('SS2') ||
+    c.includes('SS3') ||
+    c.includes('SSS1') ||
+    c.includes('SSS2') ||
+    c.includes('SSS3') ||
+    c.includes('SENIOR SECONDARY')
+  );
+}
+
+// 5.0 Grading scale point for Senior Secondary (2 units per subject)
+export interface GradePoint5Result {
+  grade: string;
+  gradePoint: number; // 0.0 to 5.0
+  units: number; // strictly 2 units per subject
+  qualityPoints: number; // units * gradePoint
+  remark: string;
+}
+
+export function calculateGradePoint5(totalScore: number, units: number = 2): GradePoint5Result {
+  let grade = 'F9';
+  let gradePoint = 0.0;
+  let remark = 'Fail';
+
+  if (totalScore >= 70) {
+    grade = 'A1';
+    gradePoint = 5.0;
+    remark = 'Excellent / Distinction';
+  } else if (totalScore >= 65) {
+    grade = 'B2';
+    gradePoint = 4.0;
+    remark = 'Very Good';
+  } else if (totalScore >= 60) {
+    grade = 'B3';
+    gradePoint = 4.0;
+    remark = 'Good';
+  } else if (totalScore >= 55) {
+    grade = 'C4';
+    gradePoint = 3.0;
+    remark = 'Credit';
+  } else if (totalScore >= 50) {
+    grade = 'C5';
+    gradePoint = 3.0;
+    remark = 'Credit';
+  } else if (totalScore >= 45) {
+    grade = 'D7';
+    gradePoint = 2.0;
+    remark = 'Pass';
+  } else if (totalScore >= 40) {
+    grade = 'E8';
+    gradePoint = 1.0;
+    remark = 'Fair';
+  } else {
+    grade = 'F9';
+    gradePoint = 0.0;
+    remark = 'Fail';
+  }
+
+  return {
+    grade,
+    gradePoint,
+    units,
+    qualityPoints: units * gradePoint,
+    remark,
+  };
+}
+
+// Calculate Cumulative Grade Point Average (CGPA) on 5.0 scale for Senior Secondary (SS1 - SS3)
+// Rule: Every subject taken is allocated 2 units.
+export interface CgpaSummary {
+  totalSubjects: number;
+  totalUnits: number;
+  totalQualityPoints: number;
+  cgpa: number; // scale of 5.0 e.g. 4.65
+  standing: string;
+  gradeBadge: string;
+}
+
+export function calculateCgpa(scores: Array<{ totalScore: number; units?: number }>): CgpaSummary {
+  if (!scores || scores.length === 0) {
+    return {
+      totalSubjects: 0,
+      totalUnits: 0,
+      totalQualityPoints: 0,
+      cgpa: 0,
+      standing: 'No Scores Recorded',
+      gradeBadge: 'N/A',
+    };
+  }
+
+  let totalUnits = 0;
+  let totalQualityPoints = 0;
+
+  scores.forEach((s) => {
+    const u = s.units !== undefined && s.units > 0 ? s.units : 2; // Fixed 2 units per subject
+    const gp = calculateGradePoint5(s.totalScore, u);
+    totalUnits += u;
+    totalQualityPoints += gp.qualityPoints;
+  });
+
+  const cgpaRaw = totalUnits > 0 ? totalQualityPoints / totalUnits : 0;
+  const cgpa = Math.round(cgpaRaw * 100) / 100;
+
+  let standing = 'Pass';
+  let gradeBadge = 'C';
+
+  if (cgpa >= 4.5) {
+    standing = 'First Class / Distinction';
+    gradeBadge = 'A';
+  } else if (cgpa >= 3.5) {
+    standing = 'Second Class Upper / Upper Credit';
+    gradeBadge = 'B';
+  } else if (cgpa >= 2.4) {
+    standing = 'Second Class Lower / Lower Credit';
+    gradeBadge = 'C';
+  } else if (cgpa >= 1.5) {
+    standing = 'Third Class / Pass';
+    gradeBadge = 'D';
+  } else {
+    standing = 'Probation / Needs Improvement';
+    gradeBadge = 'F';
+  }
+
+  return {
+    totalSubjects: scores.length,
+    totalUnits,
+    totalQualityPoints: Math.round(totalQualityPoints * 10) / 10,
+    cgpa,
+    standing,
+    gradeBadge,
+  };
+}
+
+// Calculate Average Percentage for Junior Secondary, Primary, and Lower classes
+export interface JuniorAverageSummary {
+  totalSubjects: number;
+  totalMarks: number;
+  obtainableMarks: number;
+  averagePercentage: number; // e.g. 84.5%
+  overallGrade: string;
+  standing: string;
+}
+
+export function calculateJuniorAverage(scores: Array<{ totalScore: number }>): JuniorAverageSummary {
+  if (!scores || scores.length === 0) {
+    return {
+      totalSubjects: 0,
+      totalMarks: 0,
+      obtainableMarks: 0,
+      averagePercentage: 0,
+      overallGrade: 'N/A',
+      standing: 'No Scores Recorded',
+    };
+  }
+
+  const totalMarks = scores.reduce((sum, s) => sum + (Number(s.totalScore) || 0), 0);
+  const obtainableMarks = scores.length * 100;
+  const averageRaw = obtainableMarks > 0 ? (totalMarks / obtainableMarks) * 100 : 0;
+  const averagePercentage = Math.round(averageRaw * 10) / 10;
+  const overallGrade = calculateSubjectGrade(averagePercentage);
+
+  let standing = 'Fair Progress';
+  if (averagePercentage >= 75) standing = 'Distinction / Excellent';
+  else if (averagePercentage >= 65) standing = 'Very Good';
+  else if (averagePercentage >= 50) standing = 'Good / Credit';
+  else if (averagePercentage >= 40) standing = 'Pass';
+  else standing = 'Needs Improvement';
+
+  return {
+    totalSubjects: scores.length,
+    totalMarks,
+    obtainableMarks,
+    averagePercentage,
+    overallGrade,
+    standing,
+  };
+}
+

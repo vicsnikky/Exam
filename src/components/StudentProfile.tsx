@@ -31,7 +31,14 @@ import { supabase } from '../supabaseConfig.ts';
 import { isStudentFeeLocked, getStudentFeeLockDetails } from '../lib/bursarStore.ts';
 import { FeeWithheldNotice } from './FeeWithheldNotice.tsx';
 import { ErrorBoundary } from './ErrorBoundary.tsx';
-import { isSecondaryClass, calculateSubjectGrade } from '../constants/classes.ts';
+import {
+  isSecondaryClass,
+  isSeniorSecondaryClass,
+  calculateSubjectGrade,
+  calculateGradePoint5,
+  calculateCgpa,
+  calculateJuniorAverage,
+} from '../constants/classes.ts';
 
 interface StudentProfileProps {
   studentIdOrId: string | number;
@@ -70,6 +77,26 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   const [loading, setLoading] = useState(!initialStudent);
   const [error, setError] = useState<string | null>(null);
   const [profileTab, setProfileTab] = useState<'assessments' | 'mock-results' | 'printable-slip'>('assessments');
+
+  // Attendance State (Times school opened, Times present)
+  interface AttendanceRecord {
+    timesOpened: number;
+    timesPresent: number;
+    timesAbsent: number;
+    rate: number;
+    session?: string;
+    term?: string;
+  }
+  const [attendance, setAttendance] = useState<AttendanceRecord>({
+    timesOpened: 115,
+    timesPresent: 110,
+    timesAbsent: 5,
+    rate: 95.7,
+  });
+  const [attendanceModalOpen, setAttendanceModalOpen] = useState(false);
+  const [inputTimesOpened, setInputTimesOpened] = useState('115');
+  const [inputTimesPresent, setInputTimesPresent] = useState('110');
+  const [savingAttendance, setSavingAttendance] = useState(false);
 
   // Edit Score Modal State
   const [editingAssessment, setEditingAssessment] = useState<AssessmentRecord | null>(null);
@@ -436,10 +463,16 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     };
 
     window.addEventListener('fis:scores-updated', handleDataUpdated);
+    window.addEventListener('fis:broadsheet-scores-updated', handleDataUpdated);
     window.addEventListener('fis:mock-scores-updated', handleDataUpdated);
+    window.addEventListener('fis:attendance-updated', handleDataUpdated);
+    window.addEventListener('storage', handleDataUpdated);
     return () => {
       window.removeEventListener('fis:scores-updated', handleDataUpdated);
+      window.removeEventListener('fis:broadsheet-scores-updated', handleDataUpdated);
       window.removeEventListener('fis:mock-scores-updated', handleDataUpdated);
+      window.removeEventListener('fis:attendance-updated', handleDataUpdated);
+      window.removeEventListener('storage', handleDataUpdated);
     };
   }, [studentIdOrId, token]);
 
@@ -519,6 +552,62 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
       alert(err.message || 'Failed to update score');
     } finally {
       setSavingEdit(false);
+    }
+  };
+
+  const handleSaveAttendance = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setSavingAttendance(true);
+    try {
+      const opened = Math.max(0, Number(inputTimesOpened) || 0);
+      const present = Math.min(opened, Math.max(0, Number(inputTimesPresent) || 0));
+      const absent = Math.max(0, opened - present);
+      const rate = opened > 0 ? Math.round((present / opened) * 1000) / 10 : 0;
+
+      const newAtt: AttendanceRecord = {
+        timesOpened: opened,
+        timesPresent: present,
+        timesAbsent: absent,
+        rate,
+        session: student?.session || '2026/2027',
+        term: 'First Term',
+      };
+
+      setAttendance(newAtt);
+
+      try {
+        const rawAtt = localStorage.getItem('fis_student_attendance_v1');
+        const attMap = rawAtt ? JSON.parse(rawAtt) : {};
+        const key1 = String(student?.studentId || '').toUpperCase();
+        const key2 = String(student?.id || '');
+        if (key1) attMap[key1] = newAtt;
+        if (key2) attMap[key2] = newAtt;
+        localStorage.setItem('fis_student_attendance_v1', JSON.stringify(attMap));
+      } catch (_) {}
+
+      const targetId = student?.studentId || student?.id || studentIdOrId;
+      await fetch(`/api/students/${encodeURIComponent(String(targetId))}/attendance`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          timesOpened: opened,
+          timesPresent: present,
+          session: student?.session,
+          studentNumber: student?.studentId,
+        }),
+      });
+
+      window.dispatchEvent(new CustomEvent('fis:attendance-updated'));
+      window.dispatchEvent(new CustomEvent('fis:scores-updated'));
+      setAttendanceModalOpen(false);
+    } catch (err: any) {
+      console.warn('Attendance save warning:', err);
+      setAttendanceModalOpen(false);
+    } finally {
+      setSavingAttendance(false);
     }
   };
 
@@ -711,6 +800,148 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   const jambMockDisplayScore = latestWeekMockTotal400 || highestWeekMockTotal400;
   const jambMockPercentage = Math.round((jambMockDisplayScore / 400) * 1000) / 10;
 
+  // Senior Secondary vs Junior / Primary Grading Determination
+  const isSenior = isSeniorSecondaryClass(student.currentClass);
+
+  interface GroupedSubjectRow {
+    subjectId: number;
+    subjectName: string;
+    subjectCode: string;
+    caScore: number | null; // max 40
+    examScore: number | null; // max 60
+    totalScore: number; // max 100
+    grade: string;
+    gradePoint: number; // 0.0 to 5.0 (for SS1-SS3)
+    units: number; // strictly 2 units per subject
+    qualityPoints: number; // units * gradePoint
+    remark: string;
+    session: string;
+    term: string;
+    teacherComment: string;
+    caRecord?: AssessmentRecord;
+    examRecord?: AssessmentRecord;
+    primaryRecord?: AssessmentRecord;
+  }
+
+  const groupedSubjectMap = new Map<string, GroupedSubjectRow>();
+
+  assessments.forEach((a) => {
+    const subKey = `${a.subjectId || a.subjectName}_${a.term || 'First Term'}_${a.session || '2026/2027'}`;
+    let row = groupedSubjectMap.get(subKey);
+    if (!row) {
+      row = {
+        subjectId: Number(a.subjectId) || 0,
+        subjectName: a.subjectName || 'Subject',
+        subjectCode: a.subjectCode || 'SUB',
+        caScore: null,
+        examScore: null,
+        totalScore: 0,
+        grade: 'F9',
+        gradePoint: 0.0,
+        units: 2,
+        qualityPoints: 0.0,
+        remark: 'Satisfactory',
+        session: a.session || student.session || '2026/2027',
+        term: a.term || 'First Term',
+        teacherComment: '',
+      };
+      groupedSubjectMap.set(subKey, row);
+    }
+
+    let jsonCa: number | null = null;
+    let jsonExam: number | null = null;
+    let jsonNote = '';
+    try {
+      if (a.teacherComment && a.teacherComment.trim().startsWith('{')) {
+        const obj = JSON.parse(a.teacherComment);
+        if (obj.caScore !== undefined && obj.caScore !== null) jsonCa = Number(obj.caScore);
+        if (obj.examScore !== undefined && obj.examScore !== null) jsonExam = Number(obj.examScore);
+        if (obj.userNote) jsonNote = obj.userNote;
+      }
+    } catch (_) {}
+
+    if (jsonNote) row.teacherComment = jsonNote;
+    else if (a.teacherComment && !a.teacherComment.trim().startsWith('{')) row.teacherComment = a.teacherComment;
+
+    if (jsonCa !== null && row.caScore === null) row.caScore = jsonCa;
+    if (jsonExam !== null && row.examScore === null) row.examScore = jsonExam;
+
+    const title = (a.assessmentTitle || '').toLowerCase();
+    const type = (a.assessmentType || '').toUpperCase();
+    const maxS = Number(a.maxScore) || 100;
+    const sc = Number(a.score) || 0;
+
+    if (type === 'CA' || type === 'TEST' || title.includes('ca') || title.includes('test') || maxS === 40) {
+      if (row.caScore === null) row.caScore = sc;
+      row.caRecord = a;
+    } else if (type === 'EXAMINATION' || type === 'EXAM' || title.includes('exam') || maxS === 60) {
+      if (row.examScore === null) row.examScore = sc;
+      row.examRecord = a;
+    } else {
+      if (row.caScore === null && row.examScore === null && maxS === 100) {
+        row.totalScore = sc;
+      }
+      if (!row.primaryRecord) row.primaryRecord = a;
+    }
+  });
+
+  const groupedSubjectRows: GroupedSubjectRow[] = Array.from(groupedSubjectMap.values()).map((r) => {
+    const ca = r.caScore !== null ? r.caScore : 0;
+    const exam = r.examScore !== null ? r.examScore : 0;
+    const total = (r.caScore !== null || r.examScore !== null) ? (ca + exam) : (r.totalScore || 0);
+    r.totalScore = total;
+
+    if (isSenior) {
+      const gp = calculateGradePoint5(total, 2);
+      r.grade = gp.grade;
+      r.gradePoint = gp.gradePoint;
+      r.units = 2;
+      r.qualityPoints = gp.qualityPoints;
+      r.remark = gp.remark;
+    } else {
+      r.grade = calculateSubjectGrade(total);
+      r.units = 2;
+      r.gradePoint = 0;
+      r.qualityPoints = 0;
+      r.remark = total >= 70 ? 'Distinction' : total >= 60 ? 'Very Good' : total >= 50 ? 'Credit' : total >= 40 ? 'Pass' : 'Needs Improvement';
+    }
+    return r;
+  });
+
+  const cgpaSummary = calculateCgpa(groupedSubjectRows.map((r) => ({ totalScore: r.totalScore, units: 2 })));
+  const juniorAverageSummary = calculateJuniorAverage(groupedSubjectRows.map((r) => ({ totalScore: r.totalScore })));
+  const highestSubjectScore = groupedSubjectRows.length > 0 ? Math.max(...groupedSubjectRows.map((r) => r.totalScore)) : stats.highestScore;
+
+  // Handler to open Edit Modal for a grouped subject row
+  const handleOpenEditSubjectRow = (row: GroupedSubjectRow) => {
+    const targetAssessment = row.caRecord || row.examRecord || row.primaryRecord || {
+      id: `subj_${student?.id}_${row.subjectId}`,
+      subjectId: row.subjectId,
+      subjectName: row.subjectName,
+      subjectCode: row.subjectCode,
+      term: row.term,
+      session: row.session,
+      score: row.totalScore,
+      maxScore: 100,
+      assessmentTitle: 'Terminal Assessment',
+      assessmentType: 'Examination',
+    } as any;
+    setEditingAssessment(targetAssessment);
+    setEditCa(row.caScore !== null ? String(row.caScore) : '');
+    setEditExam(row.examScore !== null ? String(row.examScore) : '');
+    setEditComment(row.teacherComment || '');
+  };
+
+  // Handler to delete all records for a subject row
+  const handleDeleteSubjectRow = async (row: GroupedSubjectRow) => {
+    if (!confirm(`Are you sure you want to delete all recorded scores for ${row.subjectName}?`)) return;
+    if (row.caRecord) await handleDeleteScore(row.caRecord.id, row.subjectName, row.caRecord);
+    if (row.examRecord) await handleDeleteScore(row.examRecord.id, row.subjectName, row.examRecord);
+    if (row.primaryRecord && (!row.caRecord || row.primaryRecord.id !== row.caRecord.id) && (!row.examRecord || row.primaryRecord.id !== row.examRecord.id)) {
+      await handleDeleteScore(row.primaryRecord.id, row.subjectName, row.primaryRecord);
+    }
+  };
+
   return (
     <ErrorBoundary fallbackTitle="Student Profile Recovery">
       <div className="space-y-6">
@@ -870,41 +1101,87 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           </div>
 
           {/* Academic Performance KPI Bar */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-8 pt-6 border-t border-slate-700">
-            <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-700/60">
-              <span className="text-xs text-slate-400 flex items-center gap-1.5 mb-1">
-                <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
-                Cumulative Average
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-8 pt-6 border-t border-slate-700">
+            {/* Card 1: CGPA (for Senior Secondary SS1-SS3) or Class Average (Junior/Primary) */}
+            <div className="bg-slate-900/80 p-4 rounded-xl border border-slate-700/80 shadow-md">
+              <span className="text-xs text-slate-400 flex items-center justify-between mb-1">
+                <span className="flex items-center gap-1.5">
+                  <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
+                  {isSenior ? 'Cumulative CGPA (5.0 Scale)' : 'Terminal Class Average'}
+                </span>
+                {isSenior && (
+                  <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded font-mono font-bold">
+                    2 Units/Sub
+                  </span>
+                )}
               </span>
-              <span className="text-2xl font-bold text-white">{stats.averageScore}%</span>
-              <span className="text-[11px] text-slate-400 block mt-0.5">Overall Academic Mean</span>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-black text-white font-mono">
+                  {isSenior ? `${cgpaSummary.cgpa.toFixed(2)}` : `${juniorAverageSummary.averagePercentage}%`}
+                </span>
+                {isSenior && <span className="text-xs font-semibold text-slate-400">/ 5.00</span>}
+              </div>
+              <span className="text-[11px] text-emerald-400 font-semibold block mt-1 truncate">
+                {isSenior
+                  ? `${cgpaSummary.standing} • ${cgpaSummary.totalUnits} Units`
+                  : `${juniorAverageSummary.standing} • ${juniorAverageSummary.totalMarks}/${juniorAverageSummary.obtainableMarks}`}
+              </span>
             </div>
 
-            <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-700/60">
+            {/* Card 2: Highest Evaluated Subject */}
+            <div className="bg-slate-900/80 p-4 rounded-xl border border-slate-700/80 shadow-md">
               <span className="text-xs text-slate-400 flex items-center gap-1.5 mb-1">
                 <Award className="w-3.5 h-3.5 text-emerald-400" />
-                Highest Assessment
+                Top Subject Performance
               </span>
-              <span className="text-2xl font-bold text-emerald-400">{stats.highestScore}%</span>
-              <span className="text-[11px] text-slate-400 block mt-0.5">Top Mark Recorded</span>
+              <span className="text-2xl font-bold text-emerald-400 font-mono">
+                {highestSubjectScore} <span className="text-xs text-slate-400">/ 100</span>
+              </span>
+              <span className="text-[11px] text-slate-400 block mt-1">
+                Peak Terminal Assessment
+              </span>
             </div>
 
-            <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-700/60">
-              <span className="text-xs text-slate-400 flex items-center gap-1.5 mb-1">
-                <Percent className="w-3.5 h-3.5 text-amber-400" />
-                Lowest Assessment
+            {/* Card 3: School Attendance Record (Times School Opened & Times Present) */}
+            <div className="bg-slate-900/80 p-4 rounded-xl border border-amber-500/30 shadow-md relative group/att">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs text-slate-400 flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-amber-400" />
+                  School Attendance
+                </span>
+                {canManageScores && (
+                  <button
+                    onClick={() => setAttendanceModalOpen(true)}
+                    className="text-[11px] text-amber-300 hover:text-amber-200 bg-amber-500/10 hover:bg-amber-500/20 px-2 py-0.5 rounded-lg border border-amber-500/30 flex items-center gap-1 transition cursor-pointer"
+                    title="Teacher: Input times school open & times present"
+                  >
+                    <Edit2 className="w-3 h-3" />
+                    Input
+                  </button>
+                )}
+              </div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-bold text-amber-300 font-mono">
+                  {attendance.timesPresent} <span className="text-xs text-slate-400 font-normal">/ {attendance.timesOpened} days</span>
+                </span>
+              </div>
+              <span className="text-[11px] text-slate-300 block mt-1">
+                <strong className="text-emerald-400">{attendance.rate}% Present</strong> • {attendance.timesAbsent} days absent
               </span>
-              <span className="text-2xl font-bold text-amber-400">{stats.lowestScore}%</span>
-              <span className="text-[11px] text-slate-400 block mt-0.5">Needs Attention Area</span>
             </div>
 
-            <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-700/60">
+            {/* Card 4: Evaluated Subjects Count */}
+            <div className="bg-slate-900/80 p-4 rounded-xl border border-slate-700/80 shadow-md">
               <span className="text-xs text-slate-400 flex items-center gap-1.5 mb-1">
                 <FileText className="w-3.5 h-3.5 text-purple-400" />
-                Total Assessments
+                Subjects Evaluated
               </span>
-              <span className="text-2xl font-bold text-purple-400">{stats.totalAssessments}</span>
-              <span className="text-[11px] text-slate-400 block mt-0.5">Continuous Assessments</span>
+              <span className="text-2xl font-bold text-purple-400 font-mono">
+                {groupedSubjectRows.length} <span className="text-xs text-slate-400 font-normal">Registered</span>
+              </span>
+              <span className="text-[11px] text-slate-400 block mt-1">
+                CA (max 40) + Exam (max 60) = 100
+              </span>
             </div>
           </div>
         </div>
@@ -1037,19 +1314,54 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
               {/* Assessment History Table with Edit & Delete actions */}
               <div className="bg-slate-800/80 border border-slate-700 rounded-2xl overflow-hidden shadow-xl">
-                <div className="p-4 sm:p-5 border-b border-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="p-4 sm:p-5 border-b border-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <h3 className="font-bold text-white text-sm flex items-center gap-2">
                       <Clock className="w-4 h-4 text-emerald-400" />
-                      Complete Assessment & Score History
+                      Complete Assessment & Score Ledger
                     </h3>
                     <p className="text-xs text-slate-400 mt-0.5">
-                      Continuous assessments (CA max 40), periodic tests, and examination (max 60) records.
+                      Continuous assessments (CA max 40), periodic tests, and examination (max 60) recorded on sheet, totaling 100 per subject.
                     </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {isSenior ? (
+                      <span className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 rounded-xl text-xs font-mono font-bold flex items-center gap-1.5">
+                        <Award className="w-3.5 h-3.5 text-amber-300" />
+                        Senior CGPA: {cgpaSummary.cgpa.toFixed(2)} / 5.00 ({cgpaSummary.totalUnits} Units)
+                      </span>
+                    ) : (
+                      <span className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 rounded-xl text-xs font-mono font-bold flex items-center gap-1.5">
+                        <Award className="w-3.5 h-3.5 text-emerald-400" />
+                        Class Average: {juniorAverageSummary.averagePercentage}% ({juniorAverageSummary.overallGrade})
+                      </span>
+                    )}
                   </div>
                 </div>
 
-                {assessments.length === 0 ? (
+                {/* Grading standard banner */}
+                <div className="px-5 py-3 bg-slate-900/90 border-b border-slate-800 flex flex-col md:flex-row md:items-center justify-between text-xs text-slate-300 gap-2">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+                    {isSenior ? (
+                      <span>
+                        <strong>Senior Secondary Scale (SS 1 - SS 3):</strong> All subjects carry <strong>2 Units</strong> each. Evaluated on the <strong>5.0 CGPA scale</strong> (70+=5.0, 60+=4.0, 50+=3.0, 45+=2.0, 40+=1.0, &lt;40=0.0). Quality Points = 2 × GP.
+                      </span>
+                    ) : (
+                      <span>
+                        <strong>Junior / Primary Class Scale:</strong> Evaluated by overall <strong>Terminal Average Percentage</strong> across all enrolled subjects.
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0 text-slate-400">
+                    <span>
+                      Attendance: <strong className="text-amber-300 font-mono">{attendance.timesPresent}/{attendance.timesOpened} days</strong> ({attendance.rate}%)
+                    </span>
+                  </div>
+                </div>
+
+                {groupedSubjectRows.length === 0 ? (
                   <div className="p-12 text-center text-slate-400">
                     <FileText className="w-10 h-10 mx-auto mb-2 text-slate-600" />
                     <p className="text-sm font-medium text-slate-300">No continuous assessment scores recorded yet</p>
@@ -1062,15 +1374,22 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs">
-                      <thead className="bg-slate-900/80 text-slate-400 border-b border-slate-700 uppercase tracking-wider font-semibold">
+                      <thead className="bg-slate-900/95 text-slate-400 border-b border-slate-700 uppercase tracking-wider font-semibold">
                         <tr>
+                          <th className="py-3 px-3 text-center w-10">#</th>
                           <th className="py-3 px-4">Subject</th>
-                          <th className="py-3 px-4">Assessment Title</th>
-                          <th className="py-3 px-4">Type</th>
-                          <th className="py-3 px-4 text-right">Score</th>
-                          <th className="py-3 px-4 text-right">Max</th>
-                          <th className="py-3 px-4 text-right">%</th>
-                          <th className="py-3 px-4 text-center">Grade</th>
+                          {isSenior && <th className="py-3 px-3 text-center">Units</th>}
+                          <th className="py-3 px-3 text-right">CA (/40)</th>
+                          <th className="py-3 px-3 text-right">Exam (/60)</th>
+                          <th className="py-3 px-3 text-right">Total (/100)</th>
+                          <th className="py-3 px-3 text-center">Grade</th>
+                          {isSenior && (
+                            <>
+                              <th className="py-3 px-3 text-center">GP (5.0)</th>
+                              <th className="py-3 px-3 text-right">Quality Pts</th>
+                            </>
+                          )}
+                          {!isSenior && <th className="py-3 px-3 text-center">Standing</th>}
                           <th className="py-3 px-4">Session / Term</th>
                           <th className="py-3 px-4">Remarks</th>
                           {canManageScores && (
@@ -1079,81 +1398,94 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-700/60 text-slate-300">
-                        {assessments.map((a) => {
-                          let parsedComment = a.teacherComment || '—';
-                          try {
-                            if (a.teacherComment && a.teacherComment.trim().startsWith('{')) {
-                              const obj = JSON.parse(a.teacherComment);
-                              parsedComment = obj.userNote || `CA: ${obj.caScore ?? '-'}, Exam: ${obj.examScore ?? '-'}`;
-                            }
-                          } catch (_) {}
-
-                          return (
-                            <tr key={a.id} className="hover:bg-slate-700/30 transition">
-                              <td className="py-3.5 px-4 font-semibold text-white">
-                                {a.subjectName} ({a.subjectCode})
+                        {groupedSubjectRows.map((r, idx) => (
+                          <tr key={`${r.subjectId}_${idx}`} className="hover:bg-slate-700/30 transition">
+                            <td className="py-3 px-3 text-center text-slate-500 font-mono">{idx + 1}</td>
+                            <td className="py-3.5 px-4 font-semibold text-white">
+                              {r.subjectName} <span className="text-slate-400 font-normal">({r.subjectCode})</span>
+                            </td>
+                            {isSenior && (
+                              <td className="py-3 px-3 text-center font-mono font-bold text-amber-300">
+                                {r.units} u
                               </td>
-                              <td className="py-3.5 px-4">{a.assessmentTitle}</td>
-                              <td className="py-3.5 px-4">
-                                <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-300 font-mono">
-                                  {a.assessmentType}
-                                </span>
-                              </td>
-                              <td className="py-3.5 px-4 text-right font-mono font-bold text-white">
-                                {a.score}
-                              </td>
-                              <td className="py-3.5 px-4 text-right font-mono text-slate-400">
-                                {a.maxScore}
-                              </td>
-                              <td className="py-3.5 px-4 text-right font-mono font-semibold text-emerald-400">
-                                {a.percentage}%
-                              </td>
-                              <td className="py-3.5 px-4 text-center">
-                                <span
-                                  className={`inline-block px-2 py-0.5 rounded font-bold ${
-                                    a.grade === 'A' || a.grade === 'A1'
-                                      ? 'bg-emerald-500/20 text-emerald-400'
-                                      : a.grade === 'B' || a.grade === 'B2' || a.grade === 'B3'
-                                      ? 'bg-blue-500/20 text-blue-400'
-                                      : a.grade === 'C' || a.grade === 'C4' || a.grade === 'C5' || a.grade === 'C6'
-                                      ? 'bg-amber-500/20 text-amber-400'
-                                      : 'bg-rose-500/20 text-rose-400'
-                                  }`}
-                                >
-                                  {a.grade || 'C'}
-                                </span>
-                              </td>
-                              <td className="py-3.5 px-4">
-                                {a.session} • {a.term}
-                              </td>
-                              <td className="py-3.5 px-4 text-slate-400 italic max-w-xs truncate">
-                                {parsedComment}
-                              </td>
-                              {canManageScores && (
-                                <td className="py-3.5 px-4 text-center">
-                                  <div className="flex items-center justify-center gap-1.5">
-                                    <button
-                                      type="button"
-                                      onClick={() => handleOpenEdit(a)}
-                                      className="p-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 hover:border-amber-400 transition cursor-pointer"
-                                      title="Edit this recorded score"
-                                    >
-                                      <Edit2 className="w-3.5 h-3.5" />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleDeleteScore(a.id, a.subjectName, a)}
-                                      className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 hover:border-rose-400 transition cursor-pointer"
-                                      title="Delete this recorded score"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
-                                  </div>
-                                </td>
+                            )}
+                            <td className="py-3.5 px-3 text-right font-mono font-medium text-slate-200">
+                              {r.caScore !== null ? (
+                                <span className="text-emerald-300 font-bold">{r.caScore}</span>
+                              ) : (
+                                <span className="text-slate-500">—</span>
                               )}
-                            </tr>
-                          );
-                        })}
+                            </td>
+                            <td className="py-3.5 px-3 text-right font-mono font-medium text-slate-200">
+                              {r.examScore !== null ? (
+                                <span className="text-blue-300 font-bold">{r.examScore}</span>
+                              ) : (
+                                <span className="text-slate-500">—</span>
+                              )}
+                            </td>
+                            <td className="py-3.5 px-3 text-right font-mono font-black text-white text-sm bg-slate-900/40">
+                              {r.totalScore}
+                            </td>
+                            <td className="py-3.5 px-3 text-center">
+                              <span
+                                className={`inline-block px-2 py-0.5 rounded font-bold ${
+                                  r.grade === 'A' || r.grade === 'A1'
+                                    ? 'bg-emerald-500/20 text-emerald-400'
+                                    : r.grade === 'B' || r.grade === 'B2' || r.grade === 'B3'
+                                    ? 'bg-blue-500/20 text-blue-400'
+                                    : r.grade === 'C' || r.grade === 'C4' || r.grade === 'C5' || r.grade === 'C6'
+                                    ? 'bg-amber-500/20 text-amber-400'
+                                    : 'bg-rose-500/20 text-rose-400'
+                                }`}
+                              >
+                                {r.grade}
+                              </span>
+                            </td>
+                            {isSenior && (
+                              <>
+                                <td className="py-3.5 px-3 text-center font-mono font-bold text-amber-400">
+                                  {r.gradePoint.toFixed(1)}
+                                </td>
+                                <td className="py-3.5 px-3 text-right font-mono font-semibold text-emerald-300">
+                                  {r.qualityPoints.toFixed(1)}
+                                </td>
+                              </>
+                            )}
+                            {!isSenior && (
+                              <td className="py-3.5 px-3 text-center text-[11px] text-slate-400 font-medium">
+                                {r.remark}
+                              </td>
+                            )}
+                            <td className="py-3.5 px-4 text-xs text-slate-400">
+                              {r.session} • {r.term}
+                            </td>
+                            <td className="py-3.5 px-4 text-slate-400 italic max-w-xs truncate">
+                              {r.teacherComment || r.remark || 'Satisfactory'}
+                            </td>
+                            {canManageScores && (
+                              <td className="py-3.5 px-4 text-center">
+                                <div className="flex items-center justify-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenEditSubjectRow(r)}
+                                    className="p-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 hover:border-amber-400 transition cursor-pointer"
+                                    title="Edit this subject score (CA & Exam)"
+                                  >
+                                    <Edit2 className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteSubjectRow(r)}
+                                    className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 hover:border-rose-400 transition cursor-pointer"
+                                    title="Delete recorded score for this subject"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </td>
+                            )}
+                          </tr>
+                        ))}
                       </tbody>
                     </table>
                   </div>
@@ -1276,10 +1608,28 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                   </strong>
                 </div>
                 <div>
-                  <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">Financial Clearance</span>
-                  <span className="font-bold text-emerald-400 print:text-emerald-900">
-                    {isLockedForFees ? 'Pending Clearance' : 'Cleared by Bursary'}
-                  </span>
+                  <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">Grading Model</span>
+                  <strong className="text-amber-400 print:text-amber-900 font-bold">
+                    {isSenior ? '5.0 CGPA (2 Units/Sub)' : 'Class Average (%)'}
+                  </strong>
+                </div>
+
+                {/* Attendance Metadata Row */}
+                <div className="pt-2 border-t border-slate-800 print:border-slate-300">
+                  <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">Times School Opened</span>
+                  <strong className="text-white print:text-black font-mono">{attendance.timesOpened} days</strong>
+                </div>
+                <div className="pt-2 border-t border-slate-800 print:border-slate-300">
+                  <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">Times Present</span>
+                  <strong className="text-emerald-400 print:text-emerald-900 font-mono">{attendance.timesPresent} days</strong>
+                </div>
+                <div className="pt-2 border-t border-slate-800 print:border-slate-300">
+                  <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">Times Absent</span>
+                  <strong className="text-rose-400 print:text-rose-900 font-mono">{attendance.timesAbsent} days</strong>
+                </div>
+                <div className="pt-2 border-t border-slate-800 print:border-slate-300">
+                  <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">Attendance Rate</span>
+                  <strong className="text-amber-300 print:text-black font-mono">{attendance.rate}% Punctual</strong>
                 </div>
               </div>
 
@@ -1311,56 +1661,148 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                 </div>
               )}
 
-              {/* Results Table */}
+              {/* Official Academic Scores Table (CA 40 + Exam 60 = 100) */}
               <div className="overflow-x-auto my-6">
                 <table className="w-full text-left text-xs border border-slate-800 print:border-black">
                   <thead className="bg-slate-800 print:bg-slate-200 text-slate-300 print:text-black font-bold uppercase text-[11px]">
                     <tr>
-                      <th className="py-2.5 px-3 border border-slate-700 print:border-black">Subject</th>
-                      <th className="py-2.5 px-3 border border-slate-700 print:border-black text-center">Assessment</th>
-                      <th className="py-2.5 px-3 border border-slate-700 print:border-black text-right">Score</th>
-                      <th className="py-2.5 px-3 border border-slate-700 print:border-black text-right">Max</th>
-                      <th className="py-2.5 px-3 border border-slate-700 print:border-black text-right">%</th>
+                      <th className="py-2.5 px-3 border border-slate-700 print:border-black text-center w-10">#</th>
+                      <th className="py-2.5 px-3 border border-slate-700 print:border-black">Subject Title</th>
+                      {isSenior && (
+                        <th className="py-2.5 px-2 border border-slate-700 print:border-black text-center w-16">Units</th>
+                      )}
+                      <th className="py-2.5 px-3 border border-slate-700 print:border-black text-right">CA (/40)</th>
+                      <th className="py-2.5 px-3 border border-slate-700 print:border-black text-right">Exam (/60)</th>
+                      <th className="py-2.5 px-3 border border-slate-700 print:border-black text-right font-black">Total (/100)</th>
                       <th className="py-2.5 px-3 border border-slate-700 print:border-black text-center">Grade</th>
-                      <th className="py-2.5 px-3 border border-slate-700 print:border-black">Registrar's Remark</th>
+                      {isSenior && (
+                        <>
+                          <th className="py-2.5 px-2 border border-slate-700 print:border-black text-center w-16">GP (5.0)</th>
+                          <th className="py-2.5 px-2 border border-slate-700 print:border-black text-right w-20">QP</th>
+                        </>
+                      )}
+                      <th className="py-2.5 px-3 border border-slate-700 print:border-black">Teacher / Registrar Remark</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-700 print:divide-black">
-                    {assessments.length === 0 ? (
+                  <tbody className="divide-y divide-slate-700 print:divide-black text-slate-200 print:text-black">
+                    {groupedSubjectRows.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="py-6 text-center text-slate-400">
+                        <td colSpan={isSenior ? 10 : 8} className="py-6 text-center text-slate-400 print:text-slate-600">
                           No continuous assessment scores recorded yet for this session.
                         </td>
                       </tr>
                     ) : (
-                      assessments.map((a) => (
-                        <tr key={a.id}>
+                      groupedSubjectRows.map((r, idx) => (
+                        <tr key={idx}>
+                          <td className="py-2.5 px-3 text-center font-mono border border-slate-800 print:border-black">
+                            {idx + 1}
+                          </td>
                           <td className="py-2.5 px-3 font-semibold text-white print:text-black border border-slate-800 print:border-black">
-                            {a.subjectName}
+                            {r.subjectName} <span className="text-slate-400 print:text-slate-600 font-normal">({r.subjectCode})</span>
                           </td>
-                          <td className="py-2.5 px-3 text-center border border-slate-800 print:border-black">
-                            {a.assessmentTitle}
-                          </td>
-                          <td className="py-2.5 px-3 text-right font-mono font-bold text-white print:text-black border border-slate-800 print:border-black">
-                            {a.score}
+                          {isSenior && (
+                            <td className="py-2.5 px-2 text-center font-mono font-bold text-amber-300 print:text-black border border-slate-800 print:border-black">
+                              {r.units} u
+                            </td>
+                          )}
+                          <td className="py-2.5 px-3 text-right font-mono border border-slate-800 print:border-black">
+                            {r.caScore !== null ? r.caScore : '—'}
                           </td>
                           <td className="py-2.5 px-3 text-right font-mono border border-slate-800 print:border-black">
-                            {a.maxScore}
+                            {r.examScore !== null ? r.examScore : '—'}
                           </td>
-                          <td className="py-2.5 px-3 text-right font-mono font-semibold text-emerald-400 print:text-black border border-slate-800 print:border-black">
-                            {a.percentage}%
+                          <td className="py-2.5 px-3 text-right font-mono font-black text-white print:text-black text-sm border border-slate-800 print:border-black bg-slate-950/40 print:bg-slate-100">
+                            {r.totalScore}
                           </td>
                           <td className="py-2.5 px-3 text-center font-bold border border-slate-800 print:border-black">
-                            {a.grade}
+                            {r.grade}
                           </td>
+                          {isSenior && (
+                            <>
+                              <td className="py-2.5 px-2 text-center font-mono font-bold text-amber-400 print:text-black border border-slate-800 print:border-black">
+                                {r.gradePoint.toFixed(1)}
+                              </td>
+                              <td className="py-2.5 px-2 text-right font-mono font-semibold text-emerald-300 print:text-black border border-slate-800 print:border-black">
+                                {r.qualityPoints.toFixed(1)}
+                              </td>
+                            </>
+                          )}
                           <td className="py-2.5 px-3 text-slate-300 print:text-slate-800 italic border border-slate-800 print:border-black">
-                            {a.teacherComment || 'Satisfactory'}
+                            {r.teacherComment || r.remark || 'Satisfactory Progress'}
                           </td>
                         </tr>
                       ))
                     )}
                   </tbody>
                 </table>
+              </div>
+
+              {/* Performance Summary & Graduation Standing Box */}
+              <div className="my-6 p-5 bg-slate-950/80 print:bg-slate-100 rounded-2xl border border-slate-800 print:border-slate-300">
+                {isSenior ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
+                    <div>
+                      <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">Total Credit Units</span>
+                      <strong className="text-white print:text-black text-base font-mono">
+                        {cgpaSummary.totalUnits} Units <span className="text-[10px] font-normal text-slate-400">({groupedSubjectRows.length} × 2)</span>
+                      </strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">Total Quality Points (TQP)</span>
+                      <strong className="text-amber-300 print:text-black text-base font-mono">
+                        {cgpaSummary.totalQualityPoints} QP
+                      </strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">Senior CGPA (5.0 Scale)</span>
+                      <strong className="text-emerald-400 print:text-emerald-900 text-xl font-mono font-black">
+                        {cgpaSummary.cgpa.toFixed(2)} / 5.00
+                      </strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">Academic Classification</span>
+                      <strong className="text-amber-400 print:text-black text-sm block">
+                        {cgpaSummary.standing}
+                      </strong>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
+                    <div>
+                      <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">Total Marks Obtained</span>
+                      <strong className="text-white print:text-black text-base font-mono">
+                        {juniorAverageSummary.totalMarks} / {juniorAverageSummary.obtainableMarks}
+                      </strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">Terminal Class Average</span>
+                      <strong className="text-emerald-400 print:text-emerald-900 text-xl font-mono font-black">
+                        {juniorAverageSummary.averagePercentage}%
+                      </strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">Composite Grade</span>
+                      <strong className="text-amber-300 print:text-black text-base font-mono">
+                        {juniorAverageSummary.overallGrade}
+                      </strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">Performance Standing</span>
+                      <strong className="text-white print:text-black text-sm block">
+                        {juniorAverageSummary.standing}
+                      </strong>
+                    </div>
+                  </div>
+                )}
+
+                <div className="mt-3 pt-3 border-t border-slate-800 print:border-slate-300 flex flex-wrap items-center justify-between text-[11px] text-slate-400 print:text-slate-700">
+                  <span>
+                    <strong>Curriculum Standard:</strong> {isSenior ? 'Senior Secondary 5.0 CGPA Scale (2 Credit Units Per Evaluated Subject)' : 'Junior & Basic Primary Class Average Percentage Scale'}
+                  </span>
+                  <span>
+                    <strong>Attendance Record:</strong> Opened: {attendance.timesOpened} days • Present: {attendance.timesPresent} days • Absent: {attendance.timesAbsent} days • Rate: {attendance.rate}%
+                  </span>
+                </div>
               </div>
 
               {/* Official Signatures */}
@@ -1492,6 +1934,111 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                 {savingEdit ? 'Updating...' : 'Update Score Record'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Teacher School Attendance Input Modal */}
+      {attendanceModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-700">
+              <h3 className="font-bold text-white text-base flex items-center gap-2">
+                <Clock className="w-4 h-4 text-amber-400" />
+                Input Student Attendance
+              </h3>
+              <button
+                onClick={() => setAttendanceModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveAttendance} className="space-y-4 text-xs">
+              <div className="bg-slate-800/80 p-3.5 rounded-xl border border-slate-700 space-y-1">
+                <span className="text-slate-400 block font-medium">Scholar Details:</span>
+                <p className="font-bold text-white text-sm">
+                  {student.firstName} {student.surname}
+                </p>
+                <p className="text-emerald-400 font-mono text-xs">
+                  {student.studentId} • Class {student.currentClass} • {student.session || '2026/2027'}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-300 font-semibold mb-1">
+                    Times School Opened *
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="365"
+                    required
+                    value={inputTimesOpened}
+                    onChange={(e) => setInputTimesOpened(e.target.value)}
+                    placeholder="e.g. 115"
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm font-mono text-white focus:outline-none focus:border-amber-400"
+                  />
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">Total school days</span>
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-semibold mb-1">
+                    Times Present *
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    max={inputTimesOpened || '365'}
+                    required
+                    value={inputTimesPresent}
+                    onChange={(e) => setInputTimesPresent(e.target.value)}
+                    placeholder="e.g. 110"
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm font-mono text-white focus:outline-none focus:border-emerald-400"
+                  />
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">Days scholar attended</span>
+                </div>
+              </div>
+
+              {/* Live Attendance Preview */}
+              <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-800 flex items-center justify-between text-xs font-mono">
+                <div>
+                  <span className="text-slate-400 block text-[10px] uppercase">Times Absent</span>
+                  <span className="font-bold text-rose-400">
+                    {Math.max(0, (Number(inputTimesOpened) || 0) - (Number(inputTimesPresent) || 0))} days
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-slate-400 block text-[10px] uppercase">Attendance Rate</span>
+                  <span className="font-black text-emerald-400 text-sm">
+                    {Number(inputTimesOpened) > 0
+                      ? Math.round(((Number(inputTimesPresent) || 0) / (Number(inputTimesOpened) || 1)) * 1000) / 10
+                      : 0}
+                    %
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-700">
+                <button
+                  type="button"
+                  onClick={() => setAttendanceModalOpen(false)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold cursor-pointer transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingAttendance}
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 shadow-md disabled:opacity-50"
+                >
+                  <Save className="w-3.5 h-3.5 text-amber-300" />
+                  {savingAttendance ? 'Saving...' : 'Save & Reflect on Result'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
