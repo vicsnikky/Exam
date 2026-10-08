@@ -59,7 +59,9 @@ export const ResultsView: React.FC = () => {
       const res = await fetch(`/api/scores?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      const data = await res.json();
+      const text = await res.text();
+      let data: any = {};
+      try { data = JSON.parse(text); } catch (_) {}
       setResults(data.results || []);
     } catch (e) {
       console.error('Failed to load results:', e);
@@ -70,8 +72,14 @@ export const ResultsView: React.FC = () => {
 
   useEffect(() => {
     fetch('/api/subjects', { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => r.json())
-      .then((d) => setSubjects(d.subjects || []));
+      .then((r) => r.text())
+      .then((text) => {
+        try {
+          const d = JSON.parse(text);
+          setSubjects(d.subjects || []);
+        } catch (_) {}
+      })
+      .catch(() => {});
 
     fetchResults();
   }, [token]);

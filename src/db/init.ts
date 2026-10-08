@@ -1,45 +1,6 @@
 import { Pool } from 'pg';
 
 export async function ensureTablesExist(pool: Pool) {
-  try {
-    // Check if tables already exist in public schema
-    const checkRes = await pool.query(
-      "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'schools' LIMIT 1;"
-    );
-    if (checkRes.rows && checkRes.rows.length > 0) {
-      // Ensure complaints table is created and has forwarding columns
-      try {
-        await pool.query(`
-          CREATE TABLE IF NOT EXISTS complaints (
-            id SERIAL PRIMARY KEY,
-            reference_code TEXT NOT NULL UNIQUE,
-            category TEXT NOT NULL DEFAULT 'General Suggestion',
-            priority TEXT NOT NULL DEFAULT 'Routine',
-            subject TEXT NOT NULL,
-            message TEXT NOT NULL,
-            target_role TEXT DEFAULT 'Super Admin & Principal',
-            status TEXT NOT NULL DEFAULT 'pending',
-            executive_notes TEXT,
-            forwarded_to_director BOOLEAN DEFAULT FALSE,
-            forwarded_at TIMESTAMP,
-            forwarded_by TEXT,
-            forwarding_notes TEXT,
-            school_id INTEGER REFERENCES schools(id),
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-            resolved_at TIMESTAMP
-          );
-          ALTER TABLE complaints ADD COLUMN IF NOT EXISTS forwarded_to_director BOOLEAN DEFAULT FALSE;
-          ALTER TABLE complaints ADD COLUMN IF NOT EXISTS forwarded_at TIMESTAMP;
-          ALTER TABLE complaints ADD COLUMN IF NOT EXISTS forwarded_by TEXT;
-          ALTER TABLE complaints ADD COLUMN IF NOT EXISTS forwarding_notes TEXT;
-        `);
-      } catch (_) {}
-      return;
-    }
-  } catch (err) {
-    // If table inspection fails, proceed to attempt creation with caution
-  }
-
   const ddl = `
     CREATE TABLE IF NOT EXISTS schools (
       id SERIAL PRIMARY KEY,
@@ -110,7 +71,7 @@ export async function ensureTablesExist(pool: Pool) {
     CREATE TABLE IF NOT EXISTS subjects (
       id SERIAL PRIMARY KEY,
       name TEXT NOT NULL,
-      code TEXT NOT NULL,
+      code TEXT NOT NULL UNIQUE,
       description TEXT,
       status TEXT DEFAULT 'active' NOT NULL,
       school_id INTEGER REFERENCES schools(id),
@@ -199,7 +160,7 @@ export async function ensureTablesExist(pool: Pool) {
       teacher_id INTEGER REFERENCES teachers(id),
       quiz_attempt_id INTEGER REFERENCES quiz_attempts(id),
       school_id INTEGER REFERENCES schools(id),
-      recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS ss3_mock_scores (
@@ -250,16 +211,74 @@ export async function ensureTablesExist(pool: Pool) {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
       resolved_at TIMESTAMP
     );
+
+    ALTER TABLE assessments ADD COLUMN IF NOT EXISTS quiz_attempt_id INTEGER REFERENCES quiz_attempts(id);
+    ALTER TABLE assessments ADD COLUMN IF NOT EXISTS teacher_comment TEXT;
+    ALTER TABLE assessments ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+
+    ALTER TABLE ss3_mock_scores ADD COLUMN IF NOT EXISTS exam_date TEXT;
+    ALTER TABLE ss3_mock_scores ADD COLUMN IF NOT EXISTS recorded_by_teacher_id INTEGER;
+    ALTER TABLE ss3_mock_scores ADD COLUMN IF NOT EXISTS term TEXT DEFAULT 'Second Term';
+    ALTER TABLE ss3_mock_scores ADD COLUMN IF NOT EXISTS session TEXT DEFAULT '2026/2027';
+
+    ALTER TABLE complaints ADD COLUMN IF NOT EXISTS forwarded_to_director BOOLEAN DEFAULT FALSE;
+    ALTER TABLE complaints ADD COLUMN IF NOT EXISTS forwarded_at TIMESTAMP;
+    ALTER TABLE complaints ADD COLUMN IF NOT EXISTS forwarded_by TEXT;
+    ALTER TABLE complaints ADD COLUMN IF NOT EXISTS forwarding_notes TEXT;
   `;
 
   try {
     await pool.query(ddl);
   } catch (err: any) {
-    // If DDL execution fails due to schema permissions, log a helpful note instead of crashing
     if (err?.code === '42501' || err?.message?.includes('permission denied')) {
-      console.warn('Note: Current database user does not have DDL privileges to CREATE TABLE in schema public. Continuing with existing tables.');
-      return;
+      console.warn('Note: DDL privilege restricted. Continuing with existing tables.');
+    } else {
+      console.warn('ensureTablesExist warning:', err.message);
     }
-    throw err;
+  }
+
+  // Ensure ALL baseline subjects exist (especially Christian Religious Studies 'CRS')
+  const baselineSubjects = [
+    { name: 'Mathematics', code: 'MTH', description: 'Core Mathematics & Numeracy' },
+    { name: 'English Language', code: 'ENG', description: 'Grammar, Comprehension, & Composition' },
+    { name: 'Biology', code: 'BIO', description: 'Life Sciences and Living Organisms' },
+    { name: 'Physics', code: 'PHY', description: 'Mechanics, Energy, and Physical World' },
+    { name: 'Chemistry', code: 'CHM', description: 'Matter, Reactions, and Organic Chemistry' },
+    { name: 'Digital Technology', code: 'DGT', description: 'Computing, Digital Systems, & Innovation' },
+    { name: 'ICT', code: 'ICT', description: 'Information & Communications Technology' },
+    { name: 'Basic Science', code: 'BSC', description: 'Foundational Integrated Sciences' },
+    { name: 'Economics', code: 'ECO', description: 'Micro & Macroeconomics, Markets, and Trade' },
+    { name: 'Civic Education', code: 'CIV', description: 'Civic Responsibilities & Ethics' },
+    { name: 'Government', code: 'GOV', description: 'Political Institutions & Governance' },
+    { name: 'Literature in English', code: 'LIT', description: 'Prose, Drama, & Poetry' },
+    { name: 'Commerce', code: 'COM', description: 'Business & Commercial Studies' },
+    { name: 'Agricultural Science', code: 'AGR', description: 'Crop & Animal Production' },
+    { name: 'Geography', code: 'GEO', description: 'Earth, Environment, and Spatial Studies' },
+    { name: 'Further Mathematics', code: 'FMTH', description: 'Advanced Pure & Applied Mathematics' },
+    { name: 'Financial Accounting', code: 'ACC', description: 'Bookkeeping and Financial Reporting' },
+    { name: 'Christian Religious Studies', code: 'CRS', description: 'Biblical Studies & Christian Ethics' },
+    { name: 'Islamic Religious Studies', code: 'IRS', description: 'Quranic Studies & Islamic Ethics' },
+  ];
+
+  for (const s of baselineSubjects) {
+    try {
+      await pool.query(
+        `INSERT INTO subjects (name, code, description, status, school_id)
+         VALUES ($1, $2, $3, 'active', 1)
+         ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description;`,
+        [s.name, s.code, s.description]
+      );
+    } catch (_) {
+      try {
+        await pool.query(
+          `INSERT INTO subjects (name, code, description, status, school_id)
+           SELECT $1, $2, $3, 'active', 1
+           WHERE NOT EXISTS (SELECT 1 FROM subjects WHERE code = $2 OR LOWER(name) = LOWER($1));`,
+          [s.name, s.code, s.description]
+        );
+      } catch (insertErr: any) {
+        // Ignored if table or constraint issue
+      }
+    }
   }
 }

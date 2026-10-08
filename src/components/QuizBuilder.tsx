@@ -50,17 +50,27 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ onQuizCreated }) => {
   // Load initial subjects & students
   useEffect(() => {
     fetch('/api/subjects', { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.subjects && d.subjects.length > 0) {
-          setSubjects(d.subjects);
-          setSelectedSubjectId(d.subjects[0].id);
-        }
-      });
+      .then((r) => r.text())
+      .then((text) => {
+        try {
+          const d = JSON.parse(text);
+          if (d.subjects && d.subjects.length > 0) {
+            setSubjects(d.subjects);
+            setSelectedSubjectId(d.subjects[0].id);
+          }
+        } catch (_) {}
+      })
+      .catch(() => {});
 
     fetch('/api/students?limit=50', { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => r.json())
-      .then((d) => setStudents(d.students || []));
+      .then((r) => r.text())
+      .then((text) => {
+        try {
+          const d = JSON.parse(text);
+          setStudents(d.students || []);
+        } catch (_) {}
+      })
+      .catch(() => {});
   }, [token]);
 
   // Load question bank when subject changes
@@ -71,7 +81,9 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ onQuizCreated }) => {
       const res = await fetch(`/api/questions?subjectId=${subjId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      const data = await res.json();
+      const text = await res.text();
+      let data: any = {};
+      try { data = JSON.parse(text); } catch (_) {}
       setQuestions(data.questions || []);
       // Auto select all available questions for this quiz
       setSelectedQuestionIds((data.questions || []).map((q: any) => q.id));

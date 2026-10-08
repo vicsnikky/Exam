@@ -5,6 +5,7 @@ import { getLocalStudents, deleteStudent, fetchAllStudentsUnified } from '../lib
 import { DeleteConfirmModal } from './DeleteConfirmModal.tsx';
 import { EditStudentModal } from './EditStudentModal.tsx';
 import { SCHOOL_CLASSES, isSameClass } from '../constants/classes.ts';
+import { AddScoreModal } from './AddScoreModal.tsx';
 import {
   Search,
   Filter,
@@ -17,19 +18,24 @@ import {
   Trash2,
   Pencil,
   CheckCircle,
-  X
+  X,
+  PlusCircle,
 } from 'lucide-react';
 
 interface StudentSearchProps {
   onSelectStudent: (student: Student) => void;
+  onAddScore?: (student: Student) => void;
   initialQuery?: string;
 }
 
 export const StudentSearch: React.FC<StudentSearchProps> = ({
   onSelectStudent,
+  onAddScore,
   initialQuery = '',
 }) => {
   const { token, user } = useAuth();
+  const isStudent = user?.role === 'student';
+  const isBursar = user?.role === 'bursar';
   const isSuperAdmin = user?.role === 'super_admin' || user?.role === 'director' || user?.role === 'principal' || user?.role === 'admin';
 
   const [query, setQuery] = useState(initialQuery);
@@ -41,6 +47,7 @@ export const StudentSearch: React.FC<StudentSearchProps> = ({
     student: null,
   });
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+  const [scoreModalStudent, setScoreModalStudent] = useState<Student | null>(null);
   const [toastMsg, setToastMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Sync initial query once on mount if provided
@@ -75,6 +82,9 @@ export const StudentSearch: React.FC<StudentSearchProps> = ({
       const fullAll = `${fName} ${mName} ${sName}`.trim();
       const email = (s.email || '').toLowerCase();
       const phone = (s.parentPhone || '').toLowerCase();
+      const stClass = (s.currentClass || '').toLowerCase();
+      const cleanClassQ = cleanQ.replace(/\s+/g, '');
+      const stClassClean = stClass.replace(/\s+/g, '');
 
       return (
         sId.includes(cleanQ) ||
@@ -84,6 +94,8 @@ export const StudentSearch: React.FC<StudentSearchProps> = ({
         fullName1.includes(cleanQ) ||
         fullName2.includes(cleanQ) ||
         fullAll.includes(cleanQ) ||
+        stClass.includes(cleanQ) ||
+        (cleanClassQ.length >= 2 && stClassClean.includes(cleanClassQ)) ||
         email.includes(cleanQ) ||
         phone.includes(cleanQ)
       );
@@ -321,14 +333,30 @@ export const StudentSearch: React.FC<StudentSearchProps> = ({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
-                  <span className="text-xs text-slate-400 group-hover:text-white transition flex items-center gap-1 font-medium">
+                <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto" onClick={(e) => e.stopPropagation()}>
+                  {!isStudent && !isBursar && (
+                    <button
+                      type="button"
+                      onClick={() => setScoreModalStudent(st)}
+                      className="px-3 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/40 hover:border-emerald-500 transition text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-sm"
+                      title={`Add assessment score for ${st.firstName} ${st.surname}`}
+                    >
+                      <PlusCircle className="w-3.5 h-3.5 text-amber-300" />
+                      <span>Add Score</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => onSelectStudent(st)}
+                    className="text-xs text-slate-400 hover:text-white transition flex items-center gap-1 font-medium px-2 py-1.5 rounded-lg hover:bg-slate-700/50 cursor-pointer"
+                  >
                     View Profile
                     <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-indigo-400 transition" />
-                  </span>
+                  </button>
 
                   {isSuperAdmin && (
-                    <div className="flex items-center gap-1 ml-1" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center gap-1 ml-1">
                       <button
                         onClick={() => setEditingStudent(st)}
                         className="p-1.5 rounded-lg text-amber-400 hover:text-white hover:bg-amber-600/30 border border-amber-500/20 hover:border-amber-500 transition cursor-pointer"
@@ -379,6 +407,25 @@ export const StudentSearch: React.FC<StudentSearchProps> = ({
             loadMasterRoster();
           }}
         />
+      )}
+
+      {/* Direct Add & Manage Score Modal for Teacher */}
+      {scoreModalStudent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-4 overflow-y-auto">
+          <div className="relative w-full max-w-4xl my-8 max-h-[92vh] overflow-y-auto rounded-3xl animate-in fade-in zoom-in-95">
+            <AddScoreModal
+              preselectedStudent={scoreModalStudent}
+              onClose={() => setScoreModalStudent(null)}
+              onScoreSaved={() => {
+                setToastMsg({
+                  type: 'success',
+                  text: `Score record successfully saved for ${scoreModalStudent.firstName} ${scoreModalStudent.surname}! Automatically updated on student portal and class broadsheet.`,
+                });
+                loadMasterRoster();
+              }}
+            />
+          </div>
+        </div>
       )}
     </div>
   );

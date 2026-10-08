@@ -173,13 +173,15 @@ export default function App() {
           <StudentSearch
             initialQuery={searchInitialQuery}
             onSelectStudent={navigateToStudentProfile}
+            onAddScore={navigateToAddScoreForStudent}
           />
         );
       case 'student-profile':
+        const currentStudentData = selectedStudent || (user as any)?.studentProfile || (isStudent ? (user as any) : undefined);
         return (
           <StudentProfile
-            studentIdOrId={selectedStudent?.id || selectedStudent?.studentId || user?.studentId || 'FIS-2026-000001'}
-            initialStudent={selectedStudent || undefined}
+            studentIdOrId={currentStudentData?.id || currentStudentData?.studentId || user?.studentId || 'FIS-2026-000001'}
+            initialStudent={currentStudentData || undefined}
             onBack={() => setActiveTab(isStudent ? (isSS3Student ? 'ss3-mock-student' : 'take-quiz') : (isBursar ? 'bursar-console' : 'students'))}
             onAddScoreForStudent={!isBursar ? navigateToAddScoreForStudent : undefined}
           />
@@ -205,11 +207,7 @@ export default function App() {
       case 'results':
         return <ResultsView />;
       case 'ss3-mock-student':
-        return canAccessAdminConsole ? (
-          <SS3MockStudentDashboard />
-        ) : (
-          <StudentProfile studentIdOrId={user?.studentId || ''} />
-        );
+        return <SS3MockStudentDashboard />;
       case 'ss3-mock-teacher':
         return isTeacher || isSuperAdmin ? <SS3MockTeacherModule /> : null;
       case 'take-quiz':
@@ -781,6 +779,31 @@ export default function App() {
                     My Academic Record & Transcript
                   </span>
                 </motion.button>
+
+                {isSS3Student && (
+                  <motion.button
+                    whileHover={{ x: 2 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => setActiveTab('ss3-mock-student')}
+                    className={`w-full relative flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-colors cursor-pointer ${
+                      activeTab === 'ss3-mock-student'
+                        ? 'text-white'
+                        : 'text-amber-300 hover:bg-slate-700/50 hover:text-white'
+                    }`}
+                  >
+                    {activeTab === 'ss3-mock-student' && (
+                      <motion.div
+                        layoutId="activeSidebarIndicatorStudent"
+                        className="absolute inset-0 bg-amber-600 rounded-xl shadow-md shadow-amber-950/40 border border-amber-500/40 z-0"
+                        transition={{ type: 'spring', stiffness: 450, damping: 32 }}
+                      />
+                    )}
+                    <span className="relative z-10 flex items-center gap-3">
+                      <Award className="w-4 h-4 shrink-0 text-amber-400" />
+                      JAMB Mock Results (/400)
+                    </span>
+                  </motion.button>
+                )}
               </>
             )}
           </nav>
@@ -978,6 +1001,19 @@ export default function App() {
                     >
                       My Academic Record & Transcript
                     </button>
+                    {isSS3Student && (
+                      <button
+                        onClick={() => {
+                          setActiveTab('ss3-mock-student');
+                          setMobileMenuOpen(false);
+                        }}
+                        className={`w-full text-left px-3 py-2 text-xs rounded-lg font-semibold border transition ${
+                          activeTab === 'ss3-mock-student' ? 'bg-amber-600 text-white border-amber-500' : 'text-amber-300 border-amber-500/30 hover:bg-slate-700'
+                        }`}
+                      >
+                        JAMB Mock Results (/400)
+                      </button>
+                    )}
                   </>
                 )}
               </motion.div>

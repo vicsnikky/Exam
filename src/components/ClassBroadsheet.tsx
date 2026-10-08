@@ -142,7 +142,9 @@ export const ClassBroadsheet: React.FC = () => {
           { headers: { Authorization: `Bearer ${token}` } }
         );
         if (res.ok) {
-          const d = await res.json();
+          const text = await res.text();
+          let d: any = {};
+          try { d = JSON.parse(text); } catch (_) {}
           serverScores = d.results || [];
         }
       } catch (e) {
@@ -330,6 +332,17 @@ export const ClassBroadsheet: React.FC = () => {
 
   useEffect(() => {
     loadData();
+
+    const handleScoresChanged = () => {
+      loadData();
+    };
+
+    window.addEventListener('fis:scores-updated', handleScoresChanged);
+    window.addEventListener('fis:broadsheet-scores-updated', handleScoresChanged);
+    return () => {
+      window.removeEventListener('fis:scores-updated', handleScoresChanged);
+      window.removeEventListener('fis:broadsheet-scores-updated', handleScoresChanged);
+    };
   }, [selectedClass, selectedTerm, selectedSession, examPeriod]);
 
   // Handle click on score cell to open inline editor
@@ -638,8 +651,10 @@ export const ClassBroadsheet: React.FC = () => {
         body: JSON.stringify({ name: newSubjectName.trim(), code, classLevel: selectedClass }),
       });
       if (res.ok) {
-        const data = await res.json();
-        setAvailableSubjects((prev) => [...prev, data.subject]);
+        const text = await res.text();
+        let data: any = {};
+        try { data = JSON.parse(text); } catch (_) {}
+        if (data.subject) setAvailableSubjects((prev) => [...prev, data.subject]);
       } else {
         const newSub: Subject = {
           id: Date.now(),

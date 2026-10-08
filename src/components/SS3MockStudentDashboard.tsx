@@ -535,15 +535,17 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
     user?.role === 'principal' ||
     user?.role === 'admin';
 
-  if (!hasAdminPrivileges && !readOnly) {
+  const canAccess = hasAdminPrivileges || readOnly || isStudent;
+
+  if (!canAccess) {
     return (
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center max-w-xl mx-auto space-y-4 my-8">
         <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400 flex items-center justify-center mx-auto">
           <ShieldAlert className="w-7 h-7" />
         </div>
-        <h2 className="text-lg font-bold text-white">Administrative Access Required</h2>
+        <h2 className="text-lg font-bold text-white">Authorized Access Required</h2>
         <p className="text-xs text-slate-400 leading-relaxed">
-          Access to SS3 Weekly Mock Examination results and aggregate broadsheets is strictly restricted to School Administrators, Principal, Director, and Super Administrator portfolios.
+          Access to SS3 Weekly Mock Examination results is restricted to enrolled candidates and academic faculty.
         </p>
       </div>
     );
@@ -551,6 +553,30 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
 
   return (
     <div className="space-y-6">
+      {/* 1. Welcome Back Banner for Enrolled Student */}
+      {isStudent && (
+        <div className="bg-gradient-to-r from-emerald-950/90 via-slate-900 to-indigo-950/90 border border-emerald-500/40 p-5 rounded-2xl shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="w-12 h-12 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center text-2xl shrink-0 shadow-md">
+              👋
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
+                <span>Welcome back, <strong className="text-amber-300">{user?.firstName || 'Scholar'}</strong>!</span>
+              </h2>
+              <p className="text-xs text-slate-300 mt-0.5">
+                Fenster International School SS3 UTME Mock Portal • Candidate ID:{' '}
+                <span className="font-mono text-emerald-400 font-bold">{user?.studentId || candidateStudentNumber || 'SS3 Candidate'}</span>
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 self-start sm:self-auto">
+            <span className="px-3.5 py-1.5 rounded-xl bg-slate-900/90 border border-slate-700 text-xs text-amber-300 font-mono font-bold">
+              SS3 UTME Series (Over 400 Marks)
+            </span>
+          </div>
+        </div>
+      )}
       {/* Top Banner / Student Identity Bar */}
       <div className="bg-gradient-to-r from-emerald-950 via-slate-900 to-slate-900 border border-emerald-500/30 rounded-2xl p-6 shadow-xl relative overflow-hidden">
         <div className="absolute right-0 top-0 w-80 h-full bg-radial from-emerald-500/10 to-transparent pointer-events-none" />

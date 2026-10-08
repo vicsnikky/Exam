@@ -42,21 +42,45 @@ export async function seedDatabase() {
       ]);
     }
 
-    // 4. Seed Subjects
-    const existingSubjects = await db.select().from(subjects).limit(1);
-    if (existingSubjects.length === 0) {
-      await db.insert(subjects).values([
-        { name: 'Mathematics', code: 'MTH', description: 'Core Mathematics & Numeracy', status: 'active', schoolId },
-        { name: 'English Language', code: 'ENG', description: 'Grammar, Comprehension, & Composition', status: 'active', schoolId },
-        { name: 'Biology', code: 'BIO', description: 'Life Sciences and Living Organisms', status: 'active', schoolId },
-        { name: 'Physics', code: 'PHY', description: 'Mechanics, Energy, and Physical World', status: 'active', schoolId },
-        { name: 'Chemistry', code: 'CHM', description: 'Matter, Reactions, and Organic Chemistry', status: 'active', schoolId },
-        { name: 'Digital Technology', code: 'DGT', description: 'Computing, Digital Systems, Information Technology & Innovation', status: 'active', schoolId },
-        { name: 'ICT', code: 'ICT', description: 'Information & Communications Technology', status: 'active', schoolId },
-        { name: 'Basic Science', code: 'BSC', description: 'Foundational integrated sciences for Junior secondary', status: 'active', schoolId },
-        { name: 'Economics', code: 'ECO', description: 'Micro & Macroeconomics, Markets, and Trade', status: 'active', schoolId },
-      ]);
-      console.log('Seeded initial subjects');
+    // 4. Seed Subjects (Ensure all 19 core and elective subjects exist, including CRS)
+    const baselineSubjectsList = [
+      { name: 'Mathematics', code: 'MTH', description: 'Core Mathematics & Numeracy' },
+      { name: 'English Language', code: 'ENG', description: 'Grammar, Comprehension, & Composition' },
+      { name: 'Biology', code: 'BIO', description: 'Life Sciences and Living Organisms' },
+      { name: 'Physics', code: 'PHY', description: 'Mechanics, Energy, and Physical World' },
+      { name: 'Chemistry', code: 'CHM', description: 'Matter, Reactions, and Organic Chemistry' },
+      { name: 'Digital Technology', code: 'DGT', description: 'Computing, Digital Systems, Information Technology & Innovation' },
+      { name: 'ICT', code: 'ICT', description: 'Information & Communications Technology' },
+      { name: 'Basic Science', code: 'BSC', description: 'Foundational integrated sciences for Junior secondary' },
+      { name: 'Economics', code: 'ECO', description: 'Micro & Macroeconomics, Markets, and Trade' },
+      { name: 'Civic Education', code: 'CIV', description: 'Civic Responsibilities & Ethics' },
+      { name: 'Government', code: 'GOV', description: 'Political Institutions & Governance' },
+      { name: 'Literature in English', code: 'LIT', description: 'Prose, Drama, & Poetry' },
+      { name: 'Commerce', code: 'COM', description: 'Business & Commercial Studies' },
+      { name: 'Agricultural Science', code: 'AGR', description: 'Crop & Animal Production' },
+      { name: 'Geography', code: 'GEO', description: 'Earth, Environment, and Spatial Studies' },
+      { name: 'Further Mathematics', code: 'FMTH', description: 'Advanced Pure & Applied Mathematics' },
+      { name: 'Financial Accounting', code: 'ACC', description: 'Bookkeeping and Financial Reporting' },
+      { name: 'Christian Religious Studies', code: 'CRS', description: 'Biblical Studies & Christian Ethics' },
+      { name: 'Islamic Religious Studies', code: 'IRS', description: 'Quranic Studies & Islamic Ethics' },
+    ];
+
+    const currentSubjectsInDb = await db.select().from(subjects);
+    const existingCodes = new Set(currentSubjectsInDb.map((s) => s.code.toUpperCase()));
+    const existingNames = new Set(currentSubjectsInDb.map((s) => s.name.toLowerCase()));
+
+    for (const b of baselineSubjectsList) {
+      if (!existingCodes.has(b.code.toUpperCase()) && !existingNames.has(b.name.toLowerCase())) {
+        try {
+          await db.insert(subjects).values({
+            name: b.name,
+            code: b.code,
+            description: b.description,
+            status: 'active',
+            schoolId,
+          });
+        } catch (_) {}
+      }
     }
 
     // 5. Seed Super Admin (Victor Alo - The ONLY Super Admin in the system)

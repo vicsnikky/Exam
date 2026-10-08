@@ -110,6 +110,18 @@ export const SS3MockTeacherModule: React.FC = () => {
 
       // 2. Unified subjects fetch (Baseline, Custom, Supabase & Backend)
       const subs = await fetchAllSubjectsUnified(token);
+      const hasCRS = subs.some((s) => s.code === 'CRS' || s.name.toLowerCase().includes('christian'));
+      if (!hasCRS) {
+        subs.push({
+          id: 18,
+          name: 'Christian Religious Studies',
+          code: 'CRS',
+          description: 'Biblical Studies & Christian Ethics (Elective • Graded over 40)',
+          status: 'active',
+          isCompulsory: false,
+          defaultMaxRawScore: 40,
+        });
+      }
       setAvailableSubjects(subs);
       setupDepartmentPreset('science', subs);
     } catch (err: any) {
@@ -119,7 +131,7 @@ export const SS3MockTeacherModule: React.FC = () => {
     }
   };
 
-  const setupDepartmentPreset = (preset: 'science' | 'commercial' | 'arts', subsList?: Subject[]) => {
+  const setupDepartmentPreset = (preset: 'science' | 'commercial' | 'arts' | 'crs', subsList?: Subject[]) => {
     const list = subsList || availableSubjects;
     if (list.length === 0) return;
 
@@ -128,12 +140,37 @@ export const SS3MockTeacherModule: React.FC = () => {
       targetNames = ['English Language', 'Mathematics', 'Physics', 'Chemistry'];
     } else if (preset === 'commercial') {
       targetNames = ['English Language', 'Mathematics', 'Economics', 'Commerce'];
+    } else if (preset === 'crs') {
+      targetNames = ['English Language', 'Christian Religious Studies', 'Literature in English', 'Government'];
     } else {
-      targetNames = ['English Language', 'Literature in English', 'Government', 'Civic Education'];
+      targetNames = ['English Language', 'Christian Religious Studies', 'Literature in English', 'Government'];
     }
 
     const entries: SubjectScoreEntry[] = targetNames.map((name) => {
-      const match = list.find((s) => s.name.toLowerCase() === name.toLowerCase()) || list[0];
+      let match = list.find((s) => {
+        const sName = (s.name || '').toLowerCase();
+        const sCode = (s.code || '').toUpperCase();
+        if (name.toLowerCase().includes('christian') || name.toLowerCase().includes('crs')) {
+          return sCode === 'CRS' || sName.includes('christian') || sName.includes('crs');
+        }
+        return sName === name.toLowerCase() || sName.includes(name.toLowerCase());
+      });
+
+      if (!match && (name.toLowerCase().includes('christian') || name.toLowerCase().includes('crs'))) {
+        match = {
+          id: 18,
+          name: 'Christian Religious Studies',
+          code: 'CRS',
+          description: 'Biblical Studies & Christian Ethics (Elective • Graded over 40)',
+          status: 'active',
+          isCompulsory: false,
+          defaultMaxRawScore: 40,
+        };
+        // Ensure availableSubjects also has CRS so the dropdown displays it
+        setAvailableSubjects((prev) => (prev.some((p) => p.id === 18 || p.code === 'CRS') ? prev : [...prev, match!]));
+      }
+
+      if (!match) match = list[0];
       const lower = match.name.toLowerCase();
       // Only English Language is compulsory and over 60. Literature in English is an elective over 40 and not compulsory.
       const isEng = lower.includes('english') && !lower.includes('literature');
@@ -190,7 +227,9 @@ export const SS3MockTeacherModule: React.FC = () => {
           }
         );
         if (res.ok) {
-          const data = await res.json();
+          const text = await res.text();
+          let data: any = {};
+          try { data = JSON.parse(text); } catch (_) {}
           const serverScores = data.scores || [];
           for (const s of serverScores) {
             const key = (s.subjectName || '').toLowerCase().trim();
@@ -1423,6 +1462,13 @@ export const SS3MockTeacherModule: React.FC = () => {
                 >
                   🏛️ Arts & Humanities Track
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setupDepartmentPreset('crs')}
+                  className="px-3 py-1.5 bg-amber-950/70 hover:bg-amber-900/80 text-amber-200 border border-amber-500/50 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-sm"
+                >
+                  ✝️ CRS & Arts Track
+                </button>
               </div>
             </div>
           </div>
@@ -1554,14 +1600,67 @@ export const SS3MockTeacherModule: React.FC = () => {
 
             {/* Quick Actions: Add Another Subject & Guidance */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 pb-1 border-t border-slate-800">
-              <button
-                type="button"
-                onClick={handleAddSubjectEntry}
-                className="px-4 py-2 bg-slate-900 hover:bg-slate-700 text-amber-300 border border-amber-500/30 hover:border-amber-400 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-2 self-start shadow-sm"
-              >
-                <Plus className="w-4 h-4 text-amber-400" />
-                + Add Another Subject to Mock
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleAddSubjectEntry}
+                  className="px-4 py-2 bg-slate-900 hover:bg-slate-700 text-amber-300 border border-amber-500/30 hover:border-amber-400 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-2 self-start shadow-sm"
+                >
+                  <Plus className="w-4 h-4 text-amber-400" />
+                  + Add Another Subject
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    let crsSub = availableSubjects.find(
+                      (s) => s.code === 'CRS' || s.name.toLowerCase().includes('christian') || s.name.toLowerCase().includes('crs')
+                    );
+                    if (!crsSub) {
+                      crsSub = {
+                        id: 18,
+                        name: 'Christian Religious Studies',
+                        code: 'CRS',
+                        description: 'Biblical Studies & Christian Ethics (Elective • Graded over 40)',
+                        status: 'active',
+                        isCompulsory: false,
+                        defaultMaxRawScore: 40,
+                      };
+                      setAvailableSubjects((prev) => (prev.some((p) => p.id === 18 || p.code === 'CRS') ? prev : [...prev, crsSub!]));
+                    }
+
+                    const existingIdx = subjectEntries.findIndex(
+                      (s) => s.subjectId === crsSub!.id || s.subjectName.toLowerCase().includes('christian') || s.subjectName.toLowerCase().includes('crs')
+                    );
+
+                    if (existingIdx === -1) {
+                      const newEntry = {
+                        subjectId: crsSub.id,
+                        subjectName: crsSub.name,
+                        rawScore: '',
+                        maxRawScore: 40,
+                        scaledScore: 0,
+                        remark: 'Good',
+                        isEnglish: false,
+                      };
+                      if (subjectEntries.length >= 4) {
+                        // Replace the last elective so it stays 4 core subjects
+                        const updated = [...subjectEntries];
+                        updated[3] = newEntry;
+                        setSubjectEntries(updated);
+                        setStatusMessage({ type: 'success', text: 'Christian Religious Studies (CRS) is now selected and displayed in your 4-subject list!' });
+                      } else {
+                        setSubjectEntries([...subjectEntries, newEntry]);
+                        setStatusMessage({ type: 'success', text: 'Christian Religious Studies (CRS) added to mock subject list!' });
+                      }
+                    } else {
+                      setStatusMessage({ type: 'success', text: `Christian Religious Studies (CRS) is already in Subject #${existingIdx + 1} above.` });
+                    }
+                  }}
+                  className="px-3.5 py-2 bg-amber-950/70 hover:bg-amber-900 text-amber-200 border border-amber-500/40 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 self-start shadow-sm"
+                >
+                  ✝️ + Add CRS (Christian Religious Studies)
+                </button>
+              </div>
               <span className="text-[11px] text-slate-400">
                 💡 Scores remain safely saved and editable at any time. Delete any mistakenly added subject using the red trash button.
               </span>

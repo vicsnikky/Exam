@@ -83,3 +83,16 @@ export function isSecondaryClass(className?: string | null): boolean {
     c.includes('SECONDARY')
   );
 }
+
+// Grade calculation helper (WAEC / NECO / National Curriculum Standard)
+export function calculateSubjectGrade(totalScore: number): string {
+  if (totalScore >= 75) return 'A1';
+  if (totalScore >= 70) return 'B2';
+  if (totalScore >= 65) return 'B3';
+  if (totalScore >= 60) return 'C4';
+  if (totalScore >= 55) return 'C5';
+  if (totalScore >= 50) return 'C6';
+  if (totalScore >= 45) return 'D7';
+  if (totalScore >= 40) return 'E8';
+  return 'F9';
+}
