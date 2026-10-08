@@ -142,6 +142,20 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
       const sanitizedId = (!isNaN(numericId) && numericId > 0 && numericId <= PG_MAX_INT) ? String(numericId) : '';
       const queryParam = st.studentId || (sanitizedId ? sanitizedId : '');
 
+      const deletedRaw = localStorage.getItem('fis_deleted_score_ids_v1');
+      const deletedIds = new Set<string>(deletedRaw ? JSON.parse(deletedRaw) : []);
+
+      const isScoreDeleted = (id: any, subId?: any, aType?: any) => {
+        if (id && deletedIds.has(String(id))) return true;
+        if (subId) {
+          if (deletedIds.has(`key_${st.id}_${subId}`) || deletedIds.has(`key_${st.studentId}_${subId}`)) return true;
+          if (aType) {
+            if (deletedIds.has(`key_${st.id}_${subId}_${aType}`) || deletedIds.has(`key_${st.studentId}_${subId}_${aType}`)) return true;
+          }
+        }
+        return false;
+      };
+
       // 1. Fetch all scores for this student from server (no restrictive term or session filter so full record is loaded)
       try {
         const idParam = sanitizedId ? `&studentId=${encodeURIComponent(sanitizedId)}` : '';
@@ -157,6 +171,7 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
           try { data = JSON.parse(text); } catch (_) {}
           const serverList = data.scores || data.results || [];
           for (const item of serverList) {
+            if (isScoreDeleted(item.id, item.subjectId, item.assessmentType)) continue;
             const key = `${item.subjectId}_${item.assessmentType}_${item.term}_${item.session}`;
             if (!seenKeys.has(key)) {
               seenKeys.add(key);
@@ -180,6 +195,7 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
           try { stData = JSON.parse(stText); } catch (_) {}
           if (stData && Array.isArray(stData.assessments)) {
             for (const a of stData.assessments) {
+              if (isScoreDeleted(a.id, a.subjectId, a.assessmentType)) continue;
               const key = `${a.subjectId}_${a.assessmentType}_${a.term}_${a.session}`;
               if (!seenKeys.has(key)) {
                 seenKeys.add(key);
@@ -223,14 +239,16 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
 
           for (const loc of stScores) {
             const periodLabel = loc.examPeriod === 'first-half' ? 'First Half Term' : 'Terminal Term';
+            const caLocalId = loc.testId || `loc_ca_${loc.studentId}_${loc.subjectId}_${loc.examPeriod || 'term'}`;
+            const examLocalId = loc.examId || `loc_exam_${loc.studentId}_${loc.subjectId}_${loc.examPeriod || 'term'}`;
 
-            // If CA score exists and not in server results
-            if (loc.testScore !== null && loc.testScore !== undefined && loc.testScore !== '') {
+            // If CA score exists and not in server results and not deleted
+            if (loc.testScore !== null && loc.testScore !== undefined && loc.testScore !== '' && !isScoreDeleted(caLocalId, loc.subjectId, 'CA')) {
               const caKey = `${loc.subjectId}_CA_${loc.term}_${loc.session}`;
               if (!seenKeys.has(caKey)) {
                 seenKeys.add(caKey);
                 combined.push({
-                  id: loc.testId || `loc_ca_${loc.studentId}_${loc.subjectId}_${loc.examPeriod || 'term'}`,
+                  id: caLocalId,
                   studentId: loc.studentNumber || st.studentId,
                   studentDbId: st.id,
                   studentName: `${st.firstName} ${st.surname}`,
@@ -255,13 +273,13 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
               }
             }
 
-            // If Exam score exists and not in server results
-            if (loc.examScore !== null && loc.examScore !== undefined && loc.examScore !== '') {
+            // If Exam score exists and not in server results and not deleted
+            if (loc.examScore !== null && loc.examScore !== undefined && loc.examScore !== '' && !isScoreDeleted(examLocalId, loc.subjectId, 'Examination')) {
               const examKey = `${loc.subjectId}_Examination_${loc.term}_${loc.session}`;
               if (!seenKeys.has(examKey)) {
                 seenKeys.add(examKey);
                 combined.push({
-                  id: loc.examId || `loc_exam_${loc.studentId}_${loc.subjectId}_${loc.examPeriod || 'term'}`,
+                  id: examLocalId,
                   studentId: loc.studentNumber || st.studentId,
                   studentDbId: st.id,
                   studentName: `${st.firstName} ${st.surname}`,
@@ -419,7 +437,60 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
     const subCode = selectedSubjectObj?.code || 'GEN';
 
     try {
+      // Un-delete any previously deleted keys for this student + subject so newly submitted score is immediately visible
+      try {
+        const deletedRaw = localStorage.getItem('fis_deleted_score_ids_v1');
+        if (deletedRaw) {
+          const deletedIds = new Set<string>(JSON.parse(deletedRaw));
+          deletedIds.delete(`key_${matchedStudent.id}_${selectedSubjectId}`);
+          deletedIds.delete(`key_${matchedStudent.studentId}_${selectedSubjectId}`);
+          deletedIds.delete(`key_${matchedStudent.id}_${selectedSubjectId}_CA`);
+          deletedIds.delete(`key_${matchedStudent.studentId}_${selectedSubjectId}_CA`);
+          deletedIds.delete(`key_${matchedStudent.id}_${selectedSubjectId}_Examination`);
+          deletedIds.delete(`key_${matchedStudent.studentId}_${selectedSubjectId}_Examination`);
+          localStorage.setItem('fis_deleted_score_ids_v1', JSON.stringify([...deletedIds]));
+        }
+      } catch (_) {}
+
+      // Helper function to safely send score to backend with 1 automatic retry
+      const postScoreWithRetry = async (payload: any, label: string) => {
+        let attempts = 0;
+        let lastErrorMsg = '';
+        while (attempts < 2) {
+          attempts++;
+          try {
+            const res = await fetch('/api/scores', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${authToken}`,
+              },
+              body: JSON.stringify(payload),
+            });
+            if (res.ok) {
+              return true;
+            }
+            const text = await res.text();
+            let errObj: any = {};
+            try { errObj = JSON.parse(text); } catch (_) {}
+            lastErrorMsg =
+              errObj.error ||
+              errObj.message ||
+              (text.length < 200 && !text.includes('<') ? text : '') ||
+              `Failed to record ${label} score (Status ${res.status})`;
+          } catch (netErr: any) {
+            lastErrorMsg = netErr?.message || `Network error recording ${label} score`;
+          }
+          if (attempts < 2) {
+            await new Promise((r) => setTimeout(r, 600));
+          }
+        }
+        console.warn(`Backend sync deferred for ${label}:`, lastErrorMsg);
+        return false;
+      };
+
       // 1. If CA score was entered, save CA record (maxScore: 40)
+      let caSavedOnServer = false;
       if (numCa !== null) {
         const caTitle = `${periodLabel} Continuous Assessment Test`;
         const comment = JSON.stringify({
@@ -430,46 +501,28 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
           userNote: teacherComment,
         });
 
-        const caRes = await fetch('/api/scores', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${authToken}`,
-          },
-          body: JSON.stringify({
-            studentId: matchedStudent.id,
-            studentNumber: matchedStudent.studentId,
-            firstName: matchedStudent.firstName,
-            surname: matchedStudent.surname,
-            currentClass: matchedStudent.currentClass,
-            gender: matchedStudent.gender || 'Female',
-            subjectId: selectedSubjectId,
-            subjectName: subName,
-            subjectCode: subCode,
-            assessmentType: 'CA',
-            assessmentTitle: caTitle,
-            score: numCa,
-            maxScore: 40,
-            session,
-            term,
-            teacherComment: comment,
-          }),
-        });
-
-        if (!caRes.ok) {
-          const caText = await caRes.text();
-          let errObj: any = {};
-          try { errObj = JSON.parse(caText); } catch (_) {}
-          const errorMsg =
-            errObj.error ||
-            errObj.message ||
-            (caText.length < 200 && !caText.includes('<') ? caText : '') ||
-            `Failed to record CA score (Status ${caRes.status})`;
-          throw new Error(errorMsg);
-        }
+        caSavedOnServer = await postScoreWithRetry({
+          studentId: matchedStudent.id,
+          studentNumber: matchedStudent.studentId,
+          firstName: matchedStudent.firstName,
+          surname: matchedStudent.surname,
+          currentClass: matchedStudent.currentClass,
+          gender: matchedStudent.gender || 'Female',
+          subjectId: selectedSubjectId,
+          subjectName: subName,
+          subjectCode: subCode,
+          assessmentType: 'CA',
+          assessmentTitle: caTitle,
+          score: numCa,
+          maxScore: 40,
+          session,
+          term,
+          teacherComment: comment,
+        }, 'CA');
       }
 
       // 2. If Exam score was entered, save Main Exam record (maxScore: 60)
+      let examSavedOnServer = false;
       if (numExam !== null) {
         const examTitle = `${periodLabel} Main Examination`;
         const comment = JSON.stringify({
@@ -480,43 +533,24 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
           userNote: teacherComment,
         });
 
-        const examRes = await fetch('/api/scores', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${authToken}`,
-          },
-          body: JSON.stringify({
-            studentId: matchedStudent.id,
-            studentNumber: matchedStudent.studentId,
-            firstName: matchedStudent.firstName,
-            surname: matchedStudent.surname,
-            currentClass: matchedStudent.currentClass,
-            gender: matchedStudent.gender || 'Female',
-            subjectId: selectedSubjectId,
-            subjectName: subName,
-            subjectCode: subCode,
-            assessmentType: 'Examination',
-            assessmentTitle: examTitle,
-            score: numExam,
-            maxScore: 60,
-            session,
-            term,
-            teacherComment: comment,
-          }),
-        });
-
-        if (!examRes.ok) {
-          const examText = await examRes.text();
-          let errObj: any = {};
-          try { errObj = JSON.parse(examText); } catch (_) {}
-          const errorMsg =
-            errObj.error ||
-            errObj.message ||
-            (examText.length < 200 && !examText.includes('<') ? examText : '') ||
-            `Failed to record Main Examination score (Status ${examRes.status})`;
-          throw new Error(errorMsg);
-        }
+        examSavedOnServer = await postScoreWithRetry({
+          studentId: matchedStudent.id,
+          studentNumber: matchedStudent.studentId,
+          firstName: matchedStudent.firstName,
+          surname: matchedStudent.surname,
+          currentClass: matchedStudent.currentClass,
+          gender: matchedStudent.gender || 'Female',
+          subjectId: selectedSubjectId,
+          subjectName: subName,
+          subjectCode: subCode,
+          assessmentType: 'Examination',
+          assessmentTitle: examTitle,
+          score: numExam,
+          maxScore: 60,
+          session,
+          term,
+          teacherComment: comment,
+        }, 'Main Examination');
       }
 
       // 3. Immediately sync to local broadsheet cache so it appears on Broadsheet in real time
@@ -687,10 +721,40 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
   // Delete an existing score record
   const handleDeleteScore = async (scoreId: number | string, subjectName: string) => {
     try {
+      const targetItem = existingScores.find((s) => String(s.id) === String(scoreId));
+      const targetSubId = targetItem?.subjectId || selectedSubjectId;
+      const targetType = targetItem?.assessmentType;
+      const targetTerm = targetItem?.term || term;
+
       // Optimistically remove from state immediately
       setExistingScores((prev) => prev.filter((s) => String(s.id) !== String(scoreId)));
 
-      const res = await fetch(`/api/scores/${scoreId}`, {
+      // Add to persistent deleted IDs set so it cannot resurrect from any local cache or backend query
+      try {
+        const deletedRaw = localStorage.getItem('fis_deleted_score_ids_v1');
+        const deletedIds = new Set<string>(deletedRaw ? JSON.parse(deletedRaw) : []);
+        deletedIds.add(String(scoreId));
+        if (targetItem?.id) deletedIds.add(String(targetItem.id));
+        if (matchedStudent?.id && targetSubId) {
+          deletedIds.add(`key_${matchedStudent.id}_${targetSubId}`);
+          if (targetType) deletedIds.add(`key_${matchedStudent.id}_${targetSubId}_${targetType}`);
+        }
+        if (matchedStudent?.studentId && targetSubId) {
+          deletedIds.add(`key_${matchedStudent.studentId}_${targetSubId}`);
+          if (targetType) deletedIds.add(`key_${matchedStudent.studentId}_${targetSubId}_${targetType}`);
+        }
+        localStorage.setItem('fis_deleted_score_ids_v1', JSON.stringify([...deletedIds]));
+      } catch (_) {}
+
+      // Call backend DELETE endpoint with student and subject metadata
+      const queryParams = new URLSearchParams();
+      if (matchedStudent?.id) queryParams.set('studentId', String(matchedStudent.id));
+      if (matchedStudent?.studentId) queryParams.set('studentNumber', matchedStudent.studentId);
+      if (targetSubId) queryParams.set('subjectId', String(targetSubId));
+      if (targetTerm) queryParams.set('term', targetTerm);
+      if (targetType) queryParams.set('assessmentType', targetType);
+
+      const res = await fetch(`/api/scores/${encodeURIComponent(String(scoreId))}?${queryParams.toString()}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${authToken}` },
       });
@@ -707,7 +771,7 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
         throw new Error(errorMsg);
       }
 
-      // Also clean up local broadsheet cache
+      // Clean up local broadsheet cache completely
       try {
         const cached = localStorage.getItem('fis_broadsheet_scores_v2');
         if (cached) {
@@ -715,19 +779,55 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
           const filtered = list.filter((l: any) => {
             const matchesDirectId = String(l.testId) === String(scoreId) || String(l.examId) === String(scoreId) || String(l.id) === String(scoreId);
             if (matchesDirectId) return false;
-            if (typeof scoreId === 'string') {
-              if (scoreId.startsWith('loc_ca_') && scoreId.includes(`_${l.subjectId}_`)) {
+
+            const matchesStudent = matchedStudent && (
+              String(l.studentId) === String(matchedStudent.id) ||
+              l.studentNumber === matchedStudent.studentId ||
+              (l.studentName && `${matchedStudent.firstName} ${matchedStudent.surname}`.toLowerCase().includes(l.studentName.toLowerCase()))
+            );
+            const matchesSubject = targetSubId && (
+              Number(l.subjectId) === Number(targetSubId) ||
+              (l.subjectName && targetItem?.subjectName && l.subjectName.toLowerCase() === targetItem.subjectName.toLowerCase()) ||
+              (l.subjectName && subjectName && l.subjectName.toLowerCase() === subjectName.toLowerCase())
+            );
+
+            if (matchesStudent && matchesSubject) {
+              if (targetType === 'CA' || (typeof scoreId === 'string' && scoreId.includes('ca'))) {
                 l.testScore = null;
-                l.totalScore = l.examScore || 0;
-              }
-              if (scoreId.startsWith('loc_exam_') && scoreId.includes(`_${l.subjectId}_`)) {
+                l.totalScore = Number(l.examScore || 0);
+                if (!l.examScore) return false; // remove completely
+              } else if (targetType === 'Examination' || (typeof scoreId === 'string' && scoreId.includes('exam'))) {
                 l.examScore = null;
-                l.totalScore = l.testScore || 0;
+                l.totalScore = Number(l.testScore || 0);
+                if (!l.testScore) return false; // remove completely
+              } else {
+                return false; // remove completely
               }
             }
             return true;
           });
           localStorage.setItem('fis_broadsheet_scores_v2', JSON.stringify(filtered));
+        }
+      } catch (_) {}
+
+      // Clean up local mock scores cache if applicable
+      try {
+        const rawMock = localStorage.getItem('fis_mock_scores_v2');
+        if (rawMock) {
+          const mockList = JSON.parse(rawMock);
+          const updatedMock = mockList.map((m: any) => {
+            const isMatch = matchedStudent && (String(m.studentId) === String(matchedStudent.id) || m.studentNumber === matchedStudent.studentId);
+            if (isMatch && Array.isArray(m.subjects)) {
+              m.subjects = m.subjects.filter((sub: any) => {
+                if (targetSubId && Number(sub.subjectId) === Number(targetSubId)) return false;
+                if (targetItem?.subjectName && sub.subjectName && sub.subjectName.toLowerCase() === targetItem.subjectName.toLowerCase()) return false;
+                if (subjectName && sub.subjectName && sub.subjectName.toLowerCase() === subjectName.toLowerCase()) return false;
+                return true;
+              });
+            }
+            return m;
+          });
+          localStorage.setItem('fis_mock_scores_v2', JSON.stringify(updatedMock));
         }
       } catch (_) {}
 

@@ -62,7 +62,19 @@ export const ResultsView: React.FC = () => {
       const text = await res.text();
       let data: any = {};
       try { data = JSON.parse(text); } catch (_) {}
-      setResults(data.results || []);
+      const rawList = data.results || [];
+
+      const deletedRaw = localStorage.getItem('fis_deleted_score_ids_v1');
+      const deletedIds = new Set<string>(deletedRaw ? JSON.parse(deletedRaw) : []);
+
+      const filtered = rawList.filter((r: any) => {
+        if (deletedIds.has(String(r.id))) return false;
+        if (r.studentDbId && r.subjectId && deletedIds.has(`key_${r.studentDbId}_${r.subjectId}`)) return false;
+        if (r.studentId && r.subjectId && deletedIds.has(`key_${r.studentId}_${r.subjectId}`)) return false;
+        return true;
+      });
+
+      setResults(filtered);
     } catch (e) {
       console.error('Failed to load results:', e);
     } finally {
@@ -153,10 +165,52 @@ export const ResultsView: React.FC = () => {
               ? sessionStorage.getItem('sqams_token')
               : null) || 'local-teacher-auth:teacher@school.edu';
 
+      const targetRec = results.find((r) => String(r.id) === String(id));
+
       // Optimistically update list
       setResults((prev) => prev.filter((r) => String(r.id) !== String(id)));
 
-      const res = await fetch(`/api/scores/${id}`, {
+      // Add to persistent deleted IDs set
+      try {
+        const deletedRaw = localStorage.getItem('fis_deleted_score_ids_v1');
+        const deletedIds = new Set<string>(deletedRaw ? JSON.parse(deletedRaw) : []);
+        deletedIds.add(String(id));
+        if (targetRec?.id) deletedIds.add(String(targetRec.id));
+        if (targetRec?.studentDbId && targetRec?.subjectId) {
+          deletedIds.add(`key_${targetRec.studentDbId}_${targetRec.subjectId}`);
+          if (targetRec.assessmentType) deletedIds.add(`key_${targetRec.studentDbId}_${targetRec.subjectId}_${targetRec.assessmentType}`);
+        }
+        if (targetRec?.studentId && targetRec?.subjectId) {
+          deletedIds.add(`key_${targetRec.studentId}_${targetRec.subjectId}`);
+          if (targetRec.assessmentType) deletedIds.add(`key_${targetRec.studentId}_${targetRec.subjectId}_${targetRec.assessmentType}`);
+        }
+        localStorage.setItem('fis_deleted_score_ids_v1', JSON.stringify([...deletedIds]));
+      } catch (_) {}
+
+      // Clean local broadsheet cache
+      try {
+        const cached = localStorage.getItem('fis_broadsheet_scores_v2');
+        if (cached) {
+          const list = JSON.parse(cached);
+          const filtered = list.filter((l: any) => {
+            if (String(l.id) === String(id) || String(l.testId) === String(id) || String(l.examId) === String(id)) return false;
+            const matchesSt = targetRec && (l.studentId === targetRec.studentDbId || l.studentNumber === targetRec.studentId);
+            const matchesSub = targetRec && Number(l.subjectId) === Number(targetRec.subjectId);
+            if (matchesSt && matchesSub) return false;
+            return true;
+          });
+          localStorage.setItem('fis_broadsheet_scores_v2', JSON.stringify(filtered));
+        }
+      } catch (_) {}
+
+      const queryParams = new URLSearchParams();
+      if (targetRec?.studentDbId) queryParams.set('studentId', String(targetRec.studentDbId));
+      if (targetRec?.studentId) queryParams.set('studentNumber', targetRec.studentId);
+      if (targetRec?.subjectId) queryParams.set('subjectId', String(targetRec.subjectId));
+      if (targetRec?.term) queryParams.set('term', targetRec.term);
+      if (targetRec?.assessmentType) queryParams.set('assessmentType', targetRec.assessmentType);
+
+      const res = await fetch(`/api/scores/${encodeURIComponent(String(id))}?${queryParams.toString()}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${authToken}` },
       });
@@ -167,6 +221,9 @@ export const ResultsView: React.FC = () => {
         const errorMsg = errData.error || errData.message || (text.length < 200 && !text.includes('<') ? text : '') || 'Failed to delete score';
         throw new Error(errorMsg);
       }
+
+      window.dispatchEvent(new CustomEvent('fis:scores-updated'));
+      window.dispatchEvent(new CustomEvent('fis:broadsheet-scores-updated'));
 
       setStatusMessage({
         type: 'success',

@@ -24,12 +24,20 @@ import {
   complaints
 } from './src/db/schema.ts';
 import { eq, ilike, or, and, desc, sql, isNull } from 'drizzle-orm';
-import { authenticate, AuthRequest } from './src/middleware/auth.ts';
+import { authenticate, type AuthRequest } from './src/middleware/auth.ts';
 import { seedDatabase } from './src/db/seed.ts';
 import { generateStudentId, calculateGrade, calculateWaecGrade } from './src/lib/id-generator.ts';
 import { getGeminiClient } from './src/lib/gemini.ts';
 
 dotenv.config();
+
+// Prevent unhandled rejections from crashing the process or causing FUNCTION_INVOCATION_FAILED
+process.on('uncaughtException', (err) => {
+  console.error('Unhandled process uncaughtException (handled gracefully):', err);
+});
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled process unhandledRejection (handled gracefully):', reason);
+});
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2192,29 +2200,87 @@ app.delete('/api/scores/:id', authenticate, async (req: AuthRequest, res) => {
     const rawId = String(req.params.id || '').trim();
     const scoreId = Number(rawId);
     const PG_MAX_INT = 2147483647;
-    if (!rawId || isNaN(scoreId) || scoreId <= 0 || scoreId > PG_MAX_INT) {
-      return res.json({ success: true, message: 'Local score record cleared' });
+
+    const rawStudentParam = (req.query.studentId as string || req.query.studentNumber as string || req.query.student as string || '').trim();
+    let resolvedStudentId: number | null = null;
+    if (rawStudentParam) {
+      const numSt = Number(rawStudentParam);
+      if (!isNaN(numSt) && numSt > 0 && numSt <= PG_MAX_INT) {
+        resolvedStudentId = numSt;
+      } else {
+        const found = await db.select({ id: students.id }).from(students).where(eq(students.studentId, rawStudentParam.toUpperCase())).limit(1);
+        if (found.length > 0) resolvedStudentId = found[0].id;
+      }
     }
 
-    try {
-      const existing = await db.select().from(assessments).where(eq(assessments.id, scoreId)).limit(1);
-      if (existing.length > 0) {
-        await db.delete(assessments).where(eq(assessments.id, scoreId));
+    let resolvedSubjectId: number | null = null;
+    const rawSubParam = req.query.subjectId ? Number(req.query.subjectId) : null;
+    if (rawSubParam && !isNaN(rawSubParam) && rawSubParam > 0) {
+      resolvedSubjectId = rawSubParam;
+    }
 
-        // Audit log safely wrapped in try-catch
-        try {
-          await db.insert(auditLogs).values({
-            actorName: `${req.appUser?.firstName || 'Faculty'} ${req.appUser?.lastName || 'Teacher'}`,
-            actorRole: req.appUser?.role || 'teacher',
-            action: 'SCORE_DELETED',
-            targetEntity: 'assessments',
-            details: `Deleted score record #${scoreId}`,
-            schoolId: 1,
-          });
-        } catch (_) {}
+    // Parse composite local IDs if passed e.g. loc_ca_1_2_term or loc_broad_1_2_0
+    if (rawId.startsWith('loc_')) {
+      const parts = rawId.split('_');
+      if (parts.length >= 4) {
+        const parsedSt = Number(parts[2]);
+        const parsedSub = Number(parts[3]);
+        if (!isNaN(parsedSt) && parsedSt > 0 && !resolvedStudentId) resolvedStudentId = parsedSt;
+        if (!isNaN(parsedSub) && parsedSub > 0 && !resolvedSubjectId) resolvedSubjectId = parsedSub;
       }
-    } catch (dbErr: any) {
-      console.warn('DB delete warning (record may already be cleared):', dbErr?.message || dbErr);
+    }
+
+    const termParam = (req.query.term as string || '').trim();
+    const typeParam = (req.query.assessmentType as string || '').trim();
+
+    // 1. Delete by direct numeric primary key ID if valid
+    if (rawId && !isNaN(scoreId) && scoreId > 0 && scoreId <= PG_MAX_INT) {
+      try {
+        const existing = await db.select().from(assessments).where(eq(assessments.id, scoreId)).limit(1);
+        if (existing.length > 0) {
+          if (!resolvedStudentId) resolvedStudentId = existing[0].studentId;
+          if (!resolvedSubjectId) resolvedSubjectId = existing[0].subjectId;
+          await db.delete(assessments).where(eq(assessments.id, scoreId));
+
+          try {
+            await db.insert(auditLogs).values({
+              actorName: `${req.appUser?.firstName || 'Faculty'} ${req.appUser?.lastName || 'Teacher'}`,
+              actorRole: req.appUser?.role || 'teacher',
+              action: 'SCORE_DELETED',
+              targetEntity: 'assessments',
+              details: `Deleted score record #${scoreId} for student #${existing[0].studentId} in subject #${existing[0].subjectId}`,
+              schoolId: 1,
+            });
+          } catch (_) {}
+        }
+      } catch (dbErr: any) {
+        console.warn('DB delete by primary key warning:', dbErr?.message || dbErr);
+      }
+    }
+
+    // 2. Also delete from assessments by student and subject in case of composite/type delete
+    if (resolvedStudentId && resolvedSubjectId) {
+      try {
+        const conditions = [
+          eq(assessments.studentId, resolvedStudentId),
+          eq(assessments.subjectId, resolvedSubjectId),
+        ];
+        if (termParam && termParam !== 'all') {
+          conditions.push(ilike(assessments.term, `%${termParam}%`));
+        }
+        if (typeParam) {
+          if (typeParam === 'CA') {
+            conditions.push(or(eq(assessments.assessmentType, 'CA'), ilike(assessments.assessmentType, '%test%'), ilike(assessments.assessmentType, '%continuous%'))!);
+          } else if (typeParam === 'Examination') {
+            conditions.push(or(eq(assessments.assessmentType, 'Examination'), ilike(assessments.assessmentType, '%exam%'))!);
+          } else {
+            conditions.push(eq(assessments.assessmentType, typeParam));
+          }
+        }
+        await db.delete(assessments).where(and(...conditions));
+      } catch (err: any) {
+        console.warn('Composite assessment delete warning:', err?.message || err);
+      }
     }
 
     return res.json({ success: true, message: 'Score record successfully deleted' });

@@ -208,6 +208,22 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           } catch (_) {}
         }
 
+        const deletedRaw = localStorage.getItem('fis_deleted_score_ids_v1');
+        const deletedIds = new Set<string>(deletedRaw ? JSON.parse(deletedRaw) : []);
+
+        const isScoreDeleted = (id: any, subId?: any, aType?: any) => {
+          if (id && deletedIds.has(String(id))) return true;
+          if (subId) {
+            if (deletedIds.has(`key_${resolvedStudent!.id}_${subId}`) || deletedIds.has(`key_${resolvedStudent!.studentId}_${subId}`)) return true;
+            if (aType) {
+              if (deletedIds.has(`key_${resolvedStudent!.id}_${subId}_${aType}`) || deletedIds.has(`key_${resolvedStudent!.studentId}_${subId}_${aType}`)) return true;
+            }
+          }
+          return false;
+        };
+
+        realAssessments = realAssessments.filter((a) => !isScoreDeleted(a.id, a.subjectId, a.assessmentType));
+
         // Fetch SS3 Mock scores from Backend API
         try {
           const res = await fetch(
@@ -221,12 +237,13 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
             let mData: any = {};
             try { mData = JSON.parse(mText); } catch (_) {}
             if (mData && Array.isArray(mData.scores) && mData.scores.length > 0) {
-              realMockScores = mData.scores;
+              realMockScores = mData.scores.filter((m: any) => !isScoreDeleted(m.id, m.subjectId, 'SS3_MOCK'));
             } else if (mData && Array.isArray(mData.weeklySummaries)) {
               const flat: any[] = [];
               for (const ws of mData.weeklySummaries) {
                 if (Array.isArray(ws.subjects)) {
                   for (const sub of ws.subjects) {
+                    if (isScoreDeleted(sub.id, sub.subjectId, 'SS3_MOCK')) continue;
                     flat.push({
                       id: sub.id || `${ws.weekNumber}_${sub.subjectId}`,
                       studentId: resolvedStudent.studentId,
@@ -259,24 +276,26 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
               .eq('student_id', resolvedStudent.id);
 
             if (supaMocks && supaMocks.length > 0) {
-              realMockScores = supaMocks.map((m: any) => ({
-                id: m.id,
-                studentId: resolvedStudent!.studentId,
-                subjectId: m.subject_id,
-                subjectName: m.subjects?.name || 'Mock Subject',
-                subjectCode: m.subjects?.code || 'SS3 CORE',
-                weekNumber: m.week_number || 1,
-                score: Number(m.score) || 0,
-                maxScore: Number(m.max_score) || 100,
-                percentage: Number(m.percentage) || Number(m.score) || 0,
-                grade: m.grade || 'C4',
-                remark: m.remark || 'Satisfactory',
-              }));
+              realMockScores = supaMocks
+                .filter((m: any) => !isScoreDeleted(m.id, m.subject_id, 'SS3_MOCK'))
+                .map((m: any) => ({
+                  id: m.id,
+                  studentId: resolvedStudent!.studentId,
+                  subjectId: m.subject_id,
+                  subjectName: m.subjects?.name || 'Mock Subject',
+                  subjectCode: m.subjects?.code || 'SS3 CORE',
+                  weekNumber: m.week_number || 1,
+                  score: Number(m.score) || 0,
+                  maxScore: Number(m.max_score) || 100,
+                  percentage: Number(m.percentage) || Number(m.score) || 0,
+                  grade: m.grade || 'C4',
+                  remark: m.remark || 'Satisfactory',
+                }));
             }
           } catch (_) {}
         }
 
-        // Merge from localStorage fis_broadsheet_scores_v2
+        // Merge from localStorage fis_broadsheet_scores_v2 (strictly excluding deleted scores)
         try {
           const rawBroad = localStorage.getItem('fis_broadsheet_scores_v2');
           if (rawBroad) {
@@ -287,6 +306,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                 (b.studentNumber && b.studentNumber === resolvedStudent!.studentId)
             );
             studentBroad.forEach((b: any, idx: number) => {
+              if (isScoreDeleted(b.id || b.testId || b.examId, b.subjectId)) return;
               const total = Number(b.totalScore || ((b.testScore || 0) + (b.examScore || 0)));
               const subName = b.subjectName || 'Subject';
               const title = `${b.examPeriod === 'first-half' ? '1st Half Term' : 'Terminal Term'} Examination`;
@@ -321,7 +341,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           }
         } catch (_) {}
 
-        // Merge from localStorage fis_mock_scores_v2
+        // Merge from localStorage fis_mock_scores_v2 (strictly excluding deleted scores)
         try {
           const rawMock = localStorage.getItem('fis_mock_scores_v2');
           if (rawMock) {
@@ -334,6 +354,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
             studentMocks.forEach((sm: any) => {
               if (Array.isArray(sm.subjects)) {
                 sm.subjects.forEach((sub: any) => {
+                  if (isScoreDeleted(sub.id, sub.subjectId, 'SS3_MOCK')) return;
                   const sScore = Number(sub.score || sub.scaledScore || 0);
                   const already = realMockScores.some(
                     (rm) => rm.weekNumber === (sm.weekNumber || 1) && (rm.subjectId === sub.subjectId || rm.subjectName === sub.subjectName)
@@ -501,7 +522,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     }
   };
 
-  const handleDeleteScore = async (scoreId: number | string, subjectTitle: string) => {
+  const handleDeleteScore = async (scoreId: number | string, subjectTitle: string, targetAssessment?: any) => {
     try {
       const isFaculty = user && user.role !== 'student' && user.role !== 'bursar';
       const authToken =
@@ -516,10 +537,40 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
               ? sessionStorage.getItem('sqams_token')
               : null) || 'local-teacher-auth:teacher@school.edu';
 
+      const foundAssessment = targetAssessment || assessments.find((a) => String(a.id) === String(scoreId));
+      const targetSubId = foundAssessment?.subjectId;
+      const targetTerm = foundAssessment?.term;
+      const targetType = foundAssessment?.assessmentType;
+
       // Optimistically remove from state immediately
       setAssessments((prev) => prev.filter((a) => String(a.id) !== String(scoreId)));
 
-      const res = await fetch(`/api/scores/${scoreId}`, {
+      // Add to persistent deleted IDs set
+      try {
+        const deletedRaw = localStorage.getItem('fis_deleted_score_ids_v1');
+        const deletedIds = new Set<string>(deletedRaw ? JSON.parse(deletedRaw) : []);
+        deletedIds.add(String(scoreId));
+        if (foundAssessment?.id) deletedIds.add(String(foundAssessment.id));
+        if (student?.id && targetSubId) {
+          deletedIds.add(`key_${student.id}_${targetSubId}`);
+          if (targetType) deletedIds.add(`key_${student.id}_${targetSubId}_${targetType}`);
+        }
+        if (student?.studentId && targetSubId) {
+          deletedIds.add(`key_${student.studentId}_${targetSubId}`);
+          if (targetType) deletedIds.add(`key_${student.studentId}_${targetSubId}_${targetType}`);
+        }
+        localStorage.setItem('fis_deleted_score_ids_v1', JSON.stringify([...deletedIds]));
+      } catch (_) {}
+
+      // Delete from backend API
+      const queryParams = new URLSearchParams();
+      if (student?.id) queryParams.set('studentId', String(student.id));
+      if (student?.studentId) queryParams.set('studentNumber', student.studentId);
+      if (targetSubId) queryParams.set('subjectId', String(targetSubId));
+      if (targetTerm) queryParams.set('term', targetTerm);
+      if (targetType) queryParams.set('assessmentType', targetType);
+
+      const res = await fetch(`/api/scores/${encodeURIComponent(String(scoreId))}?${queryParams.toString()}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${authToken}` },
       });
@@ -532,7 +583,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
         throw new Error(errorMsg);
       }
 
-      // Also clean up local broadsheet cache
+      // Also clean up local broadsheet cache completely
       try {
         const cached = localStorage.getItem('fis_broadsheet_scores_v2');
         if (cached) {
@@ -540,12 +591,36 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           const filtered = list.filter((l: any) => {
             const matchesDirectId = String(l.testId) === String(scoreId) || String(l.examId) === String(scoreId) || String(l.id) === String(scoreId);
             if (matchesDirectId) return false;
-            if (typeof scoreId === 'string' && scoreId.includes('loc_broad_') && scoreId.includes(`_${l.subjectId}_`)) {
-              return false;
+
+            const matchesStudent = student && (l.studentId === student.id || String(l.studentId) === String(student.id) || l.studentNumber === student.studentId);
+            const matchesSubject = targetSubId && (Number(l.subjectId) === Number(targetSubId) || (l.subjectName && foundAssessment?.subjectName && l.subjectName.toLowerCase() === foundAssessment.subjectName.toLowerCase()));
+
+            if (matchesStudent && matchesSubject) {
+              return false; // remove completely
             }
             return true;
           });
           localStorage.setItem('fis_broadsheet_scores_v2', JSON.stringify(filtered));
+        }
+      } catch (_) {}
+
+      // Clean up mock scores cache if applicable
+      try {
+        const rawMock = localStorage.getItem('fis_mock_scores_v2');
+        if (rawMock) {
+          const mockList = JSON.parse(rawMock);
+          const updatedMock = mockList.map((m: any) => {
+            const isMatch = student && (String(m.studentId) === String(student.id) || m.studentNumber === student.studentId);
+            if (isMatch && Array.isArray(m.subjects)) {
+              m.subjects = m.subjects.filter((sub: any) => {
+                if (targetSubId && Number(sub.subjectId) === Number(targetSubId)) return false;
+                if (foundAssessment?.subjectName && sub.subjectName && sub.subjectName.toLowerCase() === foundAssessment.subjectName.toLowerCase()) return false;
+                return true;
+              });
+            }
+            return m;
+          });
+          localStorage.setItem('fis_mock_scores_v2', JSON.stringify(updatedMock));
         }
       } catch (_) {}
 
@@ -1067,7 +1142,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                                     </button>
                                     <button
                                       type="button"
-                                      onClick={() => handleDeleteScore(a.id, a.subjectName)}
+                                      onClick={() => handleDeleteScore(a.id, a.subjectName, a)}
                                       className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 hover:border-rose-400 transition cursor-pointer"
                                       title="Delete this recorded score"
                                     >
