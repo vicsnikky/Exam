@@ -46,6 +46,7 @@ export interface Student {
 export interface StudentFeeAdjustment {
   studentId: string;
   studentDbId?: number;
+  customTuitionFee?: number; // Optional custom baseline tuition fee for this scholar
   residenceType: 'day' | 'hostel'; // 'day' (Day Student, default) | 'hostel' (Boarder, +hostel fee)
   hostelFee?: number; // Optional custom hostel fee, or null to use school default (e.g. ₦80,000)
   scholarshipType: 'none' | 'full' | 'half' | 'percentage' | 'fixed';

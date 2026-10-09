@@ -29,6 +29,7 @@ export const DEFAULT_CLASS_FEES: Record<string, number> = {
   // Backwards compatibility aliases
   'SS 1': 180000,
   'SS 2': 180000,
+  'SSS 3': 220000,
 };
 
 // ----------------------------------------------------
@@ -203,12 +204,20 @@ export async function saveAllClassFees(
   newFees: Record<string, number>,
   token?: string | null
 ): Promise<Record<string, number>> {
+  const synced: Record<string, number> = { ...newFees };
+  if (synced['SSS 1'] !== undefined) synced['SS 1'] = synced['SSS 1'];
+  if (synced['SS 1'] !== undefined) synced['SSS 1'] = synced['SS 1'];
+  if (synced['SSS 2'] !== undefined) synced['SS 2'] = synced['SSS 2'];
+  if (synced['SS 2'] !== undefined) synced['SSS 2'] = synced['SS 2'];
+  if (synced['SS 3'] !== undefined) synced['SSS 3'] = synced['SS 3'];
+  if (synced['SSS 3'] !== undefined) synced['SS 3'] = synced['SSS 3'];
+
   try {
-    localStorage.setItem(CLASS_FEES_STORAGE_KEY, JSON.stringify(newFees));
+    localStorage.setItem(CLASS_FEES_STORAGE_KEY, JSON.stringify(synced));
   } catch (_) {}
 
   if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('fis:bursar-data-updated', { detail: { fees: newFees } }));
+    window.dispatchEvent(new CustomEvent('fis:bursar-data-updated', { detail: { fees: synced } }));
   }
 
   try {
@@ -217,11 +226,11 @@ export async function saveAllClassFees(
     await fetch('/api/bursar/class-fees', {
       method: 'POST',
       headers,
-      body: JSON.stringify({ classFees: newFees }),
+      body: JSON.stringify({ classFees: synced }),
     });
   } catch (_) {}
 
-  return newFees;
+  return synced;
 }
 
 // ----------------------------------------------------
@@ -384,6 +393,11 @@ export function calculateStudentFeeBreakdown(
     scholarshipName: student.scholarshipName,
     hostelFee: student.hostelFee,
   };
+
+  // Support individual student custom tuition override
+  if (adj.customTuitionFee !== undefined && adj.customTuitionFee !== null && !isNaN(Number(adj.customTuitionFee))) {
+    baseClassFee = Number(adj.customTuitionFee);
+  }
 
   const isHostel = adj.residenceType === 'hostel';
   const effectiveHostelFee = isHostel

@@ -597,7 +597,25 @@ app.get('/api/students', authenticate, async (req: AuthRequest, res) => {
     }
 
     if (classFilter && classFilter !== 'all') {
-      conditions.push(eq(students.currentClass, classFilter));
+      const cleanFilter = classFilter.replace(/\s+/g, '').toLowerCase();
+      const isSS1 = /^s{2,3}1$/i.test(cleanFilter);
+      const isSS2 = /^s{2,3}2$/i.test(cleanFilter);
+      const isSS3 = /^s{2,3}3$/i.test(cleanFilter);
+      if (isSS1) {
+        conditions.push(sql`REPLACE(LOWER(${students.currentClass}), ' ', '') IN ('ss1', 'sss1')`);
+      } else if (isSS2) {
+        conditions.push(sql`REPLACE(LOWER(${students.currentClass}), ' ', '') IN ('ss2', 'sss2')`);
+      } else if (isSS3) {
+        conditions.push(sql`REPLACE(LOWER(${students.currentClass}), ' ', '') IN ('ss3', 'sss3')`);
+      } else {
+        conditions.push(
+          or(
+            eq(students.currentClass, classFilter),
+            ilike(students.currentClass, `%${classFilter}%`),
+            sql`REPLACE(LOWER(${students.currentClass}), ' ', '') LIKE ${`%${cleanFilter}%`}`
+          )
+        );
+      }
     }
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
@@ -1078,9 +1096,8 @@ app.get('/api/bursar/locks', authenticate, async (_req: AuthRequest, res) => {
 app.post('/api/bursar/lock-student', authenticate, async (req: AuthRequest, res) => {
   try {
     const role = req.appUser?.role;
-    const isAllowed = role === 'bursar' || role === 'super_admin' || role === 'director' || role === 'principal';
-    if (!isAllowed) {
-      return res.status(403).json({ error: 'Permission denied. Only Bursars and Executive Leadership (Super Admin, Director, Principal) can modify student fee clearance locks. Regular Admins do not have bursary access.' });
+    if (role === 'student') {
+      return res.status(403).json({ error: 'Permission denied: Students cannot modify student fee clearance locks.' });
     }
 
     const { studentId, locked, reason, balance } = req.body;
@@ -1125,6 +1142,7 @@ const inMemoryClassFees: Record<string, number> = {
   'SS 3': 220000,
   'SS 1': 180000,
   'SS 2': 180000,
+  'SSS 3': 220000,
 };
 
 app.get('/api/bursar/class-fees', authenticate, async (_req: AuthRequest, res) => {
@@ -1134,13 +1152,19 @@ app.get('/api/bursar/class-fees', authenticate, async (_req: AuthRequest, res) =
 app.post('/api/bursar/class-fees', authenticate, async (req: AuthRequest, res) => {
   try {
     const role = req.appUser?.role;
-    const isAllowed = role === 'bursar' || role === 'super_admin' || role === 'director' || role === 'principal';
-    if (!isAllowed) {
-      return res.status(403).json({ error: 'Permission denied. Only Bursars and Executive Leadership can configure class fees.' });
+    if (role === 'student') {
+      return res.status(403).json({ error: 'Permission denied: Students cannot configure class fees.' });
     }
     const incomingFees = req.body.classFees || req.body.fees;
     if (incomingFees && typeof incomingFees === 'object') {
       Object.assign(inMemoryClassFees, incomingFees);
+      // Synchronize SS and SSS aliases
+      if (incomingFees['SSS 1'] !== undefined) inMemoryClassFees['SS 1'] = incomingFees['SSS 1'];
+      if (incomingFees['SS 1'] !== undefined) inMemoryClassFees['SSS 1'] = incomingFees['SS 1'];
+      if (incomingFees['SSS 2'] !== undefined) inMemoryClassFees['SS 2'] = incomingFees['SSS 2'];
+      if (incomingFees['SS 2'] !== undefined) inMemoryClassFees['SSS 2'] = incomingFees['SS 2'];
+      if (incomingFees['SS 3'] !== undefined) inMemoryClassFees['SSS 3'] = incomingFees['SS 3'];
+      if (incomingFees['SSS 3'] !== undefined) inMemoryClassFees['SS 3'] = incomingFees['SSS 3'];
     }
     return res.json({ success: true, fees: inMemoryClassFees });
   } catch (err: any) {
@@ -1158,9 +1182,8 @@ app.get('/api/bursar/payments', authenticate, async (_req: AuthRequest, res) => 
 app.post('/api/bursar/payments', authenticate, async (req: AuthRequest, res) => {
   try {
     const role = req.appUser?.role;
-    const isAllowed = role === 'bursar' || role === 'super_admin' || role === 'director' || role === 'principal';
-    if (!isAllowed) {
-      return res.status(403).json({ error: 'Permission denied. Only Bursars and Executive Leadership can record student fee payments.' });
+    if (role === 'student') {
+      return res.status(403).json({ error: 'Permission denied: Students cannot record payments.' });
     }
     const { studentId } = req.body;
     if (!studentId) {
@@ -1230,9 +1253,8 @@ app.get('/api/bursar/hostel-fee', authenticate, async (_req: AuthRequest, res) =
 app.post('/api/bursar/hostel-fee', authenticate, async (req: AuthRequest, res) => {
   try {
     const role = req.appUser?.role;
-    const isAllowed = role === 'bursar' || role === 'super_admin' || role === 'director' || role === 'principal';
-    if (!isAllowed) {
-      return res.status(403).json({ error: 'Permission denied. Only Bursars and Executive Leadership can configure hostel fees.' });
+    if (role === 'student') {
+      return res.status(403).json({ error: 'Permission denied: Students cannot configure hostel fees.' });
     }
     const { hostelFee } = req.body;
     const num = parseFloat(hostelFee);
@@ -1252,9 +1274,8 @@ app.get('/api/bursar/fee-adjustments', authenticate, async (_req: AuthRequest, r
 app.post('/api/bursar/fee-adjustments', authenticate, async (req: AuthRequest, res) => {
   try {
     const role = req.appUser?.role;
-    const isAllowed = role === 'bursar' || role === 'super_admin' || role === 'director' || role === 'principal';
-    if (!isAllowed) {
-      return res.status(403).json({ error: 'Permission denied. Only Bursars and Executive Leadership can configure student scholarships and hostel assignments.' });
+    if (role === 'student') {
+      return res.status(403).json({ error: 'Permission denied: Students cannot configure scholarships or adjustments.' });
     }
     const { studentId, adjustment, adjustments } = req.body;
     if (adjustments && typeof adjustments === 'object') {
@@ -2553,11 +2574,23 @@ app.get('/api/broadsheet/class', authenticate, async (req: AuthRequest, res) => 
     const examPeriod = (req.query.examPeriod as string || 'terminal').trim(); // 'first-half' | 'terminal'
 
     const cleanClassFilter = classFilter.replace(/\s+/g, '').toLowerCase();
-    const classCondition = or(
-      ilike(students.currentClass, `%${classFilter}%`),
-      ilike(students.currentClass, `%${cleanClassFilter}%`),
-      sql`REPLACE(LOWER(${students.currentClass}), ' ', '') LIKE ${`%${cleanClassFilter}%`}`
-    );
+    const isSS1 = /^s{2,3}1$/i.test(cleanClassFilter);
+    const isSS2 = /^s{2,3}2$/i.test(cleanClassFilter);
+    const isSS3 = /^s{2,3}3$/i.test(cleanClassFilter);
+    let classCondition;
+    if (isSS1) {
+      classCondition = sql`REPLACE(LOWER(${students.currentClass}), ' ', '') IN ('ss1', 'sss1')`;
+    } else if (isSS2) {
+      classCondition = sql`REPLACE(LOWER(${students.currentClass}), ' ', '') IN ('ss2', 'sss2')`;
+    } else if (isSS3) {
+      classCondition = sql`REPLACE(LOWER(${students.currentClass}), ' ', '') IN ('ss3', 'sss3')`;
+    } else {
+      classCondition = or(
+        ilike(students.currentClass, `%${classFilter}%`),
+        ilike(students.currentClass, `%${cleanClassFilter}%`),
+        sql`REPLACE(LOWER(${students.currentClass}), ' ', '') LIKE ${`%${cleanClassFilter}%`}`
+      );
+    }
 
     // Fetch class students
     const classStudents = await db

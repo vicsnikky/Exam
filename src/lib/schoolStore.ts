@@ -432,8 +432,12 @@ export async function fetchAllStudentsUnified(token?: string | null): Promise<St
 
   // Save to local cache so all components have complete roster
   try {
-    localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(cleanMerged));
-    window.dispatchEvent(new CustomEvent('fis:students-updated', { detail: cleanMerged }));
+    const existingRaw = localStorage.getItem(STORAGE_KEYS.STUDENTS);
+    const newRaw = JSON.stringify(cleanMerged);
+    if (existingRaw !== newRaw) {
+      localStorage.setItem(STORAGE_KEYS.STUDENTS, newRaw);
+      window.dispatchEvent(new CustomEvent('fis:students-updated', { detail: cleanMerged }));
+    }
   } catch (_) {}
 
   return cleanMerged;

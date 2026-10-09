@@ -134,12 +134,15 @@ export const BursarDashboard: React.FC = () => {
     note: 'Tuition payment received',
   });
 
-  // Edit / Correct Recorded Fee Modal (in case of wrong entry)
+  // Edit / Correct Recorded Fee Modal (in case of wrong entry or fee adjustment)
   const [editFeeModal, setEditFeeModal] = useState<{
     isOpen: boolean;
     student: Student | null;
     currentPaid: number;
     correctedAmount: string;
+    currentRequiredFee: number;
+    customRequiredFee: string;
+    overrideTuition: boolean;
     note: string;
     receiptNo: string;
   }>({
@@ -147,6 +150,9 @@ export const BursarDashboard: React.FC = () => {
     student: null,
     currentPaid: 0,
     correctedAmount: '',
+    currentRequiredFee: 150000,
+    customRequiredFee: '',
+    overrideTuition: false,
     note: 'Correction of wrong entry by Bursar',
     receiptNo: '',
   });
@@ -169,17 +175,22 @@ export const BursarDashboard: React.FC = () => {
       setFeeLocks(currentLocks);
       setClassFees(currentFees);
 
-      const feeStrings: Record<string, string> = {};
-      CLASS_OPTIONS.forEach((c) => {
-        const amt = currentFees[c] !== undefined ? currentFees[c] : (DEFAULT_CLASS_FEES[c] ?? 150000);
-        feeStrings[c] = String(amt);
+      // Only initialize class fee inputs for classes that haven't been edited by the user
+      setClassFeeInputs((prev) => {
+        const feeStrings: Record<string, string> = { ...prev };
+        CLASS_OPTIONS.forEach((c) => {
+          if (feeStrings[c] === undefined) {
+            const amt = currentFees[c] !== undefined ? currentFees[c] : (DEFAULT_CLASS_FEES[c] ?? 150000);
+            feeStrings[c] = String(amt);
+          }
+        });
+        return feeStrings;
       });
-      setClassFeeInputs(feeStrings);
 
       setPayments(currentPayments);
       setFeeAdjustments(currentAdjustments);
       setHostelFeeState(currentHostel);
-      setHostelFeeInput(String(currentHostel));
+      setHostelFeeInput((prev) => (prev !== undefined && prev !== '' ? prev : String(currentHostel)));
     } catch (e) {
       console.warn('Error loading bursary data:', e);
     } finally {
@@ -200,14 +211,22 @@ export const BursarDashboard: React.FC = () => {
       setHostelFeeState(hFee);
     };
 
+    const handleStudentsUpdated = (e: any) => {
+      if (e?.detail && Array.isArray(e.detail)) {
+        setStudents(e.detail);
+      } else {
+        fetchAllStudentsUnified(token).then((sts) => setStudents(sts)).catch(() => {});
+      }
+    };
+
     window.addEventListener('fis:bursar-data-updated', handleUpdate);
     window.addEventListener('fis:fee-locks-updated', handleUpdate);
-    window.addEventListener('fis:students-updated', loadData);
+    window.addEventListener('fis:students-updated', handleStudentsUpdated);
 
     return () => {
       window.removeEventListener('fis:bursar-data-updated', handleUpdate);
       window.removeEventListener('fis:fee-locks-updated', handleUpdate);
-      window.removeEventListener('fis:students-updated', loadData);
+      window.removeEventListener('fis:students-updated', handleStudentsUpdated);
     };
   }, [token]);
 
@@ -262,17 +281,26 @@ export const BursarDashboard: React.FC = () => {
     });
   };
 
-  // Open Edit / Correct Fee Modal (in case of wrong entry)
+  // Open Edit / Correct Fee Modal (Allows editing scholar required fee and payment)
   const openEditFeeModal = (st: Student) => {
     const sId = (st.studentId || String(st.id)).toUpperCase();
     const currentRecord = payments[sId];
     const currentPaid = currentRecord ? currentRecord.amountPaid : (st.amountPaid || 0);
+
+    const adj = feeAdjustments[sId] || feeAdjustments[String(st.id)];
+    const baseClassFee = classFees[st.currentClass] || DEFAULT_CLASS_FEES[st.currentClass] || 150000;
+    const currentRequired = adj?.customTuitionFee !== undefined && adj?.customTuitionFee !== null
+      ? adj.customTuitionFee
+      : baseClassFee;
 
     setEditFeeModal({
       isOpen: true,
       student: st,
       currentPaid,
       correctedAmount: String(currentPaid),
+      currentRequiredFee: currentRequired,
+      customRequiredFee: String(currentRequired),
+      overrideTuition: adj?.customTuitionFee !== undefined && adj?.customTuitionFee !== null,
       note: 'Correction of wrong entry by Bursar',
       receiptNo: `CORR-${Date.now().toString().slice(-6)}`,
     });
@@ -318,14 +346,14 @@ export const BursarDashboard: React.FC = () => {
     }
   };
 
-  // Submit Corrected Fee Record (In case of wrong entry)
+  // Submit Corrected Fee Record (In case of wrong entry or customized required tuition)
   const handleSubmitEditFee = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editFeeModal.student) return;
 
     const val = parseFloat(editFeeModal.correctedAmount);
     if (isNaN(val) || val < 0) {
-      showToast('error', 'Please enter a valid corrected amount (0 or greater).');
+      showToast('error', 'Please enter a valid corrected paid amount (0 or greater).');
       return;
     }
 
@@ -333,10 +361,33 @@ export const BursarDashboard: React.FC = () => {
     const sId = (st.studentId || String(st.id)).toUpperCase();
 
     try {
+      // 1. If custom tuition override is enabled, save fee adjustment
+      if (editFeeModal.overrideTuition) {
+        const customTuitionVal = Math.max(0, parseFloat(editFeeModal.customRequiredFee) || 0);
+        const savedAdj = await setStudentFeeAdjustment(
+          sId,
+          {
+            customTuitionFee: customTuitionVal,
+            updatedBy: `${user?.firstName || 'Bursar'} (${user?.role || 'Bursary'})`,
+          },
+          {
+            currentClass: st.currentClass,
+            studentDbId: st.id,
+            token,
+          }
+        );
+        setFeeAdjustments((prev) => ({
+          ...prev,
+          [sId]: savedAdj,
+          [String(st.id)]: savedAdj,
+        }));
+      }
+
+      // 2. Save payment record
       const updated = await recordStudentPayment(sId, val, {
         isAddition: false, // Set total cumulative paid directly to corrected amount!
         receiptNo: editFeeModal.receiptNo || `CORR-${Date.now().toString().slice(-6)}`,
-        note: editFeeModal.note || 'Correction of wrong entry by Bursar',
+        note: editFeeModal.note || 'Correction of fee entry by Bursar',
         updatedBy: `${user?.firstName || 'Bursar'} (${user?.role || 'Bursary'})`,
         studentDbId: st.id,
         currentClass: st.currentClass,
@@ -366,28 +417,49 @@ export const BursarDashboard: React.FC = () => {
 
       setEditFeeModal((prev) => ({ ...prev, isOpen: false }));
 
-      const requiredFee = classFees[st.currentClass] || DEFAULT_CLASS_FEES[st.currentClass] || 150000;
-      const remainingBalance = Math.max(0, requiredFee - val);
+      const baseClassFee = classFees[st.currentClass] || DEFAULT_CLASS_FEES[st.currentClass] || 150000;
+      const effectiveRequired = editFeeModal.overrideTuition
+        ? Math.max(0, parseFloat(editFeeModal.customRequiredFee) || 0)
+        : baseClassFee;
+      const remainingBalance = Math.max(0, effectiveRequired - val);
 
       showToast(
         'success',
-        `Fee record for ${st.firstName} ${st.surname} (${st.studentId}) corrected to ₦${val.toLocaleString()}. Remaining balance: ₦${remainingBalance.toLocaleString()}.`
+        `Fee record for ${st.firstName} ${st.surname} (${st.studentId}) updated! Required Bill: ₦${effectiveRequired.toLocaleString()}, Total Paid: ₦${val.toLocaleString()}, Balance: ₦${remainingBalance.toLocaleString()}.`
       );
     } catch (err: any) {
-      showToast('error', 'Error updating corrected fee: ' + (err.message || 'Failed'));
+      showToast('error', 'Error updating fee record: ' + (err.message || 'Failed'));
     }
   };
 
   // Save single class fee benchmark
   const handleSaveSingleClassFee = async (cName: string) => {
     const rawVal = classFeeInputs[cName];
-    const num = Math.max(0, parseFloat(rawVal || '0') || 0);
+    const num = rawVal === '' ? 0 : Math.max(0, parseFloat(rawVal || '0') || 0);
     setSavingClassKey(cName);
     try {
       const updated = { ...classFees, [cName]: num };
+      // Keep aliases in sync
+      if (cName === 'SS 1' || cName === 'SSS 1') {
+        updated['SS 1'] = num;
+        updated['SSS 1'] = num;
+      } else if (cName === 'SS 2' || cName === 'SSS 2') {
+        updated['SS 2'] = num;
+        updated['SSS 2'] = num;
+      } else if (cName === 'SS 3' || cName === 'SSS 3') {
+        updated['SS 3'] = num;
+        updated['SSS 3'] = num;
+      }
+
       await saveAllClassFees(updated, token);
       setClassFees(updated);
-      setClassFeeInputs((prev) => ({ ...prev, [cName]: String(num) }));
+      setClassFeeInputs((prev) => ({
+        ...prev,
+        [cName]: String(num),
+        ...(cName === 'SS 1' || cName === 'SSS 1' ? { 'SS 1': String(num), 'SSS 1': String(num) } : {}),
+        ...(cName === 'SS 2' || cName === 'SSS 2' ? { 'SS 2': String(num), 'SSS 2': String(num) } : {}),
+        ...(cName === 'SS 3' || cName === 'SSS 3' ? { 'SS 3': String(num), 'SSS 3': String(num) } : {}),
+      }));
       setSavedClassFeedback((prev) => ({ ...prev, [cName]: true }));
       setTimeout(() => {
         setSavedClassFeedback((prev) => ({ ...prev, [cName]: false }));
@@ -407,6 +479,17 @@ export const BursarDashboard: React.FC = () => {
     setSavingClassKey(cName);
     try {
       const updated = { ...classFees, [cName]: defaultVal };
+      if (cName === 'SS 1' || cName === 'SSS 1') {
+        updated['SS 1'] = defaultVal;
+        updated['SSS 1'] = defaultVal;
+      } else if (cName === 'SS 2' || cName === 'SSS 2') {
+        updated['SS 2'] = defaultVal;
+        updated['SSS 2'] = defaultVal;
+      } else if (cName === 'SS 3' || cName === 'SSS 3') {
+        updated['SS 3'] = defaultVal;
+        updated['SSS 3'] = defaultVal;
+      }
+
       await saveAllClassFees(updated, token);
       setClassFees(updated);
       setSavedClassFeedback((prev) => ({ ...prev, [cName]: true }));
@@ -430,8 +513,18 @@ export const BursarDashboard: React.FC = () => {
         const val = classFeeInputs[c];
         if (val !== undefined && val.trim() !== '') {
           updated[c] = Math.max(0, parseFloat(val) || 0);
+        } else if (val === '') {
+          updated[c] = 0;
         }
       });
+      // Synchronize aliases
+      if (updated['SSS 1'] !== undefined) updated['SS 1'] = updated['SSS 1'];
+      if (updated['SS 1'] !== undefined) updated['SSS 1'] = updated['SS 1'];
+      if (updated['SSS 2'] !== undefined) updated['SS 2'] = updated['SSS 2'];
+      if (updated['SS 2'] !== undefined) updated['SSS 2'] = updated['SS 2'];
+      if (updated['SS 3'] !== undefined) updated['SSS 3'] = updated['SS 3'];
+      if (updated['SSS 3'] !== undefined) updated['SS 3'] = updated['SSS 3'];
+
       await saveAllClassFees(updated, token);
       setClassFees(updated);
       showToast('success', 'All class fee benchmarks updated and synced across all debtor ledgers!');
@@ -813,16 +906,22 @@ export const BursarDashboard: React.FC = () => {
               </span>
               <button
                 onClick={() => setSelectedClass('all')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
                   selectedClass === 'all'
                     ? 'bg-rose-600 text-white shadow-md'
                     : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
                 }`}
               >
-                All Classes
+                <span>All Classes</span>
+                <span className="text-[10px] px-1.5 py-0.2 bg-slate-900/70 text-rose-300 rounded-full font-mono">
+                  {debtorsList.length}
+                </span>
               </button>
               {CLASS_OPTIONS.map((cName) => {
-                const count = students.filter((s) => isSameClass(s.currentClass, cName)).length;
+                const debtorCount = studentsWithStatus.filter(
+                  (x) => x.status.isDebtor && isSameClass(x.student.currentClass, cName)
+                ).length;
+                const totalEnrolled = students.filter((s) => isSameClass(s.currentClass, cName)).length;
                 return (
                   <button
                     key={cName}
@@ -832,10 +931,11 @@ export const BursarDashboard: React.FC = () => {
                         ? 'bg-rose-600 text-white shadow-md'
                         : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
                     }`}
+                    title={`${cName}: ${debtorCount} debtor${debtorCount === 1 ? '' : 's'} (${totalEnrolled} total enrolled)`}
                   >
                     <span>{cName}</span>
                     <span className="text-[10px] px-1.5 py-0.2 bg-slate-900/70 text-amber-300 rounded-full font-mono">
-                      {count}
+                      {debtorCount}
                     </span>
                   </button>
                 );
@@ -1587,12 +1687,8 @@ export const BursarDashboard: React.FC = () => {
               </thead>
               <tbody className="divide-y divide-slate-700/60 text-slate-300">
                 {studentsWithStatus
-                  .filter(({ student, status }) => {
+                  .filter(({ student }) => {
                     if (selectedClass !== 'all' && !isSameClass(student.currentClass, selectedClass)) return false;
-                    if (residenceFilter === 'hostel' && status.residenceType !== 'hostel') return false;
-                    if (residenceFilter === 'day' && status.residenceType === 'hostel') return false;
-                    if (scholarshipFilter === 'scholarship' && status.scholarshipType === 'none') return false;
-                    if (scholarshipFilter === 'none' && status.scholarshipType !== 'none') return false;
                     if (searchQuery.trim()) {
                       const q = searchQuery.toLowerCase().trim();
                       const name = `${student.firstName} ${student.surname}`.toLowerCase();
@@ -1877,7 +1973,7 @@ export const BursarDashboard: React.FC = () => {
             <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-xs text-amber-300 flex items-start gap-2">
               <ShieldAlert className="w-4 h-4 shrink-0 text-amber-400 mt-0.5" />
               <span>
-                Correction Mode: Adjust or fix any mistakenly entered payment amount. The new total cumulative paid amount will replace the wrong record on all ledgers.
+                Bursary Fee Editor: You can modify the designated required tuition fee for this scholar, adjust the recorded payment amount, or fix mistaken entries across all ledgers.
               </span>
             </div>
 
@@ -1897,26 +1993,77 @@ export const BursarDashboard: React.FC = () => {
                 <strong className="text-white">{editFeeModal.student.currentClass}</strong>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-400 font-medium">Class Required Fee:</span>
+                <span className="text-slate-400 font-medium">Class Benchmark Standard:</span>
                 <strong className="text-amber-300 font-mono">
                   ₦{(classFees[editFeeModal.student.currentClass] || 150000).toLocaleString()}
-                </strong>
-              </div>
-              <div className="flex justify-between pt-1 border-t border-slate-800">
-                <span className="text-slate-400 font-medium">Currently Recorded Paid:</span>
-                <strong className="text-rose-400 font-mono font-bold">
-                  ₦{editFeeModal.currentPaid.toLocaleString()}
                 </strong>
               </div>
             </div>
 
             <form onSubmit={handleSubmitEditFee} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Corrected Total Cumulative Amount Paid (NGN) *
+              {/* EDIT REQUIRED TUITION BILL */}
+              <div className="bg-slate-950/70 p-3 rounded-2xl border border-slate-800 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-white flex items-center gap-1.5">
+                    <span>1. Required Tuition Bill for this Scholar</span>
+                  </label>
+                  <label className="inline-flex items-center gap-1.5 cursor-pointer text-[11px] text-amber-400 font-semibold">
+                    <input
+                      type="checkbox"
+                      checked={editFeeModal.overrideTuition}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setEditFeeModal((prev) => ({
+                          ...prev,
+                          overrideTuition: checked,
+                          customRequiredFee: checked
+                            ? (prev.customRequiredFee || String(prev.currentRequiredFee))
+                            : String(classFees[prev.student?.currentClass || ''] || 150000),
+                        }));
+                      }}
+                      className="rounded border-slate-700 text-amber-500 focus:ring-0 cursor-pointer"
+                    />
+                    <span>Custom Tuition Override</span>
+                  </label>
+                </div>
+
+                {editFeeModal.overrideTuition ? (
+                  <div>
+                    <div className="relative">
+                      <span className="absolute left-3 top-2.5 font-bold text-amber-400 font-mono">₦</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={editFeeModal.customRequiredFee}
+                        onChange={(e) =>
+                          setEditFeeModal((prev) => ({ ...prev, customRequiredFee: e.target.value }))
+                        }
+                        placeholder="e.g. 150000"
+                        className="w-full bg-slate-900 border border-amber-500/50 rounded-xl pl-8 pr-3 py-2 text-sm text-white font-mono font-bold focus:outline-none focus:border-amber-400"
+                      />
+                    </div>
+                    <span className="text-[10px] text-slate-400 mt-1 block">
+                      Custom required tuition specifically designated for this scholar.
+                    </span>
+                  </div>
+                ) : (
+                  <div className="text-xs text-slate-400 flex justify-between items-center bg-slate-900/60 px-3 py-2 rounded-xl">
+                    <span>Standard Class Tuition:</span>
+                    <strong className="text-white font-mono font-bold">
+                      ₦{(classFees[editFeeModal.student.currentClass] || 150000).toLocaleString()}
+                    </strong>
+                  </div>
+                )}
+              </div>
+
+              {/* EDIT PAID AMOUNT */}
+              <div className="bg-slate-950/70 p-3 rounded-2xl border border-slate-800 space-y-2">
+                <label className="block text-xs font-bold text-white">
+                  2. Cumulative Amount Paid (NGN) *
                 </label>
                 <div className="relative">
-                  <span className="absolute left-3 top-2.5 font-bold text-slate-400 font-mono">₦</span>
+                  <span className="absolute left-3 top-2.5 font-bold text-emerald-400 font-mono">₦</span>
                   <input
                     type="number"
                     min="0"
@@ -1927,12 +2074,13 @@ export const BursarDashboard: React.FC = () => {
                       setEditFeeModal((prev) => ({ ...prev, correctedAmount: e.target.value }))
                     }
                     placeholder="Enter any amount (e.g. 0 or corrected sum)"
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-8 pr-3 py-2 text-sm text-white font-mono font-bold focus:outline-none focus:border-amber-500"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-8 pr-3 py-2 text-sm text-white font-mono font-bold focus:outline-none focus:border-emerald-500"
                   />
                 </div>
-                <span className="text-[10px] text-slate-400 mt-1 block">
-                  Enter 0 if the payment was mistakenly attributed to this scholar.
-                </span>
+                <div className="flex justify-between items-center text-[10px] text-slate-400">
+                  <span>Previously Recorded: ₦{editFeeModal.currentPaid.toLocaleString()}</span>
+                  <span>Enter 0 to clear payment</span>
+                </div>
               </div>
 
               <div>
@@ -1946,7 +2094,7 @@ export const BursarDashboard: React.FC = () => {
                   onChange={(e) =>
                     setEditFeeModal((prev) => ({ ...prev, note: e.target.value }))
                   }
-                  placeholder="e.g. Correction of wrong entry by Bursar"
+                  placeholder="e.g. Fee adjustment authorized by Bursar"
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
                 />
               </div>
@@ -1978,7 +2126,7 @@ export const BursarDashboard: React.FC = () => {
                   type="submit"
                   className="px-5 py-2 bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold rounded-xl text-xs transition shadow-lg shadow-amber-950 cursor-pointer"
                 >
-                  Save Corrected Record
+                  Save Fee Changes
                 </button>
               </div>
             </form>
