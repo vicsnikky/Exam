@@ -23,7 +23,7 @@ import {
   schools,
   complaints
 } from './src/db/schema.ts';
-import { eq, ilike, or, and, desc, sql, isNull } from 'drizzle-orm';
+import { eq, ilike, or, and, desc, sql, isNull, ne } from 'drizzle-orm';
 import { authenticate, type AuthRequest } from './src/middleware/auth.ts';
 import { seedDatabase } from './src/db/seed.ts';
 import { generateStudentId, calculateGrade, calculateWaecGrade } from './src/lib/id-generator.ts';
@@ -1182,6 +1182,69 @@ app.post('/api/bursar/payments', authenticate, async (req: AuthRequest, res) => 
 
     inMemoryStudentPayments[cleanId] = existing;
     return res.json({ success: true, record: existing });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ----------------------------------------------------
+// BURSARY HOSTEL & SCHOLARSHIP ADJUSTMENT ENDPOINTS
+// ----------------------------------------------------
+let inMemoryHostelFee: number = 80000;
+const inMemoryFeeAdjustments: Record<string, any> = {};
+
+app.get('/api/bursar/hostel-fee', authenticate, async (_req: AuthRequest, res) => {
+  return res.json({ hostelFee: inMemoryHostelFee });
+});
+
+app.post('/api/bursar/hostel-fee', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const role = req.appUser?.role;
+    const isAllowed = role === 'bursar' || role === 'super_admin' || role === 'director' || role === 'principal';
+    if (!isAllowed) {
+      return res.status(403).json({ error: 'Permission denied. Only Bursars and Executive Leadership can configure hostel fees.' });
+    }
+    const { hostelFee } = req.body;
+    const num = parseFloat(hostelFee);
+    if (!isNaN(num)) {
+      inMemoryHostelFee = Math.max(0, num);
+    }
+    return res.json({ success: true, hostelFee: inMemoryHostelFee });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/bursar/fee-adjustments', authenticate, async (_req: AuthRequest, res) => {
+  return res.json({ adjustments: inMemoryFeeAdjustments });
+});
+
+app.post('/api/bursar/fee-adjustments', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const role = req.appUser?.role;
+    const isAllowed = role === 'bursar' || role === 'super_admin' || role === 'director' || role === 'principal';
+    if (!isAllowed) {
+      return res.status(403).json({ error: 'Permission denied. Only Bursars and Executive Leadership can configure student scholarships and hostel assignments.' });
+    }
+    const { studentId, adjustment, adjustments } = req.body;
+    if (adjustments && typeof adjustments === 'object') {
+      Object.assign(inMemoryFeeAdjustments, adjustments);
+      return res.json({ success: true, adjustments: inMemoryFeeAdjustments });
+    }
+    if (!studentId || !adjustment) {
+      return res.status(400).json({ error: 'Student ID and adjustment details are required' });
+    }
+    const cleanId = String(studentId).trim().toUpperCase();
+    const existing = inMemoryFeeAdjustments[cleanId] || {};
+    const updated = {
+      ...existing,
+      ...adjustment,
+      studentId: cleanId,
+      updatedBy: `${req.appUser?.firstName || 'Staff'} (${req.appUser?.role || 'Bursary'})`,
+      updatedAt: new Date().toISOString(),
+    };
+    inMemoryFeeAdjustments[cleanId] = updated;
+    return res.json({ success: true, adjustment: updated });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
@@ -3435,13 +3498,18 @@ app.delete('/api/admin/teachers/:id', authenticate, async (req: AuthRequest, res
     }
 
     // Safely decouple academic assets so they are preserved for reallocation
-    const adminTch = await db.select().from(teachers).where(eq(teachers.schoolId, 1)).limit(1);
-    const fallbackTchId = adminTch[0]?.id || 1;
-    try { await db.update(assessments).set({ teacherId: null }).where(eq(assessments.teacherId, targetTeacher.id)); } catch (_) {}
-    try { await db.update(ss3MockScores).set({ recordedByTeacherId: null }).where(eq(ss3MockScores.recordedByTeacherId, targetTeacher.id)); } catch (_) {}
-    try { await db.update(questions).set({ createdByTeacherId: null }).where(eq(questions.createdByTeacherId, targetTeacher.id)); } catch (_) {}
-    try { await db.update(quizzes).set({ createdByTeacherId: fallbackTchId }).where(eq(quizzes.createdByTeacherId, targetTeacher.id)); } catch (_) {}
-    try { await db.update(students).set({ registeredByTeacherId: null }).where(eq(students.registeredByTeacherId, targetTeacher.id)); } catch (_) {}
+    const otherTch = await db.select().from(teachers).where(ne(teachers.id, targetTeacher.id)).limit(1);
+    const fallbackTchId = otherTch[0]?.id || null;
+    if (fallbackTchId) {
+      try { await db.update(assessments).set({ teacherId: fallbackTchId }).where(eq(assessments.teacherId, targetTeacher.id)); } catch (_) {}
+      try { await db.update(ss3MockScores).set({ recordedByTeacherId: fallbackTchId }).where(eq(ss3MockScores.recordedByTeacherId, targetTeacher.id)); } catch (_) {}
+      try { await db.update(questions).set({ createdByTeacherId: fallbackTchId }).where(eq(questions.createdByTeacherId, targetTeacher.id)); } catch (_) {}
+      try { await db.update(quizzes).set({ createdByTeacherId: fallbackTchId }).where(eq(quizzes.createdByTeacherId, targetTeacher.id)); } catch (_) {}
+      try { await db.update(students).set({ registeredByTeacherId: fallbackTchId }).where(eq(students.registeredByTeacherId, targetTeacher.id)); } catch (_) {}
+    } else {
+      try { await db.update(questions).set({ createdByTeacherId: null }).where(eq(questions.createdByTeacherId, targetTeacher.id)); } catch (_) {}
+      try { await db.update(students).set({ registeredByTeacherId: null }).where(eq(students.registeredByTeacherId, targetTeacher.id)); } catch (_) {}
+    }
 
     // Delete teacher and user records
     await db.delete(teachers).where(eq(teachers.id, targetTeacher.id));

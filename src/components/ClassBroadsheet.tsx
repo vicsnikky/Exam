@@ -1404,8 +1404,8 @@ export const ClassBroadsheet: React.FC = () => {
                   <th className="py-3 px-2 text-center min-w-[100px] border-r border-slate-700 bg-slate-900/90" title="School Attendance (Times Present / Times Opened)">
                     Attendance
                   </th>
-                  {availableSubjects.map((sub) => (
-                    <th key={sub.id} className="py-3 px-2 text-center min-w-[130px] border-r border-slate-800 group/th">
+                  {availableSubjects.map((sub, idx) => (
+                    <th key={`bs_sub_th_${sub.id}_${sub.code || ''}_${idx}`} className="py-3 px-2 text-center min-w-[130px] border-r border-slate-800 group/th">
                       <div className="flex items-center justify-center gap-1 mx-auto max-w-[130px]">
                         <span className="truncate text-white font-bold" title={sub.name}>
                           {sub.name}
@@ -1457,10 +1457,10 @@ export const ClassBroadsheet: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700/60 text-slate-200">
-                {broadsheetRows.map((row) => {
+                {broadsheetRows.map((row, rIdx) => {
                   const studentName = `${row.student.firstName} ${row.student.surname}`;
                   return (
-                    <tr key={row.student.id} className="hover:bg-slate-750 transition group">
+                    <tr key={`bs_row_${row.student.id}_${row.student.studentId || ''}_${rIdx}`} className="hover:bg-slate-750 transition group">
                       {/* Rank */}
                       <td className="py-2.5 px-3 text-center font-bold sticky left-0 bg-slate-850 group-hover:bg-slate-750 z-10 border-r border-slate-800">
                         {row.rank ? (
@@ -1508,13 +1508,13 @@ export const ClassBroadsheet: React.FC = () => {
                       </td>
 
                       {/* Subject Cells */}
-                      {availableSubjects.map((sub) => {
+                      {availableSubjects.map((sub, subIdx) => {
                         const cell = row.subjectCells[sub.id];
                         const hasScore = cell && cell.totalScore !== null && cell.totalScore !== undefined;
 
                         return (
                           <td
-                            key={sub.id}
+                            key={`bs_cell_${row.student.id}_${sub.id}_${subIdx}`}
                             onClick={() => handleOpenEditCell(row.student, sub, cell)}
                             className="py-2 px-2 text-center border-r border-slate-800/80 cursor-pointer hover:bg-slate-700/80 transition relative group/cell"
                             title={`Click to edit ${studentName}'s ${sub.name} score`}
@@ -2180,8 +2180,8 @@ export const ClassBroadsheet: React.FC = () => {
               <th className="p-1 border border-black min-w-[130px]">Scholar Name</th>
               <th className="p-1 border border-black text-center w-20">Admission ID</th>
               <th className="p-1 border border-black text-center w-16">Attendance</th>
-              {availableSubjects.map((sub) => (
-                <th key={sub.id} className="p-1 border border-black text-center min-w-[70px]">
+              {availableSubjects.map((sub, idx) => (
+                <th key={`print_th_${sub.id}_${sub.code || ''}_${idx}`} className="p-1 border border-black text-center min-w-[70px]">
                   <div className="font-bold truncate max-w-[80px] mx-auto">{sub.name}</div>
                   <div className="text-[8px] font-normal text-slate-700">CA|Ex|Tot|G</div>
                 </th>
@@ -2206,7 +2206,7 @@ export const ClassBroadsheet: React.FC = () => {
           </thead>
           <tbody>
             {broadsheetRows.map((r, idx) => (
-              <tr key={r.student.id} className="border-b border-black">
+              <tr key={`print_tr_${r.student.id}_${r.student.studentId || ''}_${idx}`} className="border-b border-black">
                 <td className="p-1 border border-black text-center font-mono">{idx + 1}</td>
                 <td className="p-1 border border-black font-semibold truncate max-w-[130px]">
                   {r.student.firstName} {r.student.surname}
@@ -2215,10 +2215,10 @@ export const ClassBroadsheet: React.FC = () => {
                 <td className="p-1 border border-black text-center font-mono text-[9px]">
                   {r.attendance.timesPresent}/{r.attendance.timesOpened}
                 </td>
-                {availableSubjects.map((sub) => {
+                {availableSubjects.map((sub, sIdx) => {
                   const cell = r.subjectCells[sub.id];
                   return (
-                    <td key={sub.id} className="p-1 border border-black text-center font-mono text-[9px]">
+                    <td key={`print_td_${r.student.id}_${sub.id}_${sIdx}`} className="p-1 border border-black text-center font-mono text-[9px]">
                       {cell && cell.totalScore !== null ? (
                         <span>
                           {cell.testScore ?? '-'}|{cell.examScore ?? '-'}|<strong>{cell.totalScore}</strong>|{cell.grade}

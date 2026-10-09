@@ -1,8 +1,12 @@
-import { FeeLockRecord, StudentPaymentRecord, Student } from '../types/index.ts';
+import { FeeLockRecord, StudentPaymentRecord, Student, StudentFeeAdjustment } from '../types/index.ts';
 
 const FEE_LOCKS_STORAGE_KEY = 'fis_student_fee_locks_v1';
 const CLASS_FEES_STORAGE_KEY = 'fis_class_fees_config_v1';
 const STUDENT_PAYMENTS_STORAGE_KEY = 'fis_student_payments_v1';
+const HOSTEL_FEE_STORAGE_KEY = 'fis_hostel_fee_config_v1';
+const FEE_ADJUSTMENTS_STORAGE_KEY = 'fis_student_fee_adjustments_v1';
+
+export const DEFAULT_HOSTEL_FEE = 80000; // ₦80,000 per term for Boarding / Hostel accommodation
 
 export const DEFAULT_CLASS_FEES: Record<string, number> = {
   'Creche': 95000,
@@ -204,6 +208,191 @@ export async function saveAllClassFees(
 }
 
 // ----------------------------------------------------
+// 2B. HOSTEL / BOARDING FEES & SCHOLARSHIP ADJUSTMENTS
+// ----------------------------------------------------
+export function getHostelFee(): number {
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(HOSTEL_FEE_STORAGE_KEY) : null;
+    if (!raw) return DEFAULT_HOSTEL_FEE;
+    const num = parseFloat(raw);
+    return isNaN(num) ? DEFAULT_HOSTEL_FEE : Math.max(0, num);
+  } catch (_) {
+    return DEFAULT_HOSTEL_FEE;
+  }
+}
+
+export async function setHostelFee(amount: number, token?: string | null): Promise<number> {
+  const cleanAmount = Math.max(0, amount);
+  try {
+    localStorage.setItem(HOSTEL_FEE_STORAGE_KEY, String(cleanAmount));
+  } catch (_) {}
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('fis:bursar-data-updated', { detail: { hostelFee: cleanAmount } }));
+  }
+
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    await fetch('/api/bursar/hostel-fee', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ hostelFee: cleanAmount }),
+    });
+  } catch (_) {}
+
+  return cleanAmount;
+}
+
+export function getAllFeeAdjustments(): Record<string, StudentFeeAdjustment> {
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(FEE_ADJUSTMENTS_STORAGE_KEY) : null;
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+export function getStudentFeeAdjustment(
+  studentIdOrIdentifier?: string | number | null
+): StudentFeeAdjustment | null {
+  if (!studentIdOrIdentifier) return null;
+  const key = String(studentIdOrIdentifier).trim().toUpperCase();
+  const all = getAllFeeAdjustments();
+  return all[key] || null;
+}
+
+export async function setStudentFeeAdjustment(
+  studentId: string,
+  adjustment: Partial<StudentFeeAdjustment>,
+  options?: {
+    currentClass?: string;
+    studentDbId?: number;
+    token?: string | null;
+    updatedBy?: string;
+  }
+): Promise<StudentFeeAdjustment> {
+  const cleanId = studentId.trim().toUpperCase();
+  const all = getAllFeeAdjustments();
+  const existing = all[cleanId] || {
+    studentId: cleanId,
+    residenceType: 'day',
+    scholarshipType: 'none',
+  };
+
+  const updated: StudentFeeAdjustment = {
+    ...existing,
+    ...adjustment,
+    studentId: cleanId,
+    studentDbId: options?.studentDbId || existing.studentDbId,
+    updatedBy: options?.updatedBy || existing.updatedBy || 'Bursar',
+    updatedAt: new Date().toISOString(),
+  };
+
+  all[cleanId] = updated;
+  if (options?.studentDbId) {
+    all[String(options.studentDbId)] = updated;
+  }
+
+  try {
+    localStorage.setItem(FEE_ADJUSTMENTS_STORAGE_KEY, JSON.stringify(all));
+  } catch (_) {}
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('fis:bursar-data-updated', {
+        detail: { studentId: cleanId, adjustment: updated },
+      })
+    );
+  }
+
+  // Attempt backend persistence
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (options?.token) headers['Authorization'] = `Bearer ${options.token}`;
+    await fetch('/api/bursar/fee-adjustments', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        studentId: cleanId,
+        adjustment: updated,
+      }),
+    });
+  } catch (err) {
+    console.warn('Backend fee adjustment deferred:', err);
+  }
+
+  return updated;
+}
+
+export function calculateStudentFeeBreakdown(
+  student: Student,
+  classFeesMap: Record<string, number> = {},
+  adjustmentsMap: Record<string, StudentFeeAdjustment> = {},
+  defaultHostelFeeAmount?: number
+) {
+  const sId = (student.studentId || String(student.id)).trim().toUpperCase();
+  const baseClassFee = classFeesMap[student.currentClass] !== undefined
+    ? classFeesMap[student.currentClass]
+    : getClassFee(student.currentClass);
+
+  const adj = adjustmentsMap[sId] || adjustmentsMap[String(student.id)] || {
+    residenceType: (student.residenceType || 'day') as 'day' | 'hostel',
+    scholarshipType: (student.scholarshipType || 'none') as any,
+    scholarshipPercentage: student.scholarshipPercentage,
+    scholarshipAmount: student.scholarshipAmount,
+    scholarshipName: student.scholarshipName,
+    hostelFee: student.hostelFee,
+  };
+
+  const isHostel = adj.residenceType === 'hostel';
+  const effectiveHostelFee = isHostel
+    ? (adj.hostelFee !== undefined && adj.hostelFee !== null ? adj.hostelFee : (defaultHostelFeeAmount !== undefined ? defaultHostelFeeAmount : getHostelFee()))
+    : 0;
+
+  const grossFee = baseClassFee + effectiveHostelFee;
+
+  let scholarshipDiscount = 0;
+  let scholarshipLabel = 'No Scholarship';
+  const appliesToAll = adj.scholarshipAppliesTo === 'all_fees';
+  const baseForDiscount = appliesToAll ? grossFee : baseClassFee;
+
+  if (adj.scholarshipType === 'full') {
+    scholarshipDiscount = baseForDiscount;
+    scholarshipLabel = '100% Full Scholarship (Free Tuition)';
+  } else if (adj.scholarshipType === 'half') {
+    scholarshipDiscount = Math.round(baseForDiscount * 0.5);
+    scholarshipLabel = '50% Half Scholarship (Tuition Subsidized)';
+  } else if (adj.scholarshipType === 'percentage') {
+    const pct = Math.min(100, Math.max(0, adj.scholarshipPercentage || 0));
+    scholarshipDiscount = Math.round(baseForDiscount * (pct / 100));
+    scholarshipLabel = `${pct}% Scholarship Subsidy`;
+  } else if (adj.scholarshipType === 'fixed') {
+    const amt = Math.max(0, adj.scholarshipAmount || 0);
+    scholarshipDiscount = Math.min(grossFee, amt);
+    scholarshipLabel = `₦${amt.toLocaleString()} Subsidy Grant`;
+  }
+
+  const netRequiredFee = Math.max(0, grossFee - scholarshipDiscount);
+
+  return {
+    baseClassFee,
+    hostelFee: effectiveHostelFee,
+    grossFee,
+    scholarshipDiscount,
+    netRequiredFee,
+    residenceType: adj.residenceType || 'day',
+    scholarshipType: adj.scholarshipType || 'none',
+    scholarshipPercentage: adj.scholarshipPercentage,
+    scholarshipAmount: adj.scholarshipAmount,
+    scholarshipName: adj.scholarshipName,
+    scholarshipLabel,
+  };
+}
+
+// ----------------------------------------------------
 // 3. STUDENT FEE PAYMENTS & DEBTOR BALANCE CALCULATION
 // ----------------------------------------------------
 export function getAllStudentPayments(): Record<string, StudentPaymentRecord> {
@@ -217,8 +406,9 @@ export function getAllStudentPayments(): Record<string, StudentPaymentRecord> {
   }
 }
 
-export function getStudentPayment(studentId: string): StudentPaymentRecord | null {
-  const clean = studentId.trim().toUpperCase();
+export function getStudentPayment(studentId?: string | number | null): StudentPaymentRecord | null {
+  if (!studentId) return null;
+  const clean = String(studentId).trim().toUpperCase();
   const all = getAllStudentPayments();
   return all[clean] || null;
 }
@@ -269,8 +459,22 @@ export async function recordStudentPayment(
   } catch (_) {}
 
   // Automatically update lock status based on debtor balance if requested
-  const requiredFee = options?.currentClass ? getClassFee(options.currentClass) : 150000;
-  const balanceDue = requiredFee - updatedRecord.amountPaid;
+  const allAdj = getAllFeeAdjustments();
+  const currentClassFees = getAllClassFees();
+  const studentDummy: Student = {
+    id: options?.studentDbId || 0,
+    studentId: cleanId,
+    firstName: '',
+    surname: '',
+    gender: 'Other',
+    currentClass: options?.currentClass || 'SS 1',
+    school: 'Fenster International School',
+    session: '2026/2027',
+    createdAt: new Date().toISOString(),
+  };
+  const breakdown = calculateStudentFeeBreakdown(studentDummy, currentClassFees, allAdj);
+  const requiredFee = breakdown.netRequiredFee;
+  const balanceDue = Math.max(0, requiredFee - updatedRecord.amountPaid);
 
   if (balanceDue <= 0) {
     // Automatically lift fee lock when completely paid off
@@ -324,41 +528,71 @@ export async function recordStudentPayment(
 // 4. DEBTOR STATUS EVALUATION HELPER
 // ----------------------------------------------------
 export interface StudentDebtorStatus {
-  requiredFee: number;
+  requiredFee: number; // Net required fee
+  baseClassFee: number;
+  hostelFee: number;
+  grossFee: number;
+  scholarshipDiscount: number;
+  netRequiredFee: number;
   amountPaid: number;
   balanceDue: number;
   isDebtor: boolean;
   isCleared: boolean;
   percentPaid: number;
   isLocked: boolean;
+  residenceType: 'day' | 'hostel';
+  scholarshipType: 'none' | 'full' | 'half' | 'percentage' | 'fixed';
+  scholarshipPercentage?: number;
+  scholarshipAmount?: number;
+  scholarshipName?: string;
+  scholarshipLabel: string;
 }
 
 export function evaluateStudentDebtorStatus(
   student: Student,
   classFeesMap: Record<string, number>,
   paymentsMap: Record<string, StudentPaymentRecord>,
-  locksMap: Record<string, FeeLockRecord>
+  locksMap: Record<string, FeeLockRecord>,
+  adjustmentsMap: Record<string, StudentFeeAdjustment> = {},
+  customHostelFee?: number
 ): StudentDebtorStatus {
   const sId = (student.studentId || String(student.id)).trim().toUpperCase();
-  const requiredFee = classFeesMap[student.currentClass] !== undefined
-    ? classFeesMap[student.currentClass]
-    : getClassFee(student.currentClass);
 
-  const paymentRecord = paymentsMap[sId];
+  const breakdown = calculateStudentFeeBreakdown(
+    student,
+    classFeesMap,
+    adjustmentsMap,
+    customHostelFee
+  );
+
+  const paymentRecord = paymentsMap[sId] || paymentsMap[String(student.id)];
   const amountPaid = paymentRecord ? paymentRecord.amountPaid : 0;
-  const balanceDue = Math.max(0, requiredFee - amountPaid);
+  const balanceDue = Math.max(0, breakdown.netRequiredFee - amountPaid);
   const isDebtor = balanceDue > 0;
   const isCleared = balanceDue <= 0;
-  const percentPaid = requiredFee > 0 ? Math.min(100, Math.round((amountPaid / requiredFee) * 100)) : 100;
-  const isLocked = Boolean(locksMap[sId]?.locked);
+  const percentPaid = breakdown.netRequiredFee > 0
+    ? Math.min(100, Math.round((amountPaid / breakdown.netRequiredFee) * 100))
+    : 100;
+  const isLocked = Boolean(locksMap[sId]?.locked || locksMap[String(student.id)]?.locked);
 
   return {
-    requiredFee,
+    requiredFee: breakdown.netRequiredFee,
+    baseClassFee: breakdown.baseClassFee,
+    hostelFee: breakdown.hostelFee,
+    grossFee: breakdown.grossFee,
+    scholarshipDiscount: breakdown.scholarshipDiscount,
+    netRequiredFee: breakdown.netRequiredFee,
     amountPaid,
     balanceDue,
     isDebtor,
     isCleared,
     percentPaid,
     isLocked,
+    residenceType: breakdown.residenceType as 'day' | 'hostel',
+    scholarshipType: breakdown.scholarshipType as any,
+    scholarshipPercentage: breakdown.scholarshipPercentage,
+    scholarshipAmount: breakdown.scholarshipAmount,
+    scholarshipName: breakdown.scholarshipName,
+    scholarshipLabel: breakdown.scholarshipLabel,
   };
 }

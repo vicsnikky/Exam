@@ -222,8 +222,8 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ onQuizCreated }) => {
                 onChange={(e) => setSelectedSubjectId(e.target.value)}
                 className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
               >
-                {subjects.map((s) => (
-                  <option key={s.id} value={s.id}>
+                {subjects.map((s, idx) => (
+                  <option key={`qb_sub_${s.id}_${s.code || ''}_${idx}`} value={s.id}>
                     {s.name} ({s.code})
                   </option>
                 ))}
@@ -436,9 +436,9 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ onQuizCreated }) => {
 
           {assignmentType === 'student' && (
             <div className="max-h-48 overflow-y-auto space-y-1.5 bg-slate-900/80 p-3 rounded-xl border border-slate-700">
-              {students.map((st) => (
+              {students.map((st, idx) => (
                 <label
-                  key={st.id}
+                  key={`qb_st_${st.id}_${st.studentId || ''}_${idx}`}
                   className="flex items-center justify-between p-2 rounded-lg hover:bg-slate-800/80 text-xs text-slate-300 cursor-pointer"
                 >
                   <div className="flex items-center gap-2">

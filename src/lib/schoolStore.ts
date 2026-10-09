@@ -417,6 +417,19 @@ export async function fetchAllStudentsUnified(token?: string | null): Promise<St
       !deletedSet.has(String(s.studentId))
   );
 
+  // Guarantee strictly unique integer IDs across all students to prevent React duplicate key collisions
+  const seenStudentIds = new Set<number>();
+  let nextStudentUniqueId = 5000;
+  for (const s of cleanMerged) {
+    if (!s.id || seenStudentIds.has(s.id)) {
+      while (seenStudentIds.has(nextStudentUniqueId)) {
+        nextStudentUniqueId++;
+      }
+      s.id = nextStudentUniqueId++;
+    }
+    seenStudentIds.add(s.id);
+  }
+
   // Save to local cache so all components have complete roster
   try {
     localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(cleanMerged));

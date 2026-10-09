@@ -386,8 +386,8 @@ export const ResultsView: React.FC = () => {
                 className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
               >
                 <option value="">All Subjects</option>
-                {subjects.map((s) => (
-                  <option key={s.id} value={s.id}>
+                {subjects.map((s, idx) => (
+                  <option key={`rv_sub_${s.id}_${s.code || ''}_${idx}`} value={s.id}>
                     {s.name}
                   </option>
                 ))}
@@ -455,8 +455,8 @@ export const ResultsView: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-700/60 text-slate-300">
-                    {results.map((r) => (
-                      <tr key={r.id} className="hover:bg-slate-700/30 transition">
+                    {results.map((r, idx) => (
+                      <tr key={`rv_res_${r.id}_${idx}`} className="hover:bg-slate-700/30 transition">
                         <td className="py-3.5 px-4">
                           <span className="font-semibold text-white block">{r.studentName}</span>
                           <span className="font-mono text-emerald-400 text-[11px]">{r.studentId}</span>
@@ -546,8 +546,8 @@ export const ResultsView: React.FC = () => {
                   onChange={(e) => setEditSubjectId(e.target.value)}
                   className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
                 >
-                  {subjects.map((s) => (
-                    <option key={s.id} value={s.id}>
+                  {subjects.map((s, idx) => (
+                    <option key={`rv_edit_sub_${s.id}_${s.code || ''}_${idx}`} value={s.id}>
                       {s.name} ({s.code})
                     </option>
                   ))}

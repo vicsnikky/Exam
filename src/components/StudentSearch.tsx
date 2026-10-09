@@ -292,9 +292,9 @@ export const StudentSearch: React.FC<StudentSearchProps> = ({
           </div>
         ) : (
           <div className="divide-y divide-slate-700">
-            {students.map((st) => (
+            {students.map((st, idx) => (
               <div
-                key={st.id}
+                key={`srch_st_${st.id}_${st.studentId || ''}_${idx}`}
                 onClick={() => onSelectStudent(st)}
                 className="p-4 hover:bg-slate-700/50 transition cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-4 group"
               >

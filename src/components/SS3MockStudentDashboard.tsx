@@ -331,8 +331,15 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
           );
 
           if (studentScores.length > 0) {
-            studentScores.sort((a: any, b: any) => a.weekNumber - b.weekNumber);
-            const summaries: SS3MockWeeklySummary[] = studentScores.map((s: any) => {
+            // Deduplicate by weekNumber to ensure unique week records and prevent React duplicate key warnings
+            const uniqueWeekScores = new Map<number, any>();
+            studentScores.forEach((s: any) => {
+              const wNum = Number(s.weekNumber) || 1;
+              uniqueWeekScores.set(wNum, s);
+            });
+            const dedupedScores = Array.from(uniqueWeekScores.values()).sort((a: any, b: any) => a.weekNumber - b.weekNumber);
+
+            const summaries: SS3MockWeeklySummary[] = dedupedScores.map((s: any) => {
               const mappedSubjects = (s.subjects || []).map((sub: any) => ({
                 studentId: typeof targetId === 'number' ? targetId : 1,
                 subjectId: sub.subjectId,
@@ -780,9 +787,9 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
         {/* Week Selector Pills if on weekly-slips */}
         {activeTab === 'weekly-slips' && weeklySummaries.length > 0 && (
           <div className="flex items-center gap-1.5 overflow-x-auto max-w-md py-1">
-            {weeklySummaries.map((w) => (
+            {weeklySummaries.map((w, wIdx) => (
               <button
-                key={w.weekNumber}
+                key={`w_btn_${w.weekNumber}_${wIdx}`}
                 onClick={() => setSelectedWeek(w.weekNumber)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer whitespace-nowrap ${
                   selectedWeek === w.weekNumber
@@ -1097,7 +1104,7 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
               const widthPct = Math.min(100, Math.max(0, (pt.totalScore400 / 400) * 100));
 
               return (
-                <div key={pt.weekNumber} className="bg-slate-900/80 border border-slate-750 rounded-xl p-4 space-y-2">
+                <div key={`prog_pt_${pt.weekNumber}_${index}`} className="bg-slate-900/80 border border-slate-750 rounded-xl p-4 space-y-2">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <span className="w-8 h-8 rounded-lg bg-emerald-950 text-emerald-400 border border-emerald-500/40 flex items-center justify-center font-bold text-xs">

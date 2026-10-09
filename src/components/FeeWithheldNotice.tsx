@@ -6,12 +6,23 @@ interface FeeWithheldNoticeProps {
   studentName?: string;
   studentId?: string;
   reason?: string;
+  breakdown?: {
+    baseClassFee?: number;
+    hostelFee?: number;
+    scholarshipDiscount?: number;
+    netRequiredFee?: number;
+    amountPaid?: number;
+    balanceDue?: number;
+    residenceType?: string;
+    scholarshipLabel?: string;
+  };
 }
 
 export const FeeWithheldNotice: React.FC<FeeWithheldNoticeProps> = ({
   studentName,
   studentId,
   reason,
+  breakdown,
 }) => {
   return (
     <div className="bg-slate-900 border-2 border-rose-500/40 rounded-3xl p-8 sm:p-12 text-center max-w-3xl mx-auto shadow-2xl relative overflow-hidden">
@@ -58,6 +69,69 @@ export const FeeWithheldNotice: React.FC<FeeWithheldNoticeProps> = ({
         {reason && (
           <div className="p-3 bg-rose-950/40 border border-rose-500/30 rounded-xl text-xs text-rose-200 max-w-md mx-auto">
             <strong>Bursary Note:</strong> {reason}
+          </div>
+        )}
+
+        {/* Itemized Bursary Statement Breakdown */}
+        {breakdown && (
+          <div className="bg-slate-950/80 border border-slate-700/80 rounded-2xl p-5 max-w-md mx-auto text-xs text-left space-y-2.5">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+              <span className="font-bold text-slate-300 uppercase tracking-wider text-[10px]">
+                Fee Breakdown & Clearance Ledger
+              </span>
+              {breakdown.residenceType === 'hostel' ? (
+                <span className="px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 text-[10px] font-bold">
+                  🛏️ Boarder (Hostel)
+                </span>
+              ) : (
+                <span className="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 text-[10px]">
+                  🏠 Day Scholar
+                </span>
+              )}
+            </div>
+
+            <div className="space-y-1.5 text-slate-300">
+              <div className="flex justify-between">
+                <span className="text-slate-400">Class Tuition:</span>
+                <span className="font-mono">₦{(breakdown.baseClassFee || 0).toLocaleString()}</span>
+              </div>
+
+              {(breakdown.hostelFee || 0) > 0 && (
+                <div className="flex justify-between text-indigo-300">
+                  <span>Hostel Accommodation:</span>
+                  <span className="font-mono">+₦{breakdown.hostelFee?.toLocaleString()}</span>
+                </div>
+              )}
+
+              {(breakdown.scholarshipDiscount || 0) > 0 && (
+                <div className="flex justify-between text-emerald-400 font-semibold">
+                  <span>Scholarship Subsidy:</span>
+                  <span className="font-mono">-₦{breakdown.scholarshipDiscount?.toLocaleString()}</span>
+                </div>
+              )}
+
+              <div className="flex justify-between border-t border-slate-800 pt-1.5 font-bold text-white">
+                <span>Net Required Fee:</span>
+                <span className="font-mono">₦{(breakdown.netRequiredFee || 0).toLocaleString()}</span>
+              </div>
+
+              <div className="flex justify-between text-emerald-400">
+                <span>Total Paid to Date:</span>
+                <span className="font-mono">₦{(breakdown.amountPaid || 0).toLocaleString()}</span>
+              </div>
+
+              <div className="flex justify-between border-t border-rose-500/40 pt-1.5 font-extrabold text-rose-400 text-sm">
+                <span>Outstanding Balance Due:</span>
+                <span className="font-mono">₦{(breakdown.balanceDue || 0).toLocaleString()}</span>
+              </div>
+            </div>
+
+            {breakdown.scholarshipLabel && breakdown.scholarshipLabel !== 'No Scholarship' && (
+              <div className="pt-2 border-t border-slate-800 text-[11px] text-emerald-400/90 font-medium flex items-center gap-1.5">
+                <span>🎓 Subsidy Status:</span>
+                <span>{breakdown.scholarshipLabel}</span>
+              </div>
+            )}
           </div>
         )}
 

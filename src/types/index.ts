@@ -33,6 +33,27 @@ export interface Student {
   feeLockReason?: string | null;
   amountPaid?: number;
   feeBalance?: number;
+  residenceType?: 'day' | 'hostel';
+  hostelFee?: number;
+  scholarshipType?: 'none' | 'full' | 'half' | 'percentage' | 'fixed';
+  scholarshipPercentage?: number;
+  scholarshipAmount?: number;
+  scholarshipName?: string;
+}
+
+export interface StudentFeeAdjustment {
+  studentId: string;
+  studentDbId?: number;
+  residenceType: 'day' | 'hostel'; // 'day' (Day Student, default) | 'hostel' (Boarder, +hostel fee)
+  hostelFee?: number; // Optional custom hostel fee, or null to use school default (e.g. ₦80,000)
+  scholarshipType: 'none' | 'full' | 'half' | 'percentage' | 'fixed';
+  scholarshipPercentage?: number; // e.g. 25, 50, 75, 100
+  scholarshipAmount?: number; // e.g. 50000 (₦50,000 fixed reduction)
+  scholarshipName?: string; // e.g. "Founder's Merit Award", "State Subsidy"
+  scholarshipAppliesTo?: 'tuition_only' | 'all_fees';
+  notes?: string;
+  updatedBy?: string;
+  updatedAt?: string;
 }
 
 export interface FeeLockRecord {

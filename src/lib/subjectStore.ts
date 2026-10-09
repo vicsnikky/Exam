@@ -123,6 +123,20 @@ export async function fetchAllSubjectsUnified(token?: string | null): Promise<Su
   }
 
   const allList = Array.from(mergedMap.values());
+
+  // Guarantee strictly unique integer IDs across all subjects to prevent React duplicate key collisions
+  const seenIds = new Set<number>();
+  let nextUniqueId = 1000;
+  for (const s of allList) {
+    if (!s.id || seenIds.has(s.id)) {
+      while (seenIds.has(nextUniqueId)) {
+        nextUniqueId++;
+      }
+      s.id = nextUniqueId++;
+    }
+    seenIds.add(s.id);
+  }
+
   // Cache custom subjects locally so they persist across reloads
   try {
     const baseCodes = new Set(BASELINE_SUBJECTS.map((b) => b.code.toUpperCase()));

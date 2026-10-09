@@ -1,5 +1,19 @@
 import { db } from './index.ts';
-import { schools, users, teachers, students, subjects, academicSessions, gradingRules } from './schema.ts';
+import {
+  schools,
+  users,
+  teachers,
+  students,
+  subjects,
+  academicSessions,
+  gradingRules,
+  questions,
+  quizzes,
+  assessments,
+  ss3MockScores,
+  quizAssignments,
+  quizAttempts,
+} from './schema.ts';
 import { eq } from 'drizzle-orm';
 import bcrypt from 'bcryptjs';
 
@@ -113,21 +127,32 @@ export async function seedDatabase() {
     }
 
     // Ensure Victor Alo has an associated Teacher record as Digital Technology Teacher
-    const adminTeacherRecord = await db.select().from(teachers).where(eq(teachers.userId, adminUserId)).limit(1);
-    let demoTeacherId = 1;
+    let adminTeacherRecord = await db.select().from(teachers).where(eq(teachers.userId, adminUserId)).limit(1);
+    let demoTeacherId = adminTeacherRecord[0]?.id;
 
-    if (adminTeacherRecord.length === 0) {
-      const [newTeacher] = await db.insert(teachers).values({
-        userId: adminUserId,
-        teacherId: 'TCH-DGT-0001',
-        phone: '+2348012345678',
-        schoolName: 'Fenster International School',
-        schoolId,
-      }).returning();
-      demoTeacherId = newTeacher.id;
-      console.log('Linked Victor Alo as Digital Technology Faculty (TCH-DGT-0001)');
-    } else {
-      demoTeacherId = adminTeacherRecord[0].id;
+    if (!demoTeacherId) {
+      try {
+        const existingTch = await db.select().from(teachers).where(eq(teachers.teacherId, 'TCH-DGT-0001')).limit(1);
+        if (existingTch.length > 0) {
+          await db.update(teachers).set({ userId: adminUserId }).where(eq(teachers.id, existingTch[0].id));
+          demoTeacherId = existingTch[0].id;
+        } else {
+          const [newTeacher] = await db.insert(teachers).values({
+            userId: adminUserId,
+            teacherId: 'TCH-DGT-0001',
+            phone: '+2348012345678',
+            schoolName: 'Fenster International School',
+            schoolId,
+          }).returning();
+          demoTeacherId = newTeacher.id;
+        }
+        console.log('Linked Victor Alo as Digital Technology Faculty (TCH-DGT-0001)');
+      } catch (err) {
+        console.warn('Teacher profile link check:', err);
+        // Fallback: pick any teacher that is NOT a dummy account
+        const anyTch = await db.select().from(teachers).limit(1);
+        demoTeacherId = anyTch[0]?.id || 1;
+      }
     }
 
     // Enforce Rule: The ONLY super admin is Victor Alo. Demote any other user with super_admin to admin
@@ -153,7 +178,23 @@ export async function seedDatabase() {
       for (const de of dummyEmails) {
         const dummyUsers = await db.select().from(users).where(eq(users.email, de));
         for (const du of dummyUsers) {
-          await db.delete(teachers).where(eq(teachers.userId, du.id));
+          if (du.id === adminUserId) continue; // Never delete Victor Alo!
+          const dummyTeachers = await db.select().from(teachers).where(eq(teachers.userId, du.id));
+          for (const dt of dummyTeachers) {
+            if (dt.id === demoTeacherId) continue; // Never delete the fallback teacher!
+            // Decouple all foreign keys referencing this dummy teacher
+            if (demoTeacherId) {
+              try { await db.update(questions).set({ createdByTeacherId: demoTeacherId }).where(eq(questions.createdByTeacherId, dt.id)); } catch (_) {}
+              try { await db.update(quizzes).set({ createdByTeacherId: demoTeacherId }).where(eq(quizzes.createdByTeacherId, dt.id)); } catch (_) {}
+              try { await db.update(assessments).set({ teacherId: demoTeacherId }).where(eq(assessments.teacherId, dt.id)); } catch (_) {}
+              try { await db.update(ss3MockScores).set({ recordedByTeacherId: demoTeacherId }).where(eq(ss3MockScores.recordedByTeacherId, dt.id)); } catch (_) {}
+              try { await db.update(students).set({ registeredByTeacherId: demoTeacherId }).where(eq(students.registeredByTeacherId, dt.id)); } catch (_) {}
+            } else {
+              try { await db.update(questions).set({ createdByTeacherId: null }).where(eq(questions.createdByTeacherId, dt.id)); } catch (_) {}
+              try { await db.update(students).set({ registeredByTeacherId: null }).where(eq(students.registeredByTeacherId, dt.id)); } catch (_) {}
+            }
+            await db.delete(teachers).where(eq(teachers.id, dt.id));
+          }
           await db.delete(users).where(eq(users.id, du.id));
         }
       }
@@ -169,7 +210,14 @@ export async function seedDatabase() {
         'FIS-2026-000001',
       ];
       for (const stId of dummyStudentIds) {
-        await db.delete(students).where(eq(students.studentId, stId));
+        const dummyStList = await db.select().from(students).where(eq(students.studentId, stId));
+        for (const st of dummyStList) {
+          try { await db.delete(quizAssignments).where(eq(quizAssignments.studentId, st.id)); } catch (_) {}
+          try { await db.delete(quizAttempts).where(eq(quizAttempts.studentId, st.id)); } catch (_) {}
+          try { await db.delete(assessments).where(eq(assessments.studentId, st.id)); } catch (_) {}
+          try { await db.delete(ss3MockScores).where(eq(ss3MockScores.studentId, st.id)); } catch (_) {}
+          await db.delete(students).where(eq(students.id, st.id));
+        }
       }
       console.log('Purged all dummy teachers and students from database');
     } catch (e) {

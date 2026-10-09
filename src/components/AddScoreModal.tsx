@@ -1094,8 +1094,8 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
               onChange={(e) => setSelectedSubjectId(e.target.value)}
               className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 cursor-pointer font-medium"
             >
-              {subjects.map((s) => (
-                <option key={s.id} value={s.id}>
+              {subjects.map((s, idx) => (
+                <option key={`asm_sub_${s.id}_${s.code || ''}_${idx}`} value={s.id}>
                   {s.name} ({s.code}) {s.code === 'CRS' ? '✝️ Core Elective' : ''}
                 </option>
               ))}

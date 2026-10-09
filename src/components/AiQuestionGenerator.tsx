@@ -572,8 +572,8 @@ export const AiQuestionGenerator: React.FC<AiQuestionGeneratorProps> = ({
                     onChange={(e) => setManualSubjectId(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-400"
                   >
-                    {subjects.map((sub) => (
-                      <option key={sub.id} value={sub.id}>
+                    {subjects.map((sub, idx) => (
+                      <option key={`ai_man_sub_${sub.id}_${sub.code || ''}_${idx}`} value={sub.id}>
                         {sub.name} ({sub.code})
                       </option>
                     ))}
@@ -1046,8 +1046,8 @@ export const AiQuestionGenerator: React.FC<AiQuestionGeneratorProps> = ({
                   onChange={(e) => setAiSubjectId(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-400"
                 >
-                  {subjects.map((s) => (
-                    <option key={s.id} value={s.id}>
+                  {subjects.map((s, idx) => (
+                    <option key={`ai_gen_sub_${s.id}_${s.code || ''}_${idx}`} value={s.id}>
                       {s.name}
                     </option>
                   ))}
@@ -1245,8 +1245,8 @@ export const AiQuestionGenerator: React.FC<AiQuestionGeneratorProps> = ({
                 className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-400"
               >
                 <option value="all">All Subjects</option>
-                {subjects.map((s) => (
-                  <option key={s.id} value={s.id}>
+                {subjects.map((s, idx) => (
+                  <option key={`ai_bnk_sub_${s.id}_${s.code || ''}_${idx}`} value={s.id}>
                     {s.name}
                   </option>
                 ))}

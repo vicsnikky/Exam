@@ -228,9 +228,9 @@ export const SubjectManager: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[480px] overflow-y-auto pr-1">
-            {subjects.map((s) => (
+            {subjects.map((s, idx) => (
               <div
-                key={s.id}
+                key={`sm_subj_${s.id}_${s.code || ''}_${idx}`}
                 className="p-3.5 bg-slate-900/80 border border-slate-700/80 rounded-xl flex items-start justify-between"
               >
                 <div>

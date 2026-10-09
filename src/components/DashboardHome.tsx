@@ -277,8 +277,8 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
             </div>
           ) : (
             <div className="divide-y divide-slate-700/60">
-              {recentResults.map((r) => (
-                <div key={r.id} className="py-3 flex items-center justify-between">
+              {recentResults.map((r, idx) => (
+                <div key={`dash_res_${r.id}_${idx}`} className="py-3 flex items-center justify-between">
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-white text-xs">{r.studentName}</span>
@@ -335,9 +335,9 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
             </div>
           ) : (
             <div className="divide-y divide-slate-700/60">
-              {recentStudents.map((st) => (
+              {recentStudents.map((st, idx) => (
                 <div
-                  key={st.id}
+                  key={`dash_st_${st.id}_${st.studentId || ''}_${idx}`}
                   onClick={() => onSelectStudent(st)}
                   className="py-3 flex items-center justify-between cursor-pointer hover:bg-slate-700/30 px-2 rounded-xl transition"
                 >

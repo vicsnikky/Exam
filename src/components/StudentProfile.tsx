@@ -24,11 +24,20 @@ import {
   X,
   Save,
   Sparkles,
+  CreditCard,
 } from 'lucide-react';
 import { Student, AssessmentRecord } from '../types/index.ts';
 import { getLocalStudents, getInstitutionalVault, fetchAllStudentsUnified } from '../lib/schoolStore.ts';
 import { supabase } from '../supabaseConfig.ts';
-import { isStudentFeeLocked, getStudentFeeLockDetails } from '../lib/bursarStore.ts';
+import {
+  isStudentFeeLocked,
+  getStudentFeeLockDetails,
+  calculateStudentFeeBreakdown,
+  getStudentPayment,
+  getStudentFeeAdjustment,
+  getAllClassFees,
+  getAllFeeAdjustments,
+} from '../lib/bursarStore.ts';
 import { FeeWithheldNotice } from './FeeWithheldNotice.tsx';
 import { ErrorBoundary } from './ErrorBoundary.tsx';
 import {
@@ -104,6 +113,9 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   const [editExam, setEditExam] = useState<string>('');
   const [editComment, setEditComment] = useState<string>('');
   const [savingEdit, setSavingEdit] = useState(false);
+
+  // Financial & Bursary Statement Modal
+  const [showFeeModal, setShowFeeModal] = useState(false);
 
   const loadProfile = async () => {
     if (!initialStudent) {
@@ -756,13 +768,25 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
   if (!student) return null;
 
-  // Fee Lock Check
+  // Fee Lock & Bursary Financial Calculation
   const studentKey = student.studentId || String(student.id || studentIdOrId);
   const isLockedForFees =
     isStudentFeeLocked(studentKey) || isStudentFeeLocked(student.id) || isStudentFeeLocked(student.email);
   const lockDetails = isLockedForFees
     ? getStudentFeeLockDetails(studentKey) || getStudentFeeLockDetails(student.id)
     : null;
+
+  const paymentRecord = getStudentPayment(studentKey) || getStudentPayment(student.id);
+  const classFeesMap = getAllClassFees();
+  const feeAdjustmentsMap = getAllFeeAdjustments();
+  const feeBreakdown = calculateStudentFeeBreakdown(student, classFeesMap, feeAdjustmentsMap);
+  const amountPaidVal = paymentRecord?.amountPaid || 0;
+  const balanceDueVal = Math.max(0, feeBreakdown.netRequiredFee - amountPaidVal);
+  const itemizedStatement = {
+    ...feeBreakdown,
+    amountPaid: amountPaidVal,
+    balanceDue: balanceDueVal,
+  };
 
   const isSS3 =
     (student.currentClass || '').toUpperCase().includes('SS 3') ||
@@ -1071,15 +1095,51 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                   <span className="px-3 py-1 bg-slate-800 text-slate-300 rounded-full text-xs font-medium">
                     {student.gender || 'Scholar'}
                   </span>
-                  {isLockedForFees ? (
-                    <span className="px-2.5 py-0.5 bg-rose-500/20 text-rose-300 border border-rose-500/40 rounded-full text-[11px] font-bold">
-                      🔒 Results Withheld (School Fees Unpaid)
+
+                  {/* Residence Badge (Hostel vs Day) */}
+                  {feeBreakdown.residenceType === 'hostel' ? (
+                    <span className="px-3 py-1 bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 rounded-full text-xs font-semibold flex items-center gap-1.5 shadow-sm">
+                      <span>🛏️ Boarder (Hostel)</span>
+                      {feeBreakdown.hostelFee > 0 && (
+                        <span className="text-[10px] opacity-80 font-mono">
+                          (+₦{feeBreakdown.hostelFee.toLocaleString()})
+                        </span>
+                      )}
                     </span>
                   ) : (
-                    <span className="px-2.5 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded-full text-[11px] font-bold">
-                      🟢 Financially Cleared
+                    <span className="px-3 py-1 bg-slate-800/80 text-slate-300 border border-slate-700 rounded-full text-xs font-medium flex items-center gap-1">
+                      <span>🏠 Day Scholar</span>
                     </span>
                   )}
+
+                  {/* Scholarship Subsidy Badge */}
+                  {feeBreakdown.scholarshipType !== 'none' && (
+                    <span className="px-3 py-1 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded-full text-xs font-bold flex items-center gap-1.5 shadow-sm">
+                      <span>🎓 {feeBreakdown.scholarshipLabel}</span>
+                      {feeBreakdown.scholarshipName && (
+                        <span className="text-[10px] opacity-80">
+                          • {feeBreakdown.scholarshipName}
+                        </span>
+                      )}
+                    </span>
+                  )}
+
+                  {/* Bursary Clearance State */}
+                  <button
+                    onClick={() => setShowFeeModal(true)}
+                    className="cursor-pointer transition hover:opacity-90 inline-flex items-center"
+                    title="Click to view detailed bursary ledger and fee breakdown"
+                  >
+                    {isLockedForFees ? (
+                      <span className="px-2.5 py-1 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 rounded-full text-[11px] font-bold flex items-center gap-1">
+                        🔒 Results Withheld (Fees Unpaid) • View Ledger
+                      </span>
+                    ) : (
+                      <span className="px-2.5 py-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 rounded-full text-[11px] font-bold flex items-center gap-1">
+                        🟢 Financially Cleared • View Statement
+                      </span>
+                    )}
+                  </button>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 mt-2.5 text-xs text-slate-400">
@@ -1234,6 +1294,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                 studentName={`${student.firstName} ${student.surname}`}
                 studentId={student.studentId}
                 reason={lockDetails?.reason || 'Outstanding tuition / school fees for the current academic session'}
+                breakdown={itemizedStatement}
               />
               {isSS3 && (
                 <div className="p-4 bg-emerald-950/40 border border-emerald-500/40 rounded-2xl text-center text-xs text-emerald-300 space-y-2">
@@ -1276,9 +1337,9 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                             </span>
                           </div>
                           <div className="space-y-1.5 mt-3 text-xs">
-                            {validRecords.map((r) => (
+                            {validRecords.map((r, rIdx) => (
                               <div
-                                key={r.id}
+                                key={`rec_${r.id}_${rIdx}`}
                                 className="flex items-center justify-between text-slate-300 py-1 border-b border-slate-800/60 last:border-0"
                               >
                                 <span className="text-slate-400 truncate max-w-[150px]">
@@ -1538,7 +1599,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                   </thead>
                   <tbody className="divide-y divide-slate-700/60 text-slate-300">
                     {mockScores.map((m, idx) => (
-                      <tr key={m.id || idx} className="hover:bg-slate-700/30 transition">
+                      <tr key={`mock_row_${m.id || ''}_${m.weekNumber}_${m.subjectId || ''}_${idx}`} className="hover:bg-slate-700/30 transition">
                         <td className="py-3.5 px-4 font-semibold text-white">
                           {m.subjectName} ({m.subjectCode || 'MOCK'})
                         </td>
@@ -1571,6 +1632,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                 studentName={`${student.firstName} ${student.surname}`}
                 studentId={student.studentId}
                 reason={lockDetails?.reason || 'Outstanding tuition / school fees for the current academic session'}
+                breakdown={itemizedStatement}
               />
             </div>
           ) : (
@@ -2039,6 +2101,161 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Bursary Clearance & Fee Schedule Statement Modal */}
+      {showFeeModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl animate-in fade-in zoom-in-95">
+            <div className="p-5 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center">
+                  <CreditCard className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-white text-sm">
+                    Bursary Clearance & Fee Ledger
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Fenster International School • Session {student.session || '2026/2027'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowFeeModal(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5 text-xs text-slate-300">
+              {/* Scholar Header Details */}
+              <div className="bg-slate-950/60 p-3.5 rounded-xl border border-slate-800 flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold block">Scholar Name</span>
+                  <strong className="text-white text-sm">
+                    {student.firstName} {student.surname}
+                  </strong>
+                  <span className="text-[11px] text-emerald-400 font-mono block mt-0.5">
+                    {student.studentId} • {student.currentClass}
+                  </span>
+                </div>
+                <div className="text-right space-y-1">
+                  {itemizedStatement.residenceType === 'hostel' ? (
+                    <span className="px-2.5 py-1 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 text-[10px] font-bold block">
+                      🛏️ Boarder (Hostel)
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-1 rounded-full bg-slate-800 text-slate-300 text-[10px] font-medium block">
+                      🏠 Day Scholar
+                    </span>
+                  )}
+                  {itemizedStatement.scholarshipType !== 'none' && (
+                    <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[10px] font-bold block">
+                      🎓 {itemizedStatement.scholarshipLabel}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Itemized Fee Table */}
+              <div className="bg-slate-950/90 rounded-xl border border-slate-800 p-4 space-y-2.5">
+                <div className="flex items-center justify-between text-slate-400 font-semibold border-b border-slate-800 pb-2 text-[11px]">
+                  <span>Itemized Fee Item</span>
+                  <span>Amount (NGN)</span>
+                </div>
+
+                <div className="flex justify-between">
+                  <span className="text-slate-300">Base Class Tuition ({student.currentClass}):</span>
+                  <span className="font-mono text-white font-medium">
+                    ₦{itemizedStatement.baseClassFee.toLocaleString()}
+                  </span>
+                </div>
+
+                {itemizedStatement.hostelFee > 0 && (
+                  <div className="flex justify-between text-indigo-300">
+                    <span className="flex items-center gap-1">
+                      🛏️ Boarding & Hostel Accommodation:
+                    </span>
+                    <span className="font-mono font-medium">
+                      +₦{itemizedStatement.hostelFee.toLocaleString()}
+                    </span>
+                  </div>
+                )}
+
+                {itemizedStatement.scholarshipDiscount > 0 && (
+                  <div className="flex justify-between text-emerald-400 font-semibold">
+                    <span className="flex items-center gap-1">
+                      🎓 Scholarship Subsidy Discount:
+                      {itemizedStatement.scholarshipName ? ` (${itemizedStatement.scholarshipName})` : ''}
+                    </span>
+                    <span className="font-mono">
+                      -₦{itemizedStatement.scholarshipDiscount.toLocaleString()}
+                    </span>
+                  </div>
+                )}
+
+                <div className="flex justify-between border-t border-slate-800 pt-2 font-bold text-white text-sm">
+                  <span>Net Total Required Fee:</span>
+                  <span className="font-mono text-amber-300">
+                    ₦{itemizedStatement.netRequiredFee.toLocaleString()}
+                  </span>
+                </div>
+
+                <div className="flex justify-between text-emerald-400 font-medium">
+                  <span>Total Amount Paid to Date:</span>
+                  <span className="font-mono">
+                    ₦{itemizedStatement.amountPaid.toLocaleString()}
+                  </span>
+                </div>
+
+                <div className="flex justify-between border-t border-slate-800 pt-2 font-extrabold text-sm">
+                  <span className={itemizedStatement.balanceDue > 0 ? 'text-rose-400' : 'text-emerald-400'}>
+                    Outstanding Balance Due:
+                  </span>
+                  <span className={`font-mono text-base ${itemizedStatement.balanceDue > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                    ₦{itemizedStatement.balanceDue.toLocaleString()}
+                  </span>
+                </div>
+              </div>
+
+              {/* Clearance Status Banner */}
+              <div
+                className={`p-4 rounded-xl border flex items-center gap-3 ${
+                  itemizedStatement.balanceDue <= 0
+                    ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
+                    : 'bg-rose-950/40 border-rose-500/40 text-rose-300'
+                }`}
+              >
+                <div className="shrink-0 text-xl">
+                  {itemizedStatement.balanceDue <= 0 ? '🟢' : '🔒'}
+                </div>
+                <div>
+                  <strong className="block text-sm">
+                    {itemizedStatement.balanceDue <= 0
+                      ? 'Fully Cleared • All School Fees Settle'
+                      : 'Fee Clearance Pending • Outstanding Balance'}
+                  </strong>
+                  <p className="text-[11px] opacity-90 mt-0.5">
+                    {itemizedStatement.balanceDue <= 0
+                      ? 'Academic reports and official result slips are fully accessible without restriction.'
+                      : 'Kindly contact the Bursary Department to complete payment and release withheld records.'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-950/80 border-t border-slate-800 flex justify-end">
+              <button
+                onClick={() => setShowFeeModal(false)}
+                className="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition cursor-pointer"
+              >
+                Close Statement
+              </button>
+            </div>
           </div>
         </div>
       )}

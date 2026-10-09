@@ -1384,8 +1384,8 @@ export const SS3MockTeacherModule: React.FC = () => {
                   required
                 >
                   <option value="">-- Choose SS3 Student --</option>
-                  {ss3Students.map((st) => (
-                    <option key={st.id} value={st.id}>
+                  {ss3Students.map((st, idx) => (
+                    <option key={`ss3_st_${st.id}_${idx}`} value={st.id}>
                       {st.firstName} {st.surname} ({st.studentId}) - {st.currentClass}
                     </option>
                   ))}
@@ -1520,8 +1520,8 @@ export const SS3MockTeacherModule: React.FC = () => {
                       onChange={(e) => handleSubjectPickerChange(idx, Number(e.target.value))}
                       className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-medium focus:outline-none focus:border-emerald-500"
                     >
-                      {availableSubjects.map((s) => (
-                        <option key={s.id} value={String(s.id)}>
+                      {availableSubjects.map((s, idx) => (
+                        <option key={`ss3_sub_${s.id}_${s.code || ''}_${idx}`} value={String(s.id)}>
                           {s.name} ({s.code}) {s.code === 'CRS' ? '✝️ Core Elective' : ''}
                         </option>
                       ))}
@@ -2084,8 +2084,8 @@ export const SS3MockTeacherModule: React.FC = () => {
                 onChange={(e) => setSelectedStudentId(Number(e.target.value))}
                 className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white"
               >
-                {ss3Students.map((st) => (
-                  <option key={st.id} value={st.id}>
+                {ss3Students.map((st, idx) => (
+                  <option key={`ss3_st_pr_${st.id}_${idx}`} value={st.id}>
                     {st.firstName} {st.surname} ({st.studentId})
                   </option>
                 ))}
