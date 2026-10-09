@@ -1,4 +1,5 @@
 import { FeeLockRecord, StudentPaymentRecord, Student, StudentFeeAdjustment } from '../types/index.ts';
+import { isSameClass, normalizeClassName } from '../constants/classes.ts';
 
 const FEE_LOCKS_STORAGE_KEY = 'fis_student_fee_locks_v1';
 const CLASS_FEES_STORAGE_KEY = 'fis_class_fees_config_v1';
@@ -137,18 +138,34 @@ export function getAllClassFees(): Record<string, number> {
   }
 }
 
-export function getClassFee(currentClass: string): number {
+export async function syncClassFeesFromBackend(token?: string | null): Promise<Record<string, number>> {
+  try {
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch('/api/bursar/class-fees', { headers });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.fees && typeof data.fees === 'object') {
+        const merged = { ...DEFAULT_CLASS_FEES, ...data.fees };
+        try {
+          localStorage.setItem(CLASS_FEES_STORAGE_KEY, JSON.stringify(merged));
+        } catch (_) {}
+        return merged;
+      }
+    }
+  } catch (_) {}
+  return getAllClassFees();
+}
+
+export function getClassFee(currentClass?: string | null): number {
+  if (!currentClass) return 150000;
   const fees = getAllClassFees();
-  const match = Object.keys(fees).find(
-    (k) => k.toLowerCase() === currentClass.toLowerCase().trim()
-  );
+  const match = Object.keys(fees).find((k) => isSameClass(k, currentClass));
   if (match) return fees[match];
 
-  // Try matching abbreviations
-  const clean = currentClass.toUpperCase().replace(/\s+/g, '');
-  for (const [k, v] of Object.entries(fees)) {
-    if (k.toUpperCase().replace(/\s+/g, '') === clean) return v;
-  }
+  const norm = normalizeClassName(currentClass);
+  if (fees[norm] !== undefined) return fees[norm];
+  if (DEFAULT_CLASS_FEES[norm] !== undefined) return DEFAULT_CLASS_FEES[norm];
 
   return 150000; // Default baseline fee
 }
@@ -219,6 +236,24 @@ export function getHostelFee(): number {
   } catch (_) {
     return DEFAULT_HOSTEL_FEE;
   }
+}
+
+export async function syncHostelFeeFromBackend(token?: string | null): Promise<number> {
+  try {
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch('/api/bursar/hostel-fee', { headers });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && typeof data.hostelFee === 'number') {
+        try {
+          localStorage.setItem(HOSTEL_FEE_STORAGE_KEY, String(data.hostelFee));
+        } catch (_) {}
+        return data.hostelFee;
+      }
+    }
+  } catch (_) {}
+  return getHostelFee();
 }
 
 export async function setHostelFee(amount: number, token?: string | null): Promise<number> {
@@ -334,9 +369,12 @@ export function calculateStudentFeeBreakdown(
   defaultHostelFeeAmount?: number
 ) {
   const sId = (student.studentId || String(student.id)).trim().toUpperCase();
-  const baseClassFee = classFeesMap[student.currentClass] !== undefined
-    ? classFeesMap[student.currentClass]
-    : getClassFee(student.currentClass);
+  let baseClassFee = classFeesMap[student.currentClass];
+  if (baseClassFee === undefined) {
+    const match = Object.keys(classFeesMap).find((k) => isSameClass(k, student.currentClass));
+    if (match) baseClassFee = classFeesMap[match];
+    else baseClassFee = getClassFee(student.currentClass);
+  }
 
   const adj = adjustmentsMap[sId] || adjustmentsMap[String(student.id)] || {
     residenceType: (student.residenceType || 'day') as 'day' | 'hostel',

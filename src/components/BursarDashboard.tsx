@@ -7,6 +7,8 @@ import {
   setStudentFeeLock,
   getAllClassFees,
   saveAllClassFees,
+  syncClassFeesFromBackend,
+  getClassFee,
   getAllStudentPayments,
   recordStudentPayment,
   evaluateStudentDebtorStatus,
@@ -14,6 +16,7 @@ import {
   StudentDebtorStatus,
   getHostelFee,
   setHostelFee,
+  syncHostelFeeFromBackend,
   getAllFeeAdjustments,
   setStudentFeeAdjustment,
   DEFAULT_HOSTEL_FEE,
@@ -65,11 +68,17 @@ export const BursarDashboard: React.FC = () => {
   const [feeLocks, setFeeLocks] = useState<Record<string, any>>({});
   const [classFees, setClassFees] = useState<Record<string, number>>({ ...DEFAULT_CLASS_FEES });
   const [hostelFee, setHostelFeeState] = useState<number>(DEFAULT_HOSTEL_FEE);
-  const [editableHostelFee, setEditableHostelFee] = useState<number>(DEFAULT_HOSTEL_FEE);
-  const [savingHostelFee, setSavingHostelFee] = useState(false);
   const [feeAdjustments, setFeeAdjustments] = useState<Record<string, StudentFeeAdjustment>>({});
   const [payments, setPayments] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
+
+  // Class & hostel fees editing state (strings enable full editing & deleting without forcing defaults)
+  const [classFeeInputs, setClassFeeInputs] = useState<Record<string, string>>({});
+  const [hostelFeeInput, setHostelFeeInput] = useState<string>(String(DEFAULT_HOSTEL_FEE));
+  const [savingFees, setSavingFees] = useState(false);
+  const [savingHostelFee, setSavingHostelFee] = useState(false);
+  const [savingClassKey, setSavingClassKey] = useState<string | null>(null);
+  const [savedClassFeedback, setSavedClassFeedback] = useState<Record<string, boolean>>({});
 
   // Navigation tabs in Bursar Dashboard
   const [activeTab, setActiveTab] = useState<'debtors' | 'scholarships-hostel' | 'class-fees' | 'all-students' | 'record-payment'>('debtors');
@@ -142,10 +151,6 @@ export const BursarDashboard: React.FC = () => {
     receiptNo: '',
   });
 
-  // Class fees editing state
-  const [editableClassFees, setEditableClassFees] = useState<Record<string, number>>({ ...DEFAULT_CLASS_FEES });
-  const [savingFees, setSavingFees] = useState(false);
-
   const [toastMsg, setToastMsg] = useState<{ type: 'success' | 'info' | 'error'; text: string } | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
@@ -155,19 +160,26 @@ export const BursarDashboard: React.FC = () => {
       const [allStudents, currentLocks, currentFees, currentPayments, currentAdjustments, currentHostel] = await Promise.all([
         fetchAllStudentsUnified(token),
         getAllFeeLocks(),
-        getAllClassFees(),
+        syncClassFeesFromBackend(token),
         getAllStudentPayments(),
         getAllFeeAdjustments(),
-        getHostelFee(),
+        syncHostelFeeFromBackend(token),
       ]);
       setStudents(allStudents);
       setFeeLocks(currentLocks);
       setClassFees(currentFees);
-      setEditableClassFees(currentFees);
+
+      const feeStrings: Record<string, string> = {};
+      CLASS_OPTIONS.forEach((c) => {
+        const amt = currentFees[c] !== undefined ? currentFees[c] : (DEFAULT_CLASS_FEES[c] ?? 150000);
+        feeStrings[c] = String(amt);
+      });
+      setClassFeeInputs(feeStrings);
+
       setPayments(currentPayments);
       setFeeAdjustments(currentAdjustments);
       setHostelFeeState(currentHostel);
-      setEditableHostelFee(currentHostel);
+      setHostelFeeInput(String(currentHostel));
     } catch (e) {
       console.warn('Error loading bursary data:', e);
     } finally {
@@ -180,12 +192,12 @@ export const BursarDashboard: React.FC = () => {
 
     const handleUpdate = () => {
       setFeeLocks(getAllFeeLocks());
-      setClassFees(getAllClassFees());
+      const f = getAllClassFees();
+      setClassFees(f);
       setPayments(getAllStudentPayments());
       setFeeAdjustments(getAllFeeAdjustments());
       const hFee = getHostelFee();
       setHostelFeeState(hFee);
-      setEditableHostelFee(hFee);
     };
 
     window.addEventListener('fis:bursar-data-updated', handleUpdate);
@@ -366,13 +378,63 @@ export const BursarDashboard: React.FC = () => {
     }
   };
 
+  // Save single class fee benchmark
+  const handleSaveSingleClassFee = async (cName: string) => {
+    const rawVal = classFeeInputs[cName];
+    const num = Math.max(0, parseFloat(rawVal || '0') || 0);
+    setSavingClassKey(cName);
+    try {
+      const updated = { ...classFees, [cName]: num };
+      await saveAllClassFees(updated, token);
+      setClassFees(updated);
+      setClassFeeInputs((prev) => ({ ...prev, [cName]: String(num) }));
+      setSavedClassFeedback((prev) => ({ ...prev, [cName]: true }));
+      setTimeout(() => {
+        setSavedClassFeedback((prev) => ({ ...prev, [cName]: false }));
+      }, 2500);
+      showToast('success', `${cName} tuition benchmark saved as ₦${num.toLocaleString()}!`);
+    } catch (err: any) {
+      showToast('error', `Failed to save ${cName} fee: ` + (err.message || 'Error'));
+    } finally {
+      setSavingClassKey(null);
+    }
+  };
+
+  // Reset single class fee to standard institutional default
+  const handleResetClassFeeDefault = async (cName: string) => {
+    const defaultVal = DEFAULT_CLASS_FEES[cName] || 150000;
+    setClassFeeInputs((prev) => ({ ...prev, [cName]: String(defaultVal) }));
+    setSavingClassKey(cName);
+    try {
+      const updated = { ...classFees, [cName]: defaultVal };
+      await saveAllClassFees(updated, token);
+      setClassFees(updated);
+      setSavedClassFeedback((prev) => ({ ...prev, [cName]: true }));
+      setTimeout(() => {
+        setSavedClassFeedback((prev) => ({ ...prev, [cName]: false }));
+      }, 2500);
+      showToast('info', `${cName} benchmark reset to default ₦${defaultVal.toLocaleString()}.`);
+    } catch (err: any) {
+      showToast('error', `Failed to reset ${cName} fee: ` + (err.message || 'Error'));
+    } finally {
+      setSavingClassKey(null);
+    }
+  };
+
   // Save all class fees
   const handleSaveClassFees = async () => {
     setSavingFees(true);
     try {
-      await saveAllClassFees(editableClassFees, token);
-      setClassFees({ ...editableClassFees });
-      showToast('success', 'Class tuition fees updated and synced across all debtor ledgers!');
+      const updated: Record<string, number> = { ...classFees };
+      CLASS_OPTIONS.forEach((c) => {
+        const val = classFeeInputs[c];
+        if (val !== undefined && val.trim() !== '') {
+          updated[c] = Math.max(0, parseFloat(val) || 0);
+        }
+      });
+      await saveAllClassFees(updated, token);
+      setClassFees(updated);
+      showToast('success', 'All class fee benchmarks updated and synced across all debtor ledgers!');
     } catch (err: any) {
       showToast('error', 'Failed to save class fees: ' + (err.message || 'Error'));
     } finally {
@@ -382,11 +444,13 @@ export const BursarDashboard: React.FC = () => {
 
   // Save term hostel / boarding fee
   const handleSaveHostelFee = async () => {
+    const num = Math.max(0, parseFloat(hostelFeeInput || '0') || 0);
     setSavingHostelFee(true);
     try {
-      await setHostelFee(editableHostelFee, token);
-      setHostelFeeState(editableHostelFee);
-      showToast('success', `Term Hostel / Boarding accommodation fee updated to ₦${editableHostelFee.toLocaleString()}!`);
+      await setHostelFee(num, token);
+      setHostelFeeState(num);
+      setHostelFeeInput(String(num));
+      showToast('success', `Term Hostel / Boarding accommodation benchmark saved as ₦${num.toLocaleString()}!`);
     } catch (err: any) {
       showToast('error', 'Failed to update hostel fee: ' + (err.message || 'Error'));
     } finally {
@@ -757,22 +821,25 @@ export const BursarDashboard: React.FC = () => {
               >
                 All Classes
               </button>
-              {CLASS_OPTIONS.map((cName) => (
-                <button
-                  key={cName}
-                  onClick={() => setSelectedClass(cName)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
-                    selectedClass === cName
-                      ? 'bg-rose-600 text-white shadow-md'
-                      : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                  }`}
-                >
-                  <span>{cName}</span>
-                  <span className="text-[10px] opacity-75 font-mono">
-                    (₦{(classFees[cName] || 150000).toLocaleString()})
-                  </span>
-                </button>
-              ))}
+              {CLASS_OPTIONS.map((cName) => {
+                const count = students.filter((s) => isSameClass(s.currentClass, cName)).length;
+                return (
+                  <button
+                    key={cName}
+                    onClick={() => setSelectedClass(cName)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                      selectedClass === cName
+                        ? 'bg-rose-600 text-white shadow-md'
+                        : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                    }`}
+                  >
+                    <span>{cName}</span>
+                    <span className="text-[10px] px-1.5 py-0.2 bg-slate-900/70 text-amber-300 rounded-full font-mono">
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
 
             <div className="flex items-center gap-3">
@@ -1129,12 +1196,15 @@ export const BursarDashboard: React.FC = () => {
                   onChange={(e) => setSelectedClass(e.target.value)}
                   className="bg-slate-950 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none"
                 >
-                  <option value="all">All Classes</option>
-                  {CLASS_OPTIONS.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
+                  <option value="all">All Classes ({students.length} scholars)</option>
+                  {CLASS_OPTIONS.map((c) => {
+                    const count = students.filter((s) => isSameClass(s.currentClass, c)).length;
+                    return (
+                      <option key={c} value={c}>
+                        {c} ({count} {count === 1 ? 'scholar' : 'scholars'})
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
 
@@ -1351,8 +1421,8 @@ export const BursarDashboard: React.FC = () => {
                     type="number"
                     min="0"
                     step="any"
-                    value={editableHostelFee}
-                    onChange={(e) => setEditableHostelFee(Math.max(0, parseFloat(e.target.value) || 0))}
+                    value={hostelFeeInput}
+                    onChange={(e) => setHostelFeeInput(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-8 pr-3 py-2 text-sm text-white font-mono font-bold focus:outline-none focus:border-indigo-500"
                     placeholder="80000"
                   />
@@ -1371,18 +1441,23 @@ export const BursarDashboard: React.FC = () => {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {CLASS_OPTIONS.map((cName) => {
-              const currentVal = editableClassFees[cName] !== undefined ? editableClassFees[cName] : (DEFAULT_CLASS_FEES[cName] || 150000);
-              const enrolledCount = students.filter((s) => (s.currentClass || '').toUpperCase().replace(/\s+/g, '') === cName.toUpperCase().replace(/\s+/g, '')).length;
+              const currentInputStr = classFeeInputs[cName] !== undefined
+                ? classFeeInputs[cName]
+                : String(classFees[cName] ?? DEFAULT_CLASS_FEES[cName] ?? 150000);
+              const numVal = parseFloat(currentInputStr) || 0;
+              const enrolledCount = students.filter((s) => isSameClass(s.currentClass, cName)).length;
+              const isSavingThis = savingClassKey === cName;
+              const isSavedFeedback = savedClassFeedback[cName];
 
               return (
-                <div key={cName} className="bg-slate-900 border border-slate-700 p-5 rounded-2xl space-y-3 relative group hover:border-indigo-500 transition">
+                <div key={cName} className="bg-slate-900 border border-slate-700 p-5 rounded-2xl space-y-3 relative group hover:border-indigo-500 transition shadow-md">
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-white text-sm flex items-center gap-2">
                       <GraduationCap className="w-4 h-4 text-amber-400" />
                       {cName}
                     </span>
-                    <span className="text-[11px] font-semibold text-slate-400 px-2 py-0.5 bg-slate-800 rounded-full">
-                      {enrolledCount} Scholars Enrolled
+                    <span className="text-[11px] font-semibold text-slate-300 px-2.5 py-0.5 bg-slate-800 rounded-full border border-slate-700">
+                      {enrolledCount} {enrolledCount === 1 ? 'Scholar' : 'Scholars'} Enrolled
                     </span>
                   </div>
 
@@ -1396,19 +1471,52 @@ export const BursarDashboard: React.FC = () => {
                         type="number"
                         min="0"
                         step="any"
-                        value={currentVal}
+                        value={currentInputStr}
                         onChange={(e) => {
-                          const num = parseFloat(e.target.value) || 0;
-                          setEditableClassFees((prev) => ({ ...prev, [cName]: num }));
+                          const val = e.target.value;
+                          setClassFeeInputs((prev) => ({ ...prev, [cName]: val }));
                         }}
+                        placeholder="e.g. 150000"
                         className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-8 pr-3 py-2 text-sm text-white font-mono font-bold focus:outline-none focus:border-indigo-500"
                       />
                     </div>
                   </div>
 
-                  <div className="text-[11px] text-slate-500 flex items-center justify-between pt-1">
+                  <div className="text-[11px] text-slate-400 flex items-center justify-between pt-1">
                     <span>Formatted:</span>
-                    <strong className="text-amber-300 font-mono">₦{currentVal.toLocaleString()}</strong>
+                    <strong className="text-amber-300 font-mono">₦{numVal.toLocaleString()}</strong>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2 border-t border-slate-800 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleSaveSingleClassFee(cName)}
+                      disabled={isSavingThis}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm ${
+                        isSavedFeedback
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-indigo-600 hover:bg-indigo-500 text-white'
+                      }`}
+                    >
+                      {isSavingThis ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : isSavedFeedback ? (
+                        <Check className="w-3.5 h-3.5 text-white" />
+                      ) : (
+                        <Save className="w-3.5 h-3.5" />
+                      )}
+                      {isSavedFeedback ? 'Saved ✓' : 'Save Fee'}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleResetClassFeeDefault(cName)}
+                      disabled={isSavingThis}
+                      className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 rounded-lg text-xs transition cursor-pointer"
+                      title={`Reset to standard default (₦${(DEFAULT_CLASS_FEES[cName] || 150000).toLocaleString()})`}
+                    >
+                      Reset Default
+                    </button>
                   </div>
                 </div>
               );
@@ -1437,12 +1545,15 @@ export const BursarDashboard: React.FC = () => {
                 onChange={(e) => setSelectedClass(e.target.value)}
                 className="bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
               >
-                <option value="all">All Classes</option>
-                {CLASS_OPTIONS.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
+                <option value="all">All Classes ({students.length} scholars)</option>
+                {CLASS_OPTIONS.map((c) => {
+                  const count = students.filter((s) => isSameClass(s.currentClass, c)).length;
+                  return (
+                    <option key={c} value={c}>
+                      {c} ({count} {count === 1 ? 'scholar' : 'scholars'})
+                    </option>
+                  );
+                })}
               </select>
 
               <div className="relative min-w-[220px]">

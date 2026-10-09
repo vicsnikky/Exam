@@ -41,35 +41,34 @@ export const SCHOOL_CLASS_OPTIONS = [
 export function normalizeClassName(className?: string | null): string {
   if (!className) return '';
   const clean = className.trim().toUpperCase().replace(/\s+/g, ' ');
-  if (clean === 'CRECHE') return 'Creche';
-  if (clean === 'KG1' || clean === 'KG 1' || clean === 'KINDERGARTEN 1') return 'KG 1';
-  if (clean === 'KG2' || clean === 'KG 2' || clean === 'KINDERGARTEN 2') return 'KG 2';
-  if (clean === 'NUR1' || clean === 'NUR 1' || clean === 'NURSERY 1') return 'NUR 1';
-  if (clean === 'NUR2' || clean === 'NUR 2' || clean === 'NURSERY 2') return 'NUR 2';
-  if (clean === 'PRIMARY 1' || clean === 'PRI 1' || clean === 'BASIC 1' || clean === 'PRIMARY1') return 'Primary 1';
-  if (clean === 'PRIMARY 2' || clean === 'PRI 2' || clean === 'BASIC 2' || clean === 'PRIMARY2') return 'Primary 2';
-  if (clean === 'PRIMARY 3' || clean === 'PRI 3' || clean === 'BASIC 3' || clean === 'PRIMARY3') return 'Primary 3';
-  if (clean === 'PRIMARY 4' || clean === 'PRI 4' || clean === 'BASIC 4' || clean === 'PRIMARY4') return 'Primary 4';
-  if (clean === 'PRIMARY 5' || clean === 'PRI 5' || clean === 'BASIC 5' || clean === 'PRIMARY5') return 'Primary 5';
-  if (clean === 'JSS1' || clean === 'JSS 1' || clean === 'JS 1' || clean === 'JS1') return 'JSS 1';
-  if (clean === 'JSS2' || clean === 'JSS 2' || clean === 'JS 2' || clean === 'JS2') return 'JSS 2';
-  if (clean === 'JSS3' || clean === 'JSS 3' || clean === 'JS 3' || clean === 'JS3') return 'JSS 3';
-  if (clean === 'SSS1' || clean === 'SSS 1' || clean === 'SS 1' || clean === 'SS1') return 'SSS 1';
-  if (clean === 'SSS2' || clean === 'SSS 2' || clean === 'SS 2' || clean === 'SS2') return 'SSS 2';
-  if (clean === 'SS3' || clean === 'SS 3' || clean === 'SSS 3' || clean === 'SSS3') return 'SS 3';
-  return className;
+  if (clean === 'CRECHE' || clean.startsWith('CRECHE')) return 'Creche';
+  if (/^KG\s*1(\b|\s|[A-Z])/i.test(clean) || clean.startsWith('KINDERGARTEN 1')) return 'KG 1';
+  if (/^KG\s*2(\b|\s|[A-Z])/i.test(clean) || clean.startsWith('KINDERGARTEN 2')) return 'KG 2';
+  if (/^NUR\s*1(\b|\s|[A-Z])/i.test(clean) || clean.startsWith('NURSERY 1')) return 'NUR 1';
+  if (/^NUR\s*2(\b|\s|[A-Z])/i.test(clean) || clean.startsWith('NURSERY 2')) return 'NUR 2';
+  if (/^(PRIMARY|PRI|BASIC)\s*1(\b|\s|[A-Z])/i.test(clean)) return 'Primary 1';
+  if (/^(PRIMARY|PRI|BASIC)\s*2(\b|\s|[A-Z])/i.test(clean)) return 'Primary 2';
+  if (/^(PRIMARY|PRI|BASIC)\s*3(\b|\s|[A-Z])/i.test(clean)) return 'Primary 3';
+  if (/^(PRIMARY|PRI|BASIC)\s*4(\b|\s|[A-Z])/i.test(clean)) return 'Primary 4';
+  if (/^(PRIMARY|PRI|BASIC)\s*5(\b|\s|[A-Z])/i.test(clean)) return 'Primary 5';
+  if (/^(JSS|JS)\s*1(\b|\s|[A-Z])/i.test(clean)) return 'JSS 1';
+  if (/^(JSS|JS)\s*2(\b|\s|[A-Z])/i.test(clean)) return 'JSS 2';
+  if (/^(JSS|JS)\s*3(\b|\s|[A-Z])/i.test(clean)) return 'JSS 3';
+  if (/^(SSS|SS)\s*1(\b|\s|[A-Z])/i.test(clean)) return 'SSS 1';
+  if (/^(SSS|SS)\s*2(\b|\s|[A-Z])/i.test(clean)) return 'SSS 2';
+  if (/^(SSS|SS)\s*3(\b|\s|[A-Z])/i.test(clean)) return 'SS 3';
+  return className.trim();
 }
 
 export function isSameClass(classA?: string | null, classB?: string | null): boolean {
   if (!classA || !classB) return false;
   if (classA.toLowerCase() === 'all' || classB.toLowerCase() === 'all') return true;
-  const normA = normalizeClassName(classA).toLowerCase().replace(/\s+/g, '');
-  const normB = normalizeClassName(classB).toLowerCase().replace(/\s+/g, '');
-  if (normA === normB) return true;
+  const normA = normalizeClassName(classA);
+  const normB = normalizeClassName(classB);
+  if (normA.toLowerCase() === normB.toLowerCase()) return true;
   const cleanA = classA.toLowerCase().replace(/\s+/g, '');
   const cleanB = classB.toLowerCase().replace(/\s+/g, '');
   if (cleanA === cleanB) return true;
-  if (cleanA.includes(cleanB) || cleanB.includes(cleanA)) return true;
   return false;
 }
 

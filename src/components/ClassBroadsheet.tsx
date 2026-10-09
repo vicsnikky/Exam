@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import {
   SCHOOL_CLASSES,
+  isSameClass,
   isSecondaryClass,
   isSeniorSecondaryClass,
   calculateCgpa,
@@ -168,11 +169,7 @@ export const ClassBroadsheet: React.FC = () => {
 
       // 2. Unified students
       const allStudents = await fetchAllStudentsUnified(token);
-      const cleanTarget = selectedClass.replace(/\s+/g, '').toUpperCase();
-      let filtered = allStudents.filter((s) => {
-        const cleanCur = (s.currentClass || '').replace(/\s+/g, '').toUpperCase();
-        return cleanCur === cleanTarget || cleanCur.includes(cleanTarget) || cleanTarget.includes(cleanCur);
-      });
+      let filtered = allStudents.filter((s) => isSameClass(s.currentClass, selectedClass));
 
       // 3. Fetch scores and attendance from backend
       const serverScores: any[] = [];
@@ -222,7 +219,7 @@ export const ClassBroadsheet: React.FC = () => {
         console.warn('Backend class broadsheet fetch note:', e);
       }
 
-      const targetStudents = filtered.length > 0 ? filtered : allStudents.slice(0, 10);
+      const targetStudents = filtered;
       setClassStudents(targetStudents);
 
       // 3b. Also query general scores endpoint
@@ -1719,7 +1716,20 @@ export const ClassBroadsheet: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700/60 text-slate-200">
-                {broadsheetRows.map((row, rIdx) => {
+                {broadsheetRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={availableSubjects.length + 8} className="py-12 text-center text-slate-400 bg-slate-900/40">
+                      <div className="max-w-md mx-auto space-y-2">
+                        <Users className="w-10 h-10 text-slate-500 mx-auto" />
+                        <p className="text-sm font-semibold text-white">No scholars enrolled in {selectedClass}</p>
+                        <p className="text-xs text-slate-400">
+                          There are currently no students registered for <strong>{selectedClass}</strong> in academic session <strong>{selectedSession}</strong>.
+                        </p>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  broadsheetRows.map((row, rIdx) => {
                   const studentName = `${row.student.firstName} ${row.student.surname}`;
                   return (
                     <tr key={`bs_row_${row.student.id}_${row.student.studentId || ''}_${rIdx}`} className="hover:bg-slate-750 transition group">
@@ -1930,7 +1940,7 @@ export const ClassBroadsheet: React.FC = () => {
                       </td>
                     </tr>
                   );
-                })}
+                }))}
               </tbody>
             </table>
           </div>
