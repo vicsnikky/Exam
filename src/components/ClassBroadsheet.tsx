@@ -148,6 +148,11 @@ export const ClassBroadsheet: React.FC = () => {
   const [editSubjectCode, setEditSubjectCode] = useState('');
   const [savingSubjectEdit, setSavingSubjectEdit] = useState(false);
 
+  // Modal for setting class-wide school days
+  const [bulkDaysModalOpen, setBulkDaysModalOpen] = useState(false);
+  const [inputClassSchoolDays, setInputClassSchoolDays] = useState('115');
+  const [savingClassDays, setSavingClassDays] = useState(false);
+
   const isSecondary = isSecondaryClass(selectedClass);
   const isSenior = isSeniorSecondaryClass(selectedClass);
   const effectiveExamPeriod: 'first-half' | 'terminal' = isSecondary ? examPeriod : 'terminal';
@@ -645,6 +650,10 @@ export const ClassBroadsheet: React.FC = () => {
     let computedTotal: number | null = null;
     if (testVal !== null || examVal !== null) {
       computedTotal = (testVal || 0) + (examVal || 0);
+    } else {
+      // Both fields cleared -> delete score
+      await handleDeleteCellScore();
+      return;
     }
 
     const periodLabel = isSecondary
@@ -654,6 +663,21 @@ export const ClassBroadsheet: React.FC = () => {
       : 'Terminal';
 
     try {
+      // Delete previous CA if now cleared
+      if (testVal === null && activeCell.testId) {
+        await fetch(`/api/scores/${activeCell.testId}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        }).catch(() => {});
+      }
+      // Delete previous Exam if now cleared
+      if (examVal === null && activeCell.examId) {
+        await fetch(`/api/scores/${activeCell.examId}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        }).catch(() => {});
+      }
+
       // 1. Post/Update Test/CA component (over 40) to backend
       if (testVal !== null) {
         if (activeCell.testId) {
@@ -880,20 +904,29 @@ export const ClassBroadsheet: React.FC = () => {
         await fetch(`/api/scores/${activeCell.testId}`, {
           method: 'DELETE',
           headers: { Authorization: `Bearer ${authToken}` },
-        });
+        }).catch(() => {});
       }
       if (activeCell.examId) {
         await fetch(`/api/scores/${activeCell.examId}`, {
           method: 'DELETE',
           headers: { Authorization: `Bearer ${authToken}` },
-        });
+        }).catch(() => {});
       }
       if (activeCell.generalId) {
         await fetch(`/api/scores/${activeCell.generalId}`, {
           method: 'DELETE',
           headers: { Authorization: `Bearer ${authToken}` },
-        });
+        }).catch(() => {});
       }
+
+      // Also call query score deletion to guarantee clean state on server
+      await fetch(
+        `/api/scores?studentId=${encodeURIComponent(String(activeCell.student.id))}&subjectId=${activeCell.subject.id}&term=${encodeURIComponent(selectedTerm)}&session=${encodeURIComponent(selectedSession)}`,
+        {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${authToken}` },
+        }
+      ).catch(() => {});
 
       // Record deleted IDs in fis_deleted_score_ids_v1 so the deleted score never returns
       try {
@@ -1004,6 +1037,223 @@ export const ClassBroadsheet: React.FC = () => {
       setStatusMsg({ type: 'error', text: err.message || 'Failed to clear score' });
     } finally {
       setInputSaving(false);
+    }
+  };
+
+  // Delete all broadsheet scores for a student in this class & term
+  const handleDeleteStudentScores = async (student: Student) => {
+    if (
+      !window.confirm(
+        `Are you sure you want to delete and clear ALL score records for ${student.firstName} ${student.surname} (${student.studentId}) in ${selectedClass} - ${selectedTerm} (${selectedSession})?`
+      )
+    )
+      return;
+
+    setLoading(true);
+    try {
+      const isFaculty = user && user.role !== 'student' && user.role !== 'bursar';
+      const authToken = (isFaculty && token) ? token : 'local-teacher-auth:teacher@school.edu';
+
+      // 1. Send delete request to backend
+      await fetch(
+        `/api/scores?studentId=${encodeURIComponent(String(student.id))}&term=${encodeURIComponent(selectedTerm)}&session=${encodeURIComponent(selectedSession)}`,
+        {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${authToken}` },
+        }
+      ).catch(() => {});
+
+      // 2. Add to deleted IDs set in localStorage
+      try {
+        const deletedRaw = localStorage.getItem('fis_deleted_score_ids_v1');
+        const deletedIds = new Set<string>(deletedRaw ? JSON.parse(deletedRaw) : []);
+        availableSubjects.forEach((sub) => {
+          deletedIds.add(`key_${student.id}_${sub.id}`);
+          deletedIds.add(`key_${student.studentId}_${sub.id}`);
+        });
+        localStorage.setItem('fis_deleted_score_ids_v1', JSON.stringify([...deletedIds]));
+      } catch (_) {}
+
+      // 3. Remove student from broadsheet cached scores
+      try {
+        const cached = localStorage.getItem('fis_broadsheet_scores_v2');
+        if (cached) {
+          const list = JSON.parse(cached);
+          const filtered = list.filter(
+            (l: any) =>
+              !(
+                (String(l.studentId) === String(student.id) || l.studentNumber === student.studentId) &&
+                l.term === selectedTerm &&
+                l.session === selectedSession
+              )
+          );
+          localStorage.setItem('fis_broadsheet_scores_v2', JSON.stringify(filtered));
+        }
+      } catch (_) {}
+
+      // 4. Reset student row scores in state
+      setBroadsheetRows((prev) =>
+        prev.map((row) => {
+          if (row.student.id !== student.id) return row;
+          return {
+            ...row,
+            subjectCells: {},
+            totalMarksSum: 0,
+            enteredSubjectsCount: 0,
+            averageScore: 0,
+            cgpa: undefined,
+            standing: 'No Scores Recorded',
+            gradeBadge: 'N/A',
+            totalUnits: 0,
+            totalQualityPoints: 0,
+            rank: undefined,
+          };
+        })
+      );
+
+      window.dispatchEvent(new CustomEvent('fis:scores-updated'));
+      window.dispatchEvent(new CustomEvent('fis:broadsheet-scores-updated'));
+
+      setStatusMsg({
+        type: 'success',
+        text: `All scores cleared for ${student.firstName} ${student.surname} in ${selectedClass} (${selectedTerm}). Ledger updated!`,
+      });
+    } catch (err: any) {
+      setStatusMsg({ type: 'error', text: err.message || 'Failed to clear student scores' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Remove a student row from broadsheet view
+  const handleRemoveStudentFromBroadsheet = (student: Student) => {
+    if (
+      !window.confirm(
+        `Remove ${student.firstName} ${student.surname} (${student.studentId}) from this ${selectedClass} broadsheet display?`
+      )
+    )
+      return;
+
+    setBroadsheetRows((prev) =>
+      prev.filter((r) => r.student.id !== student.id && r.student.studentId !== student.studentId)
+    );
+    setStatusMsg({
+      type: 'success',
+      text: `${student.firstName} ${student.surname} removed from ${selectedClass} broadsheet ledger.`,
+    });
+  };
+
+  // Delete an entire subject from broadsheet
+  const handleDeleteSubject = async () => {
+    if (!subjectToEdit) return;
+    if (
+      !window.confirm(
+        `Are you sure you want to remove the subject "${subjectToEdit.name}" from the class broadsheet? Existing scores for this subject will be hidden.`
+      )
+    )
+      return;
+
+    setSavingSubjectEdit(true);
+    try {
+      await fetch(`/api/subjects/${subjectToEdit.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {});
+
+      setAvailableSubjects((prev) => prev.filter((s) => s.id !== subjectToEdit.id));
+      setStatusMsg({
+        type: 'success',
+        text: `Subject "${subjectToEdit.name}" removed from broadsheet.`,
+      });
+      setEditSubjectModalOpen(false);
+      setSubjectToEdit(null);
+    } catch (err: any) {
+      setStatusMsg({ type: 'error', text: err.message || 'Failed to remove subject' });
+    } finally {
+      setSavingSubjectEdit(false);
+    }
+  };
+
+  // Bulk set class school days
+  const handleSaveClassSchoolDays = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const daysNum = Math.max(1, Number(inputClassSchoolDays) || 115);
+    setSavingClassDays(true);
+
+    try {
+      const rawAtt = localStorage.getItem('fis_student_attendance_v1') || '{}';
+      const attMap = JSON.parse(rawAtt);
+
+      for (const row of broadsheetRows) {
+        const currentPresent = Math.min(daysNum, row.attendance.timesPresent || 0);
+        const absent = Math.max(0, daysNum - currentPresent);
+        const rate = daysNum > 0 ? Math.round((currentPresent / daysNum) * 1000) / 10 : 0;
+        const newAtt = {
+          timesOpened: daysNum,
+          timesPresent: currentPresent,
+          timesAbsent: absent,
+          rate,
+          session: selectedSession,
+          term: selectedTerm,
+        };
+
+        const k1 = String(row.student.studentId || '').toUpperCase().trim();
+        const k2 = String(row.student.id || '').trim();
+        if (k1) attMap[k1] = newAtt;
+        if (k2) attMap[k2] = newAtt;
+
+        // Post to backend
+        try {
+          const targetId = row.student.studentId || row.student.id;
+          fetch(`/api/students/${encodeURIComponent(String(targetId))}/attendance`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              timesOpened: daysNum,
+              timesPresent: currentPresent,
+              session: selectedSession,
+              term: selectedTerm,
+              studentNumber: row.student.studentId,
+            }),
+          }).catch(() => {});
+        } catch (_) {}
+      }
+
+      localStorage.setItem('fis_student_attendance_v1', JSON.stringify(attMap));
+
+      setBroadsheetRows((prev) =>
+        prev.map((r) => {
+          const currentPresent = Math.min(daysNum, r.attendance.timesPresent || 0);
+          const absent = Math.max(0, daysNum - currentPresent);
+          const rate = daysNum > 0 ? Math.round((currentPresent / daysNum) * 1000) / 10 : 0;
+          return {
+            ...r,
+            attendance: {
+              ...r.attendance,
+              timesOpened: daysNum,
+              timesPresent: currentPresent,
+              timesAbsent: absent,
+              rate,
+            },
+          };
+        })
+      );
+
+      window.dispatchEvent(new CustomEvent('fis:attendance-updated'));
+      window.dispatchEvent(new CustomEvent('fis:scores-updated'));
+
+      setStatusMsg({
+        type: 'success',
+        text: `Official class school days set to ${daysNum} days for all ${broadsheetRows.length} scholars in ${selectedClass}. Absences automatically generated and reflected on student portals!`,
+      });
+      setBulkDaysModalOpen(false);
+    } catch (err: any) {
+      setStatusMsg({ type: 'error', text: err.message || 'Failed to update class school days' });
+    } finally {
+      setSavingClassDays(false);
     }
   };
 
@@ -1229,6 +1479,14 @@ export const ClassBroadsheet: React.FC = () => {
             Refresh
           </button>
           <button
+            onClick={() => setBulkDaysModalOpen(true)}
+            className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-amber-300 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 border border-amber-500/40 shadow"
+            title="Set official term school days for all scholars in this class"
+          >
+            <Calendar className="w-3.5 h-3.5 text-amber-400" />
+            Set Class School Days
+          </button>
+          <button
             onClick={() => setAddSubjectModalOpen(true)}
             className="px-3.5 py-2 bg-indigo-700 hover:bg-indigo-600 text-white rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shadow"
           >
@@ -1401,8 +1659,9 @@ export const ClassBroadsheet: React.FC = () => {
                   <th className="py-3 px-3 min-w-[170px] sticky left-12 bg-slate-900 z-10 border-r border-slate-700">
                     Student Scholar
                   </th>
-                  <th className="py-3 px-2 text-center min-w-[100px] border-r border-slate-700 bg-slate-900/90" title="School Attendance (Times Present / Times Opened)">
-                    Attendance
+                  <th className="py-3 px-2 text-center min-w-[130px] border-r border-slate-700 bg-slate-900/90" title="School Attendance: Present / Opened / Absent (Auto-calculated)">
+                    <div>Attendance</div>
+                    <div className="text-[9px] font-normal text-amber-300 font-mono mt-0.5">P / O / (Abs)</div>
                   </th>
                   {availableSubjects.map((sub, idx) => (
                     <th key={`bs_sub_th_${sub.id}_${sub.code || ''}_${idx}`} className="py-3 px-2 text-center min-w-[130px] border-r border-slate-800 group/th">
@@ -1454,6 +1713,9 @@ export const ClassBroadsheet: React.FC = () => {
                       </th>
                     </>
                   )}
+                  <th className="py-3 px-3 text-center min-w-[110px] text-amber-300 font-bold bg-slate-900 border-l border-slate-700">
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700/60 text-slate-200">
@@ -1480,7 +1742,7 @@ export const ClassBroadsheet: React.FC = () => {
                         )}
                       </td>
 
-                      {/* Student Name & ID */}
+                      {/* Student Name & ID & Guardian details */}
                       <td className="py-2.5 px-3 font-semibold text-white sticky left-12 bg-slate-850 group-hover:bg-slate-750 z-10 border-r border-slate-700">
                         <div className="truncate max-w-[170px]" title={studentName}>
                           {studentName}
@@ -1488,22 +1750,41 @@ export const ClassBroadsheet: React.FC = () => {
                         <div className="text-[10px] text-slate-400 font-mono">
                           {row.student.studentId}
                         </div>
+                        {(row.student.parentName || row.student.parentPhone) && (
+                          <div className="text-[10px] text-amber-300 font-normal truncate max-w-[170px] mt-0.5" title={`Guardian: ${row.student.parentName || 'Recorded'} • Phone: ${row.student.parentPhone || 'N/A'}`}>
+                            👤 {row.student.parentName || 'Guardian'} {row.student.parentPhone ? `(${row.student.parentPhone})` : ''}
+                          </div>
+                        )}
                       </td>
 
-                      {/* Attendance (Times present / times opened) */}
+                      {/* Attendance (Times present / times opened / auto-generated absent) */}
                       <td
-                        onClick={() => handleOpenAttendanceModal(row.student, row.attendance)}
-                        className="py-2.5 px-2 text-center border-r border-slate-700/80 cursor-pointer hover:bg-slate-700/60 transition group/attcell"
-                        title="Click to update scholar attendance (Times opened & present)"
+                        className="py-2.5 px-2 text-center border-r border-slate-700/80 hover:bg-slate-700/40 transition group/attcell"
                       >
                         <div className="flex flex-col items-center">
-                          <span className="font-mono text-xs font-bold text-amber-300">
-                            {row.attendance.timesPresent} / {row.attendance.timesOpened}
-                          </span>
-                          <span className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
-                            <span className="text-emerald-400 font-semibold">{row.attendance.rate}%</span>
-                            <Edit2 className="w-2.5 h-2.5 text-slate-500 opacity-0 group-hover/attcell:opacity-100 transition" />
-                          </span>
+                          <div className="flex items-center justify-center gap-1 font-mono text-xs font-bold">
+                            <span className="text-emerald-400" title="Days Present">{row.attendance.timesPresent}P</span>
+                            <span className="text-slate-500">/</span>
+                            <span className="text-slate-300" title="Days Opened">{row.attendance.timesOpened}O</span>
+                            <span className="text-slate-500">/</span>
+                            <span className="text-rose-400 px-1 py-0.2 bg-rose-500/10 rounded font-black" title="Days Absent (Auto-calculated: Days Opened - Days Present)">
+                              {row.attendance.timesAbsent ?? Math.max(0, row.attendance.timesOpened - row.attendance.timesPresent)}A
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <span className="text-[10px] text-amber-300 font-mono font-semibold">
+                              {row.attendance.rate}%
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenAttendanceModal(row.student, row.attendance)}
+                              className="px-1.5 py-0.5 rounded bg-emerald-600/30 hover:bg-emerald-600 text-emerald-300 hover:text-white text-[10px] font-bold flex items-center gap-0.5 transition cursor-pointer border border-emerald-500/40 shadow-sm"
+                              title="Add/Edit days present & opened (Auto-computes absent) and Save to Student Portal"
+                            >
+                              <Save className="w-2.5 h-2.5" />
+                              Save
+                            </button>
+                          </div>
                         </div>
                       </td>
 
@@ -1617,6 +1898,36 @@ export const ClassBroadsheet: React.FC = () => {
                           </td>
                         </>
                       )}
+
+                      {/* Row Actions: Attendance, Clear Scores, Remove */}
+                      <td className="py-2.5 px-2 text-center border-l border-slate-700/80 bg-slate-900/40">
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenAttendanceModal(row.student, row.attendance)}
+                            className="p-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-300 transition cursor-pointer border border-emerald-500/30"
+                            title="Add/Edit attendance (Days opened & present -> auto absent) and Save to Student Portal"
+                          >
+                            <Clock className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteStudentScores(row.student)}
+                            className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 transition cursor-pointer border border-rose-500/30"
+                            title={`Delete / Clear broadsheet scores for ${studentName}`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveStudentFromBroadsheet(row.student)}
+                            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition cursor-pointer border border-slate-700"
+                            title={`Remove ${studentName} from this broadsheet class view`}
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   );
                 })}
@@ -1793,7 +2104,7 @@ export const ClassBroadsheet: React.FC = () => {
               </div>
 
               <div className="flex items-center justify-between pt-3 border-t border-slate-800">
-                {(activeCell.testId || activeCell.examId || activeCell.generalId) ? (
+                {(activeCell.currentTotal || activeCell.currentTest || activeCell.currentExam || activeCell.testId || activeCell.examId || activeCell.generalId) ? (
                   <button
                     type="button"
                     onClick={handleDeleteCellScore}
@@ -1801,7 +2112,7 @@ export const ClassBroadsheet: React.FC = () => {
                     className="px-3.5 py-2 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
-                    Clear Score
+                    Clear / Delete Score
                   </button>
                 ) : (
                   <div />
@@ -1937,22 +2248,34 @@ export const ClassBroadsheet: React.FC = () => {
                 />
               </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+              <div className="flex items-center justify-between pt-3 border-t border-slate-800">
                 <button
                   type="button"
-                  onClick={() => setEditSubjectModalOpen(false)}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
+                  onClick={handleDeleteSubject}
                   disabled={savingSubjectEdit}
-                  className="px-5 py-2 bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-2 transition cursor-pointer shadow disabled:opacity-50"
+                  className="px-3 py-2 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+                  title="Remove this subject from the broadsheet"
                 >
-                  <Save className="w-4 h-4" />
-                  {savingSubjectEdit ? 'Updating...' : 'Save Changes'}
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Delete Subject
                 </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditSubjectModalOpen(false)}
+                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingSubjectEdit}
+                    className="px-5 py-2 bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-2 transition cursor-pointer shadow disabled:opacity-50"
+                  >
+                    <Save className="w-4 h-4" />
+                    {savingSubjectEdit ? 'Updating...' : 'Save Changes'}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
@@ -1967,8 +2290,8 @@ export const ClassBroadsheet: React.FC = () => {
           <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl relative animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
               <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <Clock className="w-4 h-4 text-amber-400" />
-                Record Scholar Attendance
+                <Clock className="w-4 h-4 text-emerald-400" />
+                Record Scholar Attendance (Sync to Portal)
               </h3>
               <button
                 onClick={() => setAttendanceModalOpen(false)}
@@ -1987,6 +2310,11 @@ export const ClassBroadsheet: React.FC = () => {
                 <p className="text-emerald-400 font-mono text-[11px]">
                   ID: {attendanceStudent.studentId} • Class: {selectedClass} • Session: {selectedSession} ({selectedTerm})
                 </p>
+                {(attendanceStudent.parentName || attendanceStudent.parentPhone) && (
+                  <p className="text-amber-300 font-mono text-[11px] pt-1 border-t border-slate-700/80">
+                    Guardian: {attendanceStudent.parentName || 'Recorded'} {attendanceStudent.parentPhone ? `(${attendanceStudent.parentPhone})` : ''}
+                  </p>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3 text-xs">
@@ -2022,16 +2350,16 @@ export const ClassBroadsheet: React.FC = () => {
                 </div>
               </div>
 
-              {/* Computed live summary */}
+              {/* Computed live summary: auto-generates absent days */}
               <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-xl text-xs flex items-center justify-between">
                 <div>
-                  <span className="text-slate-400 block text-[10px]">Computed Absent Days:</span>
-                  <span className="font-mono font-bold text-rose-400">
-                    {Math.max(0, (Number(inputTimesOpened) || 0) - (Number(inputTimesPresent) || 0))} days
+                  <span className="text-slate-400 block text-[10px]">Auto-Generated Absent Days:</span>
+                  <span className="font-mono font-bold text-rose-400 text-sm">
+                    {Math.max(0, (Number(inputTimesOpened) || 0) - (Number(inputTimesPresent) || 0))} days absent
                   </span>
                 </div>
                 <div className="text-right">
-                  <span className="text-slate-400 block text-[10px]">Attendance Rate:</span>
+                  <span className="text-slate-400 block text-[10px]">Attendance Punctuality Rate:</span>
                   <span className="font-mono font-bold text-emerald-400 text-sm">
                     {Number(inputTimesOpened) > 0
                       ? `${(
@@ -2055,10 +2383,79 @@ export const ClassBroadsheet: React.FC = () => {
                 <button
                   type="submit"
                   disabled={savingAttendance}
-                  className="px-5 py-2 bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer shadow disabled:opacity-50"
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer shadow-lg shadow-emerald-950 disabled:opacity-50"
                 >
-                  <Save className="w-4 h-4" />
-                  {savingAttendance ? 'Saving...' : 'Save Attendance'}
+                  <Save className="w-4 h-4 text-amber-300" />
+                  {savingAttendance ? 'Saving & Syncing...' : 'Save Attendance to Student Portal'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODAL 5: SET CLASS SCHOOL DAYS (BULK OPENED DAYS)        */}
+      {/* ======================================================== */}
+      {bulkDaysModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl relative animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-amber-400" />
+                Set Term School Days for {selectedClass}
+              </h3>
+              <button
+                onClick={() => setBulkDaysModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveClassSchoolDays} className="space-y-4">
+              <div className="bg-slate-800/80 p-3.5 rounded-xl border border-slate-700 text-xs space-y-1">
+                <p className="font-semibold text-amber-300">Class Attendance Master Setting</p>
+                <p className="text-slate-300">
+                  Enter the total number of days the school was opened for <strong>{selectedClass}</strong> during <strong>{selectedTerm} ({selectedSession})</strong>.
+                  This will automatically calculate absent days for all enrolled scholars and reflect on their student portals!
+                </p>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-xs text-slate-300 mb-1">
+                  Total Days School Opened *
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="300"
+                  required
+                  value={inputClassSchoolDays}
+                  onChange={(e) => setInputClassSchoolDays(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white font-mono text-base font-bold focus:outline-none focus:border-amber-400"
+                  placeholder="e.g. 115"
+                />
+                <span className="text-[10px] text-slate-400 mt-1 block">
+                  Applicable to all {broadsheetRows.length} scholars in this class ledger.
+                </span>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setBulkDaysModalOpen(false)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingClassDays}
+                  className="px-5 py-2 bg-emerald-700 hover:bg-emerald-600 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer shadow-lg shadow-emerald-950 disabled:opacity-50"
+                >
+                  <Save className="w-4 h-4 text-amber-300" />
+                  {savingClassDays ? 'Applying to Class...' : 'Apply & Save Class School Days'}
                 </button>
               </div>
             </form>
@@ -2209,7 +2606,12 @@ export const ClassBroadsheet: React.FC = () => {
               <tr key={`print_tr_${r.student.id}_${r.student.studentId || ''}_${idx}`} className="border-b border-black">
                 <td className="p-1 border border-black text-center font-mono">{idx + 1}</td>
                 <td className="p-1 border border-black font-semibold truncate max-w-[130px]">
-                  {r.student.firstName} {r.student.surname}
+                  <div>{r.student.firstName} {r.student.surname}</div>
+                  {(r.student.parentName || r.student.parentPhone) && (
+                    <div className="text-[7.5px] font-normal text-slate-700 leading-tight">
+                      👤 {r.student.parentName || 'Guardian'} {r.student.parentPhone ? `(${r.student.parentPhone})` : ''}
+                    </div>
+                  )}
                 </td>
                 <td className="p-1 border border-black text-center font-mono">{r.student.studentId}</td>
                 <td className="p-1 border border-black text-center font-mono text-[9px]">

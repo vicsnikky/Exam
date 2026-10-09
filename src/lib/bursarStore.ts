@@ -453,6 +453,9 @@ export async function recordStudentPayment(
   };
 
   all[cleanId] = updatedRecord;
+  if (options?.studentDbId) {
+    all[String(options.studentDbId)] = updatedRecord;
+  }
 
   try {
     localStorage.setItem(STUDENT_PAYMENTS_STORAGE_KEY, JSON.stringify(all));
@@ -516,6 +519,8 @@ export async function recordStudentPayment(
       headers,
       body: JSON.stringify({
         studentId: cleanId,
+        studentDbId: options?.studentDbId,
+        amountPaid: updatedRecord.amountPaid,
         payment: updatedRecord,
       }),
     });
@@ -566,7 +571,7 @@ export function evaluateStudentDebtorStatus(
   );
 
   const paymentRecord = paymentsMap[sId] || paymentsMap[String(student.id)];
-  const amountPaid = paymentRecord ? paymentRecord.amountPaid : 0;
+  const amountPaid = paymentRecord ? paymentRecord.amountPaid : (student.amountPaid || 0);
   const balanceDue = Math.max(0, breakdown.netRequiredFee - amountPaid);
   const isDebtor = balanceDue > 0;
   const isCleared = balanceDue <= 0;

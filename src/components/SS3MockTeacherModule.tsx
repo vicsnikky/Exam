@@ -1408,7 +1408,7 @@ export const SS3MockTeacherModule: React.FC = () => {
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500 font-bold text-amber-300"
                 >
                   {Array.from({ length: 12 }, (_, i) => (
-                    <option key={i + 1} value={i + 1}>
+                    <option key={`ss3_tch_wk_opt_${i + 1}`} value={i + 1}>
                       Week {i + 1} Mock Examination
                     </option>
                   ))}
@@ -1734,7 +1734,7 @@ export const SS3MockTeacherModule: React.FC = () => {
                   className="bg-transparent text-amber-300 font-bold text-xs focus:outline-none"
                 >
                   {Array.from({ length: 12 }, (_, i) => (
-                    <option key={i + 1} value={i + 1} className="bg-slate-900 text-white">
+                    <option key={`ss3_bs_wk_opt_${i + 1}`} value={i + 1} className="bg-slate-900 text-white">
                       Week {i + 1}
                     </option>
                   ))}

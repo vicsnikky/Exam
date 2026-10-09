@@ -460,6 +460,11 @@ export const ResultsView: React.FC = () => {
                         <td className="py-3.5 px-4">
                           <span className="font-semibold text-white block">{r.studentName}</span>
                           <span className="font-mono text-emerald-400 text-[11px]">{r.studentId}</span>
+                          {(r.parentName || r.parentPhone) && (
+                            <span className="text-[10px] text-slate-400 block mt-0.5">
+                              Guardian: {r.parentName || 'Recorded'} {r.parentPhone ? `(${r.parentPhone})` : ''}
+                            </span>
+                          )}
                         </td>
                         <td className="py-3.5 px-4 font-medium">{r.class}</td>
                         <td className="py-3.5 px-4 font-semibold text-indigo-300">

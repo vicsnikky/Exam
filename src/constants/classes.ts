@@ -63,7 +63,14 @@ export function normalizeClassName(className?: string | null): string {
 export function isSameClass(classA?: string | null, classB?: string | null): boolean {
   if (!classA || !classB) return false;
   if (classA.toLowerCase() === 'all' || classB.toLowerCase() === 'all') return true;
-  return normalizeClassName(classA) === normalizeClassName(classB);
+  const normA = normalizeClassName(classA).toLowerCase().replace(/\s+/g, '');
+  const normB = normalizeClassName(classB).toLowerCase().replace(/\s+/g, '');
+  if (normA === normB) return true;
+  const cleanA = classA.toLowerCase().replace(/\s+/g, '');
+  const cleanB = classB.toLowerCase().replace(/\s+/g, '');
+  if (cleanA === cleanB) return true;
+  if (cleanA.includes(cleanB) || cleanB.includes(cleanA)) return true;
+  return false;
 }
 
 export function isSecondaryClass(className?: string | null): boolean {

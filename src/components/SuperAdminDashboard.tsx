@@ -911,9 +911,9 @@ export const SuperAdminDashboard: React.FC = () => {
                   No active teachers registered. Provision a teacher account using the form on the left.
                 </div>
               ) : (
-                teachersList.map((t) => (
+                teachersList.map((t, tIdx) => (
                   <div
-                    key={t.id}
+                    key={`sa_tch_${t.id}_${t.teacherId}_${tIdx}`}
                     className="p-3.5 bg-slate-900/80 border border-slate-700/80 rounded-xl flex items-center justify-between gap-3 hover:border-slate-600 transition"
                   >
                     <div className="flex items-center gap-3 min-w-0">
@@ -1023,8 +1023,8 @@ export const SuperAdminDashboard: React.FC = () => {
                     onChange={(e) => setSelectedRecipientTeacher(e.target.value)}
                     className="bg-slate-900 border border-amber-500/40 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none"
                   >
-                    {teachersList.map((t) => (
-                      <option key={t.id} value={t.teacherId}>
+                    {teachersList.map((t, tIdx) => (
+                      <option key={`recip_tch_${t.id}_${t.teacherId}_${tIdx}`} value={t.teacherId}>
                         {t.firstName} {t.lastName} ({t.teacherId})
                       </option>
                     ))}
@@ -1303,9 +1303,9 @@ export const SuperAdminDashboard: React.FC = () => {
                       </div>
                     ) : (
                       <div className="space-y-1.5 max-h-[180px] overflow-y-auto pr-1">
-                        {vaultData.students.map((s: any) => (
+                        {vaultData.students.map((s: any, sIdx: number) => (
                           <div
-                            key={s.id}
+                            key={`vault_st_${s.id}_${s.studentId}_${sIdx}`}
                             className="p-2.5 bg-slate-900/60 border border-slate-800 rounded-xl flex items-center justify-between text-xs"
                           >
                             <div>
@@ -1331,9 +1331,9 @@ export const SuperAdminDashboard: React.FC = () => {
           {/* ALL USERS LIST */}
           {activeAdminTab === 'users' && (
             <div className="flex-1 overflow-y-auto max-h-[460px] space-y-2 pr-1">
-              {usersList.map((u) => (
+              {usersList.map((u, uIdx) => (
                 <div
-                  key={u.id}
+                  key={`sa_user_${u.id}_${uIdx}`}
                   className="p-3 bg-slate-900/80 border border-slate-700/80 rounded-xl flex items-center justify-between text-xs hover:border-slate-600 transition"
                 >
                   <div>
@@ -1384,9 +1384,9 @@ export const SuperAdminDashboard: React.FC = () => {
                   All administrative operations and modifications are logged securely.
                 </div>
               ) : (
-                auditLogs.map((log) => (
+                auditLogs.map((log, lIdx) => (
                   <div
-                    key={log.id}
+                    key={`sa_audit_${log.id}_${lIdx}`}
                     className="p-3 bg-slate-900/80 border border-slate-700/80 rounded-xl text-xs space-y-1"
                   >
                     <div className="flex items-center justify-between">
@@ -1459,8 +1459,8 @@ export const SuperAdminDashboard: React.FC = () => {
                             </td>
                           </tr>
                         ) : (
-                          studentsList.map((s) => (
-                            <tr key={s.id} className="hover:bg-slate-800/40">
+                          studentsList.map((s, sIdx) => (
+                            <tr key={`db_st_${s.id}_${s.studentId}_${sIdx}`} className="hover:bg-slate-800/40">
                               <td className="py-2 px-2.5 text-amber-300 font-bold">{s.studentId}</td>
                               <td className="py-2 px-2.5 text-white">{s.firstName} {s.surname}</td>
                               <td className="py-2 px-2.5 text-slate-300">{s.currentClass}</td>
@@ -1503,8 +1503,8 @@ export const SuperAdminDashboard: React.FC = () => {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800">
-                        {teachersList.map((t) => (
-                          <tr key={t.id} className="hover:bg-slate-800/40">
+                        {teachersList.map((t, tIdx) => (
+                          <tr key={`db_tch_${t.id}_${t.teacherId}_${tIdx}`} className="hover:bg-slate-800/40">
                             <td className="py-2 px-2.5 text-indigo-300 font-bold">{t.teacherId}</td>
                             <td className="py-2 px-2.5 text-white">{t.firstName} {t.lastName}</td>
                             <td className="py-2 px-2.5 text-slate-300">{t.email}</td>

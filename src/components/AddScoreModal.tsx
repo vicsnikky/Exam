@@ -930,8 +930,8 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
             className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 cursor-pointer"
           >
             <option value="">-- Choose student from directory ({allStudents.length}) --</option>
-            {allStudents.map((s) => (
-              <option key={s.id} value={s.id}>
+            {allStudents.map((s, sIdx) => (
+              <option key={`asm_st_opt_${s.id}_${s.studentId}_${sIdx}`} value={s.id}>
                 {s.surname}, {s.firstName} • {s.studentId} • {s.currentClass}
               </option>
             ))}
@@ -1348,7 +1348,7 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-700 text-slate-300">
-                    {displayedScores.map((sc) => {
+                    {displayedScores.map((sc, scIdx) => {
                       let parsedNote = sc.teacherComment || '—';
                       try {
                         if (sc.teacherComment && sc.teacherComment.trim().startsWith('{')) {
@@ -1358,7 +1358,7 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
                       } catch (_) {}
 
                       return (
-                        <tr key={sc.id} className="hover:bg-slate-750/50 transition">
+                        <tr key={`asm_sc_row_${sc.id}_${scIdx}`} className="hover:bg-slate-750/50 transition">
                           <td className="py-2.5 px-3 font-semibold text-white">
                             {sc.subjectName || `Subject #${sc.subjectId}`}
                           </td>

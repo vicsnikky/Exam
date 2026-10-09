@@ -1514,6 +1514,8 @@ export async function authenticateLocalStudent(identifier: string, passwordAttem
           currentClass: student.currentClass,
           school: student.school,
           session: student.session,
+          parentName: student.parentName || null,
+          parentPhone: student.parentPhone || null,
           role: 'student' as const,
         },
       };
@@ -1550,6 +1552,8 @@ export async function authenticateLocalStudent(identifier: string, passwordAttem
             currentClass: st.current_class,
             school: st.school,
             session: st.session,
+            parentName: st.parent_name || null,
+            parentPhone: st.parent_phone || null,
             role: 'student' as const,
           },
         };

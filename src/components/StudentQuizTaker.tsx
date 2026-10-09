@@ -439,9 +439,9 @@ export const StudentQuizTaker: React.FC<StudentQuizTakerProps> = ({
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {quizzes.map((q) => (
+            {quizzes.map((q, qIdx) => (
               <div
-                key={q.id}
+                key={`sq_quiz_${q.id}_${qIdx}`}
                 className="bg-slate-800/80 border border-slate-700 rounded-2xl p-5 flex flex-col justify-between space-y-4 hover:border-emerald-500/50 transition"
               >
                 <div>

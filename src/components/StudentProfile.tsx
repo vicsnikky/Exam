@@ -27,7 +27,7 @@ import {
   CreditCard,
 } from 'lucide-react';
 import { Student, AssessmentRecord } from '../types/index.ts';
-import { getLocalStudents, getInstitutionalVault, fetchAllStudentsUnified } from '../lib/schoolStore.ts';
+import { getLocalStudents, getInstitutionalVault, fetchAllStudentsUnified, updateStudent } from '../lib/schoolStore.ts';
 import { supabase } from '../supabaseConfig.ts';
 import {
   isStudentFeeLocked,
@@ -116,6 +116,12 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
   // Financial & Bursary Statement Modal
   const [showFeeModal, setShowFeeModal] = useState(false);
+
+  // Guardian Details Edit Modal
+  const [guardianModalOpen, setGuardianModalOpen] = useState(false);
+  const [editParentName, setEditParentName] = useState('');
+  const [editParentPhone, setEditParentPhone] = useState('');
+  const [savingGuardian, setSavingGuardian] = useState(false);
 
   const loadProfile = async () => {
     if (!initialStudent) {
@@ -212,6 +218,66 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
       // If resolved, load continuous assessments and mock results
       if (resolvedStudent) {
+        // Guarantee parent and guardian details are populated
+        const pName = resolvedStudent.parentName || (resolvedStudent as any).parent_name || (user?.studentId === resolvedStudent.studentId ? user.parentName : null);
+        const pPhone = resolvedStudent.parentPhone || (resolvedStudent as any).parent_phone || (user?.studentId === resolvedStudent.studentId ? user.parentPhone : null);
+        if (pName) resolvedStudent.parentName = pName;
+        if (pPhone) resolvedStudent.parentPhone = pPhone;
+
+        if (!resolvedStudent.parentName || !resolvedStudent.parentPhone) {
+          try {
+            const allLocal = getLocalStudents();
+            const foundLocal = allLocal.find((s) => s.id === resolvedStudent!.id || s.studentId === resolvedStudent!.studentId);
+            if (foundLocal) {
+              if (!resolvedStudent.parentName && foundLocal.parentName) resolvedStudent.parentName = foundLocal.parentName;
+              if (!resolvedStudent.parentPhone && foundLocal.parentPhone) resolvedStudent.parentPhone = foundLocal.parentPhone;
+            }
+          } catch (_) {}
+        }
+
+        // Load School Attendance record from backend and local cache
+        try {
+          let loadedAtt: any = null;
+          const targetId = resolvedStudent.studentId || resolvedStudent.id;
+          const rawAtt = localStorage.getItem('fis_student_attendance_v1') || localStorage.getItem('fis_attendance_records_v1');
+          if (rawAtt) {
+            try {
+              const parsed = JSON.parse(rawAtt);
+              const k1 = String(resolvedStudent.studentId || '').toUpperCase().trim();
+              const k2 = String(resolvedStudent.id || '').trim();
+              if (k1 && parsed[k1]) loadedAtt = parsed[k1];
+              else if (k2 && parsed[k2]) loadedAtt = parsed[k2];
+            } catch (_) {}
+          }
+
+          try {
+            const attRes = await fetch(`/api/students/${encodeURIComponent(String(targetId))}/attendance`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (attRes.ok) {
+              const attData = await attRes.json();
+              if (attData && attData.attendance) {
+                loadedAtt = attData.attendance;
+              }
+            }
+          } catch (_) {}
+
+          if (loadedAtt && loadedAtt.timesOpened !== undefined) {
+            const opened = Math.max(0, Number(loadedAtt.timesOpened) || 0);
+            const present = Math.min(opened, Math.max(0, Number(loadedAtt.timesPresent) || 0));
+            const absent = Math.max(0, opened - present);
+            const rate = opened > 0 ? Math.round((present / opened) * 1000) / 10 : 0;
+            setAttendance({
+              timesOpened: opened,
+              timesPresent: present,
+              timesAbsent: absent,
+              rate,
+              session: loadedAtt.session || resolvedStudent.session || '2026/2027',
+              term: loadedAtt.term || 'First Term',
+            });
+          }
+        } catch (_) {}
+
         setStudent(resolvedStudent);
 
         // Fetch regular assessments from API if not yet provided
@@ -620,6 +686,43 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
       setAttendanceModalOpen(false);
     } finally {
       setSavingAttendance(false);
+    }
+  };
+
+  const handleSaveGuardian = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!student) return;
+    setSavingGuardian(true);
+    try {
+      const updated = await updateStudent(token, {
+        id: student.id,
+        studentId: student.studentId,
+        parentName: editParentName.trim() || null,
+        parentPhone: editParentPhone.trim() || null,
+      });
+
+      if (updated.success && updated.student) {
+        setStudent(updated.student);
+      } else {
+        setStudent({
+          ...student,
+          parentName: editParentName.trim() || null,
+          parentPhone: editParentPhone.trim() || null,
+        });
+      }
+
+      window.dispatchEvent(new CustomEvent('fis:students-updated'));
+      setGuardianModalOpen(false);
+    } catch (err: any) {
+      console.warn('Guardian update warning:', err);
+      setStudent({
+        ...student,
+        parentName: editParentName.trim() || null,
+        parentPhone: editParentPhone.trim() || null,
+      });
+      setGuardianModalOpen(false);
+    } finally {
+      setSavingGuardian(false);
     }
   };
 
@@ -1154,9 +1257,24 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
             </div>
 
             <div className="bg-slate-950/80 border border-slate-800 p-4 rounded-xl text-xs space-y-1 sm:min-w-[220px]">
-              <span className="text-slate-400 font-medium block">Guardian Contact:</span>
-              <p className="text-white font-semibold">{student.parentName || 'Not recorded'}</p>
-              <p className="text-amber-400 font-mono">{student.parentPhone || 'No phone number'}</p>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400 font-medium">Guardian Contact:</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditParentName(student.parentName || '');
+                    setEditParentPhone(student.parentPhone || '');
+                    setGuardianModalOpen(true);
+                  }}
+                  className="text-[11px] text-amber-400 hover:text-amber-300 font-semibold underline cursor-pointer flex items-center gap-1"
+                  title="Update parent or guardian contact information"
+                >
+                  <Edit2 className="w-2.5 h-2.5" />
+                  Edit
+                </button>
+              </div>
+              <p className="text-white font-semibold text-sm">{student.parentName || 'Not recorded'}</p>
+              <p className="text-amber-400 font-mono font-medium">{student.parentPhone || 'No phone number'}</p>
             </div>
           </div>
 
@@ -1676,6 +1794,20 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                   </strong>
                 </div>
 
+                {/* Parent / Guardian Information on Official Result */}
+                <div className="pt-2 border-t border-slate-800 print:border-slate-300 col-span-2">
+                  <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">Parent / Guardian Full Name</span>
+                  <strong className="text-white print:text-black">
+                    {student.parentName || 'Parent / Guardian (Registered on File)'}
+                  </strong>
+                </div>
+                <div className="pt-2 border-t border-slate-800 print:border-slate-300 col-span-2">
+                  <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">Guardian Telephone Contact</span>
+                  <strong className="text-amber-400 print:text-amber-900 font-mono">
+                    {student.parentPhone || 'Phone Registered with School Registry'}
+                  </strong>
+                </div>
+
                 {/* Attendance Metadata Row */}
                 <div className="pt-2 border-t border-slate-800 print:border-slate-300">
                   <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">Times School Opened</span>
@@ -1755,7 +1887,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                       </tr>
                     ) : (
                       groupedSubjectRows.map((r, idx) => (
-                        <tr key={idx}>
+                        <tr key={`grp_sub_${r.subjectId || r.subjectCode}_${idx}`}>
                           <td className="py-2.5 px-3 text-center font-mono border border-slate-800 print:border-black">
                             {idx + 1}
                           </td>
@@ -2098,6 +2230,72 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                 >
                   <Save className="w-3.5 h-3.5 text-amber-300" />
                   {savingAttendance ? 'Saving...' : 'Save & Reflect on Result'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Guardian / Parent Contact Update Modal */}
+      {guardianModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-700">
+              <h3 className="font-bold text-white text-base flex items-center gap-2">
+                <User className="w-4 h-4 text-amber-400" />
+                Update Guardian Details
+              </h3>
+              <button
+                onClick={() => setGuardianModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveGuardian} className="space-y-4 text-xs">
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1">
+                  Parent / Guardian Full Name
+                </label>
+                <input
+                  type="text"
+                  value={editParentName}
+                  onChange={(e) => setEditParentName(e.target.value)}
+                  placeholder="e.g. Mr. Robert Johnson"
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-amber-400"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1">
+                  Parent / Guardian Phone Number
+                </label>
+                <input
+                  type="tel"
+                  value={editParentPhone}
+                  onChange={(e) => setEditParentPhone(e.target.value)}
+                  placeholder="+234..."
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white font-mono focus:outline-none focus:border-amber-400"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-700">
+                <button
+                  type="button"
+                  onClick={() => setGuardianModalOpen(false)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold cursor-pointer transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingGuardian}
+                  className="px-5 py-2 bg-amber-600 hover:bg-amber-500 text-slate-950 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 shadow-md disabled:opacity-50"
+                >
+                  <Save className="w-3.5 h-3.5 text-slate-950" />
+                  {savingGuardian ? 'Saving...' : 'Save Guardian Info'}
                 </button>
               </div>
             </form>

@@ -370,7 +370,7 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ onQuizCreated }) => {
                 const isSelected = selectedQuestionIds.includes(q.id);
                 return (
                   <div
-                    key={q.id}
+                    key={`qb_q_${q.id}_${i}`}
                     onClick={() => toggleQuestion(q.id)}
                     className={`p-3 rounded-xl border transition cursor-pointer flex items-start gap-3 ${
                       isSelected

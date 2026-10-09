@@ -874,8 +874,8 @@ export const AiQuestionGenerator: React.FC<AiQuestionGeneratorProps> = ({
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-400"
                   >
                     <option value="">Save to Question Bank Only (Draft)</option>
-                    {activeQuizzes.map((qz) => (
-                      <option key={qz.id} value={qz.id}>
+                    {activeQuizzes.map((qz, qzIdx) => (
+                      <option key={`ai_qz_opt_${qz.id}_${qzIdx}`} value={qz.id}>
                         ⚡ Push to: {qz.title} ({qz.targetClass})
                       </option>
                     ))}
@@ -1265,8 +1265,8 @@ export const AiQuestionGenerator: React.FC<AiQuestionGeneratorProps> = ({
             </div>
           ) : (
             <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
-              {filteredBank.map((q) => (
-                <div key={q.id} className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-2.5">
+              {filteredBank.map((q, qIdx) => (
+                <div key={`ai_q_card_${q.id}_${qIdx}`} className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-2.5">
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="flex items-center gap-2 mb-1">

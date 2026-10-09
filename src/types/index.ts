@@ -11,6 +11,8 @@ export interface User {
   currentClass?: string;
   school?: string;
   session?: string;
+  parentName?: string | null;
+  parentPhone?: string | null;
 }
 
 export interface Student {

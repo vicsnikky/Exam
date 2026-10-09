@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext.tsx';
 import { Student, StudentFeeAdjustment } from '../types/index.ts';
-import { fetchAllStudentsUnified } from '../lib/schoolStore.ts';
+import { fetchAllStudentsUnified, getLocalStudents, saveLocalStudents } from '../lib/schoolStore.ts';
 import {
   getAllFeeLocks,
   setStudentFeeLock,
@@ -331,7 +331,27 @@ export const BursarDashboard: React.FC = () => {
         token,
       });
 
-      setPayments((prev) => ({ ...prev, [sId]: updated }));
+      setPayments((prev) => ({
+        ...prev,
+        [sId]: updated,
+        [String(st.id)]: updated,
+      }));
+
+      setStudents((prev) =>
+        prev.map((s) => (s.id === st.id || s.studentId === st.studentId ? { ...s, amountPaid: val } : s))
+      );
+
+      try {
+        const localList = getLocalStudents();
+        const idx = localList.findIndex(
+          (s) => s.id === st.id || s.studentId.toUpperCase() === sId
+        );
+        if (idx !== -1) {
+          localList[idx].amountPaid = val;
+          saveLocalStudents(localList);
+        }
+      } catch (_) {}
+
       setEditFeeModal((prev) => ({ ...prev, isOpen: false }));
 
       const requiredFee = classFees[st.currentClass] || DEFAULT_CLASS_FEES[st.currentClass] || 150000;
@@ -490,11 +510,7 @@ export const BursarDashboard: React.FC = () => {
     return studentsWithStatus.filter(({ student, status }) => {
       if (!status.isDebtor) return false;
 
-      if (selectedClass !== 'all') {
-        const cleanSelected = selectedClass.toUpperCase().replace(/\s+/g, '');
-        const cleanClass = (student.currentClass || '').toUpperCase().replace(/\s+/g, '');
-        if (cleanClass !== cleanSelected) return false;
-      }
+      if (selectedClass !== 'all' && !isSameClass(student.currentClass, selectedClass)) return false;
 
       if (selectedLockFilter === 'locked' && !status.isLocked) return false;
       if (selectedLockFilter === 'unlocked' && status.isLocked) return false;
@@ -520,11 +536,7 @@ export const BursarDashboard: React.FC = () => {
   const classMetrics = useMemo(() => {
     const classStudents = selectedClass === 'all'
       ? studentsWithStatus
-      : studentsWithStatus.filter(({ student }) => {
-          const cleanSelected = selectedClass.toUpperCase().replace(/\s+/g, '');
-          const cleanClass = (student.currentClass || '').toUpperCase().replace(/\s+/g, '');
-          return cleanClass === cleanSelected;
-        });
+      : studentsWithStatus.filter(({ student }) => isSameClass(student.currentClass, selectedClass));
 
     const totalEnrolled = classStudents.length;
     const debtors = classStudents.filter((x) => x.status.isDebtor);
@@ -1188,7 +1200,7 @@ export const BursarDashboard: React.FC = () => {
                 <tbody className="divide-y divide-slate-700/60 text-slate-300">
                   {studentsWithStatus
                     .filter(({ student, status }) => {
-                      if (selectedClass !== 'all' && student.currentClass !== selectedClass) return false;
+                      if (selectedClass !== 'all' && !isSameClass(student.currentClass, selectedClass)) return false;
                       if (residenceFilter === 'hostel' && status.residenceType !== 'hostel') return false;
                       if (residenceFilter === 'day' && status.residenceType === 'hostel') return false;
                       if (scholarshipFilter === 'scholarship' && status.scholarshipType === 'none') return false;
@@ -1465,7 +1477,7 @@ export const BursarDashboard: React.FC = () => {
               <tbody className="divide-y divide-slate-700/60 text-slate-300">
                 {studentsWithStatus
                   .filter(({ student, status }) => {
-                    if (selectedClass !== 'all' && student.currentClass !== selectedClass) return false;
+                    if (selectedClass !== 'all' && !isSameClass(student.currentClass, selectedClass)) return false;
                     if (residenceFilter === 'hostel' && status.residenceType !== 'hostel') return false;
                     if (residenceFilter === 'day' && status.residenceType === 'hostel') return false;
                     if (scholarshipFilter === 'scholarship' && status.scholarshipType === 'none') return false;
@@ -2029,7 +2041,7 @@ export const BursarDashboard: React.FC = () => {
                       { id: 'fixed', label: 'Fixed ₦', desc: 'Specific ₦' },
                     ].map((opt) => (
                       <button
-                        key={opt.id}
+                        key={`sch_type_${opt.id}`}
                         type="button"
                         onClick={() => setAdjustModal((prev) => ({ ...prev, scholarshipType: opt.id as any }))}
                         className={`p-2.5 rounded-xl border text-center transition cursor-pointer ${

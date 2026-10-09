@@ -267,6 +267,8 @@ app.post('/api/auth/login', async (req, res) => {
           currentClass: st.currentClass,
           school: st.school,
           session: st.session,
+          parentName: st.parentName || null,
+          parentPhone: st.parentPhone || null,
           role: 'student',
         },
       });
@@ -1136,9 +1138,9 @@ app.post('/api/bursar/class-fees', authenticate, async (req: AuthRequest, res) =
     if (!isAllowed) {
       return res.status(403).json({ error: 'Permission denied. Only Bursars and Executive Leadership can configure class fees.' });
     }
-    const { fees } = req.body;
-    if (fees && typeof fees === 'object') {
-      Object.assign(inMemoryClassFees, fees);
+    const incomingFees = req.body.classFees || req.body.fees;
+    if (incomingFees && typeof incomingFees === 'object') {
+      Object.assign(inMemoryClassFees, incomingFees);
     }
     return res.json({ success: true, fees: inMemoryClassFees });
   } catch (err: any) {
@@ -1160,27 +1162,55 @@ app.post('/api/bursar/payments', authenticate, async (req: AuthRequest, res) => 
     if (!isAllowed) {
       return res.status(403).json({ error: 'Permission denied. Only Bursars and Executive Leadership can record student fee payments.' });
     }
-    const { studentId, amountPaid, receiptNo, note } = req.body;
+    const { studentId } = req.body;
     if (!studentId) {
       return res.status(400).json({ error: 'Student ID is required' });
     }
     const cleanId = String(studentId).trim().toUpperCase();
     const existing = inMemoryStudentPayments[cleanId] || { studentId: cleanId, amountPaid: 0, history: [] };
-    const numPaid = parseFloat(amountPaid) || 0;
-    
+
+    const paymentObj = req.body.payment;
+    const rawAmt = paymentObj?.amountPaid !== undefined ? paymentObj.amountPaid : req.body.amountPaid;
+    const numPaid = Math.max(0, parseFloat(rawAmt) || 0);
+
+    const receiptNo = paymentObj?.history?.[0]?.receiptNo || req.body.receiptNo;
+    const note = paymentObj?.history?.[0]?.note || req.body.note;
+
     existing.amountPaid = numPaid;
     existing.lastPaymentDate = new Date().toISOString();
-    existing.history = existing.history || [];
-    existing.history.push({
-      id: `rcpt_${Date.now()}`,
-      amount: numPaid,
-      date: new Date().toISOString(),
-      receiptNo: receiptNo || `FIS-${Date.now().toString().slice(-6)}`,
-      note: note || 'Tuition payment',
-      recordedBy: `${req.appUser?.firstName || 'Staff'} (${req.appUser?.role || 'Bursary'})`,
-    });
+    if (paymentObj?.history && Array.isArray(paymentObj.history)) {
+      existing.history = paymentObj.history;
+    } else {
+      existing.history = existing.history || [];
+      existing.history.push({
+        id: `rcpt_${Date.now()}`,
+        amount: numPaid,
+        date: new Date().toISOString(),
+        receiptNo: receiptNo || `FIS-${Date.now().toString().slice(-6)}`,
+        note: note || 'Tuition payment',
+        recordedBy: `${req.appUser?.firstName || 'Staff'} (${req.appUser?.role || 'Bursary'})`,
+      });
+    }
 
     inMemoryStudentPayments[cleanId] = existing;
+    const dbId = req.body.studentDbId || paymentObj?.studentDbId;
+    if (dbId) {
+      inMemoryStudentPayments[String(dbId)] = existing;
+    }
+    try {
+      if (!isNaN(Number(cleanId))) {
+        const found = await db.select({ studentId: students.studentId }).from(students).where(eq(students.id, Number(cleanId))).limit(1);
+        if (found.length > 0 && found[0].studentId) {
+          inMemoryStudentPayments[found[0].studentId.toUpperCase().trim()] = existing;
+        }
+      } else {
+        const found = await db.select({ id: students.id }).from(students).where(eq(students.studentId, cleanId)).limit(1);
+        if (found.length > 0) {
+          inMemoryStudentPayments[String(found[0].id)] = existing;
+        }
+      }
+    } catch (_) {}
+
     return res.json({ success: true, record: existing });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -1568,6 +1598,8 @@ app.get('/api/scores', authenticate, async (req: AuthRequest, res) => {
         session: assessments.session,
         term: assessments.term,
         teacherComment: assessments.teacherComment,
+        parentName: students.parentName,
+        parentPhone: students.parentPhone,
         createdAt: assessments.createdAt,
       })
       .from(assessments)
@@ -2473,6 +2505,45 @@ app.delete('/api/scores/:id', authenticate, async (req: AuthRequest, res) => {
   }
 });
 
+// Delete scores by query (studentId, subjectId, term, session)
+app.delete('/api/scores', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const studentParam = req.query.studentId as string;
+    const subjectParam = req.query.subjectId as string;
+    const termParam = req.query.term as string;
+    const sessionParam = req.query.session as string;
+
+    const conditions: any[] = [];
+    if (studentParam) {
+      if (!isNaN(Number(studentParam))) {
+        conditions.push(eq(assessments.studentId, Number(studentParam)));
+      } else {
+        const found = await db.select({ id: students.id }).from(students).where(eq(students.studentId, studentParam.toUpperCase().trim())).limit(1);
+        if (found.length > 0) {
+          conditions.push(eq(assessments.studentId, found[0].id));
+        }
+      }
+    }
+    if (subjectParam && !isNaN(Number(subjectParam))) {
+      conditions.push(eq(assessments.subjectId, Number(subjectParam)));
+    }
+    if (termParam && termParam !== 'all') {
+      conditions.push(ilike(assessments.term, `%${termParam.trim()}%`));
+    }
+    if (sessionParam && sessionParam !== 'all') {
+      conditions.push(ilike(assessments.session, `%${sessionParam.trim()}%`));
+    }
+
+    if (conditions.length > 0) {
+      await db.delete(assessments).where(and(...conditions));
+    }
+
+    return res.json({ success: true, message: 'Scores cleared successfully' });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message || 'Failed to clear scores' });
+  }
+});
+
 // General Class Broadsheet (Secondary and Primary/Lower classes)
 app.get('/api/broadsheet/class', authenticate, async (req: AuthRequest, res) => {
   try {
@@ -2500,6 +2571,8 @@ app.get('/api/broadsheet/class', authenticate, async (req: AuthRequest, res) => 
         currentClass: students.currentClass,
         school: students.school,
         session: students.session,
+        parentName: students.parentName,
+        parentPhone: students.parentPhone,
       })
       .from(students)
       .where(classCondition)
