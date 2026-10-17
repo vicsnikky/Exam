@@ -1,4 +1,5 @@
 import express from 'express';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
@@ -1081,9 +1082,66 @@ app.put('/api/subjects/:id', authenticate, async (req: AuthRequest, res) => {
 // ----------------------------------------------------
 // 5. SCORE ENTRY & RECORDING (Multi-subject, existing student never re-registered)
 // ----------------------------------------------------
+// ----------------------------------------------------
 // BURSARY FEE LOCK ENDPOINTS (Bursar & Super Admin)
 // ----------------------------------------------------
+const BURSAR_FILE = path.resolve(process.cwd(), '.bursar_storage.json');
+
 const inMemoryFeeLocks: Record<string, any> = {};
+const inMemoryClassFees: Record<string, number> = {
+  'Creche': 95000,
+  'KG 1': 100000,
+  'KG 2': 100000,
+  'NUR 1': 110000,
+  'NUR 2': 110000,
+  'Primary 1': 115000,
+  'Primary 2': 115000,
+  'Primary 3': 120000,
+  'Primary 4': 120000,
+  'Primary 5': 125000,
+  'JSS 1': 150000,
+  'JSS 2': 150000,
+  'JSS 3': 160000,
+  'SSS 1': 180000,
+  'SSS 2': 180000,
+  'SS 3': 220000,
+  'SS 1': 180000,
+  'SS 2': 180000,
+  'SSS 3': 220000,
+};
+const inMemoryStudentPayments: Record<string, any> = {};
+let inMemoryHostelFee: number = 80000;
+const inMemoryFeeAdjustments: Record<string, any> = {};
+
+// Load saved bursary data from disk if exists
+try {
+  if (fs.existsSync(BURSAR_FILE)) {
+    const raw = fs.readFileSync(BURSAR_FILE, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (parsed.classFees) Object.assign(inMemoryClassFees, parsed.classFees);
+    if (parsed.feeLocks) Object.assign(inMemoryFeeLocks, parsed.feeLocks);
+    if (parsed.payments) Object.assign(inMemoryStudentPayments, parsed.payments);
+    if (parsed.hostelFee !== undefined) inMemoryHostelFee = Number(parsed.hostelFee);
+    if (parsed.adjustments) Object.assign(inMemoryFeeAdjustments, parsed.adjustments);
+  }
+} catch (e) {
+  console.warn('Could not load .bursar_storage.json:', e);
+}
+
+function persistBursarData() {
+  try {
+    const data = {
+      classFees: inMemoryClassFees,
+      feeLocks: inMemoryFeeLocks,
+      payments: inMemoryStudentPayments,
+      hostelFee: inMemoryHostelFee,
+      adjustments: inMemoryFeeAdjustments,
+    };
+    fs.writeFileSync(BURSAR_FILE, JSON.stringify(data, null, 2), 'utf-8');
+  } catch (e) {
+    console.warn('Could not save .bursar_storage.json:', e);
+  }
+}
 
 app.get('/api/bursar/locks', authenticate, async (_req: AuthRequest, res) => {
   try {
@@ -1116,6 +1174,7 @@ app.post('/api/bursar/lock-student', authenticate, async (req: AuthRequest, res)
     };
 
     inMemoryFeeLocks[cleanId] = lockRecord;
+    persistBursarData();
     return res.json({ success: true, record: lockRecord });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -1123,28 +1182,6 @@ app.post('/api/bursar/lock-student', authenticate, async (req: AuthRequest, res)
 });
 
 // Class Fees Designated Amount Endpoints
-const inMemoryClassFees: Record<string, number> = {
-  'Creche': 95000,
-  'KG 1': 100000,
-  'KG 2': 100000,
-  'NUR 1': 110000,
-  'NUR 2': 110000,
-  'Primary 1': 115000,
-  'Primary 2': 115000,
-  'Primary 3': 120000,
-  'Primary 4': 120000,
-  'Primary 5': 125000,
-  'JSS 1': 150000,
-  'JSS 2': 150000,
-  'JSS 3': 160000,
-  'SSS 1': 180000,
-  'SSS 2': 180000,
-  'SS 3': 220000,
-  'SS 1': 180000,
-  'SS 2': 180000,
-  'SSS 3': 220000,
-};
-
 app.get('/api/bursar/class-fees', authenticate, async (_req: AuthRequest, res) => {
   return res.json({ fees: inMemoryClassFees });
 });
@@ -1166,6 +1203,7 @@ app.post('/api/bursar/class-fees', authenticate, async (req: AuthRequest, res) =
       if (incomingFees['SS 3'] !== undefined) inMemoryClassFees['SSS 3'] = incomingFees['SS 3'];
       if (incomingFees['SSS 3'] !== undefined) inMemoryClassFees['SS 3'] = incomingFees['SSS 3'];
     }
+    persistBursarData();
     return res.json({ success: true, fees: inMemoryClassFees });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -1173,8 +1211,6 @@ app.post('/api/bursar/class-fees', authenticate, async (req: AuthRequest, res) =
 });
 
 // Student Payments / Debtors Records Endpoints
-const inMemoryStudentPayments: Record<string, any> = {};
-
 app.get('/api/bursar/payments', authenticate, async (_req: AuthRequest, res) => {
   return res.json({ payments: inMemoryStudentPayments });
 });
@@ -1234,6 +1270,7 @@ app.post('/api/bursar/payments', authenticate, async (req: AuthRequest, res) => 
       }
     } catch (_) {}
 
+    persistBursarData();
     return res.json({ success: true, record: existing });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -1243,9 +1280,6 @@ app.post('/api/bursar/payments', authenticate, async (req: AuthRequest, res) => 
 // ----------------------------------------------------
 // BURSARY HOSTEL & SCHOLARSHIP ADJUSTMENT ENDPOINTS
 // ----------------------------------------------------
-let inMemoryHostelFee: number = 80000;
-const inMemoryFeeAdjustments: Record<string, any> = {};
-
 app.get('/api/bursar/hostel-fee', authenticate, async (_req: AuthRequest, res) => {
   return res.json({ hostelFee: inMemoryHostelFee });
 });
@@ -1260,6 +1294,7 @@ app.post('/api/bursar/hostel-fee', authenticate, async (req: AuthRequest, res) =
     const num = parseFloat(hostelFee);
     if (!isNaN(num)) {
       inMemoryHostelFee = Math.max(0, num);
+      persistBursarData();
     }
     return res.json({ success: true, hostelFee: inMemoryHostelFee });
   } catch (err: any) {
@@ -1280,6 +1315,7 @@ app.post('/api/bursar/fee-adjustments', authenticate, async (req: AuthRequest, r
     const { studentId, adjustment, adjustments } = req.body;
     if (adjustments && typeof adjustments === 'object') {
       Object.assign(inMemoryFeeAdjustments, adjustments);
+      persistBursarData();
       return res.json({ success: true, adjustments: inMemoryFeeAdjustments });
     }
     if (!studentId || !adjustment) {
@@ -1295,7 +1331,121 @@ app.post('/api/bursar/fee-adjustments', authenticate, async (req: AuthRequest, r
       updatedAt: new Date().toISOString(),
     };
     inMemoryFeeAdjustments[cleanId] = updated;
+    persistBursarData();
     return res.json({ success: true, adjustment: updated });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ----------------------------------------------------
+// CLASS TEACHER ASSIGNMENTS & REPORT CARD REMARKS
+// ----------------------------------------------------
+const CLASS_TEACHERS_FILE = path.resolve(process.cwd(), '.class_teachers.json');
+const inMemoryClassTeacherAssignments: Record<string, { teacherId: string | number; teacherName: string; className: string; updatedAt: string }> = {
+  'SS 3': { teacherId: 'TCH-2026-0001', teacherName: 'Victor Alo', className: 'SS 3', updatedAt: new Date().toISOString() },
+};
+const inMemoryClassTeacherRemarks: Record<string, { studentId: string; remark: string; term: string; session: string; teacherName: string; updatedAt: string }> = {};
+
+try {
+  if (fs.existsSync(CLASS_TEACHERS_FILE)) {
+    const raw = fs.readFileSync(CLASS_TEACHERS_FILE, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (parsed.assignments) Object.assign(inMemoryClassTeacherAssignments, parsed.assignments);
+    if (parsed.remarks) Object.assign(inMemoryClassTeacherRemarks, parsed.remarks);
+  }
+} catch (e) {
+  console.warn('Could not load .class_teachers.json:', e);
+}
+
+function persistClassTeachersData() {
+  try {
+    const data = {
+      assignments: inMemoryClassTeacherAssignments,
+      remarks: inMemoryClassTeacherRemarks,
+    };
+    fs.writeFileSync(CLASS_TEACHERS_FILE, JSON.stringify(data, null, 2), 'utf-8');
+  } catch (e) {
+    console.warn('Could not save .class_teachers.json:', e);
+  }
+}
+
+app.get('/api/class-teachers', authenticate, async (_req: AuthRequest, res) => {
+  return res.json({ assignments: inMemoryClassTeacherAssignments });
+});
+
+app.post('/api/class-teachers', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const role = req.appUser?.role;
+    if (role === 'student') {
+      return res.status(403).json({ error: 'Permission denied: Students cannot assign class teachers.' });
+    }
+    const { className, teacherId, teacherName } = req.body;
+    if (!className) {
+      return res.status(400).json({ error: 'Class name is required' });
+    }
+
+    if (!teacherId || teacherId === 'none' || teacherId === 'unassigned') {
+      delete inMemoryClassTeacherAssignments[className];
+    } else {
+      // Remove this teacher from any other class assignment first
+      Object.keys(inMemoryClassTeacherAssignments).forEach((c) => {
+        if (String(inMemoryClassTeacherAssignments[c].teacherId) === String(teacherId)) {
+          delete inMemoryClassTeacherAssignments[c];
+        }
+      });
+      inMemoryClassTeacherAssignments[className] = {
+        teacherId,
+        teacherName: teacherName || 'Class Teacher',
+        className,
+        updatedAt: new Date().toISOString(),
+      };
+    }
+
+    persistClassTeachersData();
+    return res.json({ success: true, assignments: inMemoryClassTeacherAssignments });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/students/:id/class-teacher-remark', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const rawId = req.params.id;
+    const cleanId = String(rawId).trim().toUpperCase();
+    const term = (req.query.term as string) || 'First Term';
+    const session = (req.query.session as string) || '2026/2027';
+    const key = `${cleanId}_${term}_${session}`;
+    const fallbackKey = `${cleanId}`;
+    const record = inMemoryClassTeacherRemarks[key] || inMemoryClassTeacherRemarks[fallbackKey] || null;
+    return res.json({ record });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/students/:id/class-teacher-remark', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const role = req.appUser?.role;
+    if (role === 'student') {
+      return res.status(403).json({ error: 'Permission denied: Students cannot enter teacher remarks.' });
+    }
+    const rawId = req.params.id;
+    const cleanId = String(rawId).trim().toUpperCase();
+    const { remark, term = 'First Term', session = '2026/2027', teacherName } = req.body;
+    const key = `${cleanId}_${term}_${session}`;
+    const record = {
+      studentId: cleanId,
+      remark: String(remark || '').trim(),
+      term: String(term),
+      session: String(session),
+      teacherName: teacherName || `${req.appUser?.firstName || 'Class'} ${req.appUser?.lastName || 'Teacher'}`.trim(),
+      updatedAt: new Date().toISOString(),
+    };
+    inMemoryClassTeacherRemarks[key] = record;
+    inMemoryClassTeacherRemarks[cleanId] = record;
+    persistClassTeachersData();
+    return res.json({ success: true, record });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
@@ -3479,7 +3629,18 @@ app.get('/api/admin/teachers', authenticate, async (req: AuthRequest, res) => {
       .innerJoin(users, eq(teachers.userId, users.id))
       .orderBy(desc(teachers.createdAt));
 
-    return res.json({ teachers: teacherList });
+    const teachersWithClass = teacherList.map((t) => {
+      const assigned = Object.values(inMemoryClassTeacherAssignments).find(
+        (a) => String(a.teacherId) === String(t.teacherId) || String(a.teacherId) === String(t.id)
+      );
+      return {
+        ...t,
+        assignedClass: assigned ? assigned.className : null,
+        isClassTeacher: Boolean(assigned),
+      };
+    });
+
+    return res.json({ teachers: teachersWithClass });
   } catch (error: any) {
     return res.status(500).json({ error: error.message });
   }
@@ -3705,6 +3866,30 @@ app.put('/api/admin/teachers/:id', authenticate, async (req: AuthRequest, res) =
       if (Object.keys(userUpdates).length > 0) {
         await db.update(users).set(userUpdates).where(eq(users.id, targetTeacher.userId));
       }
+    }
+
+    // Handle Class Teacher Assignment
+    const { assignedClass } = req.body;
+    if (assignedClass !== undefined) {
+      // Remove any previous class assigned to this teacher
+      Object.keys(inMemoryClassTeacherAssignments).forEach((k) => {
+        if (
+          String(inMemoryClassTeacherAssignments[k].teacherId) === String(targetTeacher.teacherId) ||
+          String(inMemoryClassTeacherAssignments[k].teacherId) === String(targetTeacher.id)
+        ) {
+          delete inMemoryClassTeacherAssignments[k];
+        }
+      });
+      if (assignedClass && assignedClass.trim() !== '' && assignedClass !== 'none' && assignedClass !== 'unassigned') {
+        const cleanClass = assignedClass.trim();
+        inMemoryClassTeacherAssignments[cleanClass] = {
+          teacherId: targetTeacher.teacherId,
+          teacherName: `${firstName || ''} ${lastName || ''}`.trim() || 'Class Teacher',
+          className: cleanClass,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+      persistClassTeachersData();
     }
 
     // Audit log

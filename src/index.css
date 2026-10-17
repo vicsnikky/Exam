@@ -21,3 +21,17 @@
 .fis-card-accent {
   border-top: 3px solid #f2a900;
 }
+
+@media print {
+  @page {
+    margin: 10mm;
+    size: auto;
+  }
+  body {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+  }
+  .print\:hidden {
+    display: none !important;
+  }
+}

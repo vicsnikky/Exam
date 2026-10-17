@@ -1,0 +1,28 @@
+{
+  "assignments": {
+    "SS 3": {
+      "teacherId": "TCH-2026-0001",
+      "teacherName": "Victor Alo",
+      "className": "SS 3",
+      "updatedAt": "2026-10-17T06:27:48.242Z"
+    }
+  },
+  "remarks": {
+    "1": {
+      "studentId": "1",
+      "remark": "An exceptionally dedicated scholar with consistent academic excellence.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Faculty Teacher",
+      "updatedAt": "2026-10-17T06:28:08.383Z"
+    },
+    "1_First Term_2026/2027": {
+      "studentId": "1",
+      "remark": "An exceptionally dedicated scholar with consistent academic excellence.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Faculty Teacher",
+      "updatedAt": "2026-10-17T06:28:08.383Z"
+    }
+  }
+}

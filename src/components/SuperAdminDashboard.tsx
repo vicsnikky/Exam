@@ -58,6 +58,7 @@ import { DeleteConfirmModal } from './DeleteConfirmModal.tsx';
 import { EditStudentModal } from './EditStudentModal.tsx';
 import { EditTeacherModal } from './EditTeacherModal.tsx';
 import { ExecutiveComplaintsManager } from './ExecutiveComplaintsManager.tsx';
+import { CLASS_OPTIONS } from '../constants/classes.ts';
 
 export const SuperAdminDashboard: React.FC = () => {
   const { token, user } = useAuth();
@@ -953,6 +954,16 @@ export const SuperAdminDashboard: React.FC = () => {
                               🎓 Faculty
                             </span>
                           )}
+                          {t.assignedClass ? (
+                            <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1 shadow-sm">
+                              <span>👩‍🏫 Class Teacher:</span>
+                              <strong className="text-white">{t.assignedClass}</strong>
+                            </span>
+                          ) : (
+                            <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-slate-800/80 text-slate-400 border border-slate-700">
+                              No Class Assigned
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-0.5 flex-wrap">
                           <span className="truncate">{t.email}</span>
@@ -963,6 +974,40 @@ export const SuperAdminDashboard: React.FC = () => {
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0">
+                      {/* Assign Class Teacher dropdown */}
+                      <select
+                        value={t.assignedClass || 'none'}
+                        onChange={async (e) => {
+                          const val = e.target.value;
+                          try {
+                            await updateTeacher(token, {
+                              id: t.id,
+                              teacherId: t.teacherId,
+                              assignedClass: val === 'none' ? null : val,
+                            });
+                            setNotification({
+                              type: 'success',
+                              message:
+                                val === 'none'
+                                  ? `Class teacher role cleared for ${t.firstName} ${t.lastName}`
+                                  : `${t.firstName} ${t.lastName} assigned as Class Teacher of ${val}`,
+                            });
+                            fetchAdminData();
+                          } catch (err: any) {
+                            setNotification({ type: 'error', message: err.message || 'Failed to update' });
+                          }
+                        }}
+                        className="bg-slate-950 border border-amber-500/40 text-amber-300 text-[10px] font-bold rounded-lg px-2 py-1 focus:outline-none focus:border-amber-400 cursor-pointer"
+                        title="Assign or change Class Teacher role"
+                      >
+                        <option value="none">Assign Class Teacher...</option>
+                        {CLASS_OPTIONS.map((c) => (
+                          <option key={c} value={c}>
+                            Class Teacher: {c}
+                          </option>
+                        ))}
+                      </select>
+
                       {t.email !== 'victoralo1862@gmail.com' && (
                         <select
                           value={t.role || 'teacher'}

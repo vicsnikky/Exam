@@ -15,6 +15,8 @@ export interface TeacherRecord {
   schoolName: string;
   role: string;
   createdAt: string;
+  assignedClass?: string | null;
+  isClassTeacher?: boolean;
 }
 
 const DEFAULT_STUDENTS: Student[] = [];
@@ -1094,7 +1096,23 @@ export async function updateTeacher(
     schoolName: (data.schoolName || existing.schoolName || 'Fenster International School').trim(),
     password: data.password ? data.password.trim() : existing.password,
     role: data.role || existing.role || 'teacher',
+    assignedClass: data.assignedClass !== undefined ? (data.assignedClass === 'none' ? null : data.assignedClass) : existing.assignedClass,
+    isClassTeacher: data.assignedClass !== undefined ? (data.assignedClass !== 'none' && Boolean(data.assignedClass)) : existing.isClassTeacher,
   };
+
+  // Sync Class Teacher assignment
+  if (data.assignedClass !== undefined) {
+    if (data.assignedClass && data.assignedClass !== 'none') {
+      assignClassTeacher(
+        data.assignedClass,
+        updatedTeacher.teacherId,
+        `${updatedTeacher.firstName} ${updatedTeacher.lastName}`,
+        token
+      ).catch(() => {});
+    } else if (existing.assignedClass) {
+      assignClassTeacher(existing.assignedClass, '', '', token).catch(() => {});
+    }
+  }
 
   // 1. Immediately persist locally & institutional vault
   const updatedList = [...currentTeachers];
@@ -1570,3 +1588,177 @@ export async function authenticateLocalStudent(identifier: string, passwordAttem
   return null;
 }
 
+// ----------------------------------------------------
+// CLASS TEACHER ASSIGNMENTS & REPORT CARD REMARKS
+// ----------------------------------------------------
+const CLASS_TEACHERS_CACHE_KEY = 'fis_class_teachers_v1';
+const CLASS_TEACHER_REMARKS_CACHE_KEY = 'fis_class_teacher_remarks_v1';
+
+export async function fetchClassTeacherAssignments(
+  token?: string | null
+): Promise<Record<string, { teacherId: string | number; teacherName: string; className: string }>> {
+  try {
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch('/api/class-teachers', { headers });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.assignments) {
+        try {
+          localStorage.setItem(CLASS_TEACHERS_CACHE_KEY, JSON.stringify(data.assignments));
+        } catch (_) {}
+        return data.assignments;
+      }
+    }
+  } catch (err) {
+    console.warn('Deferred class teachers fetch:', err);
+  }
+
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(CLASS_TEACHERS_CACHE_KEY) : null;
+    if (raw) return JSON.parse(raw);
+  } catch (_) {}
+
+  return {
+    'SS 3': { teacherId: 'TCH-2026-0001', teacherName: 'Victor Alo', className: 'SS 3' },
+  };
+}
+
+export async function assignClassTeacher(
+  className: string,
+  teacherId: string | number,
+  teacherName: string,
+  token?: string | null
+): Promise<Record<string, any>> {
+  let current: Record<string, any> = {};
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(CLASS_TEACHERS_CACHE_KEY) : null;
+    current = raw ? JSON.parse(raw) : {};
+  } catch (_) {}
+
+  if (!teacherId || teacherId === 'none' || teacherId === 'unassigned') {
+    delete current[className];
+  } else {
+    // Remove if previously assigned to another class
+    Object.keys(current).forEach((c) => {
+      if (String(current[c]?.teacherId) === String(teacherId)) {
+        delete current[c];
+      }
+    });
+    current[className] = {
+      teacherId,
+      teacherName: teacherName || 'Class Teacher',
+      className,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  try {
+    localStorage.setItem(CLASS_TEACHERS_CACHE_KEY, JSON.stringify(current));
+  } catch (_) {}
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('fis:class-teachers-updated', { detail: current }));
+  }
+
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    await fetch('/api/class-teachers', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ className, teacherId, teacherName }),
+    });
+  } catch (err) {
+    console.warn('Backend class teacher assignment deferred:', err);
+  }
+
+  return current;
+}
+
+export async function fetchClassTeacherRemark(
+  studentId: string,
+  term: string = 'First Term',
+  session: string = '2026/2027',
+  token?: string | null
+): Promise<{ remark: string; teacherName: string; updatedAt?: string } | null> {
+  const cleanId = String(studentId).trim().toUpperCase();
+  const cacheKey = `${cleanId}_${term}_${session}`;
+
+  try {
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch(`/api/students/${encodeURIComponent(cleanId)}/class-teacher-remark?term=${encodeURIComponent(term)}&session=${encodeURIComponent(session)}`, { headers });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.record) {
+        try {
+          const raw = localStorage.getItem(CLASS_TEACHER_REMARKS_CACHE_KEY);
+          const all = raw ? JSON.parse(raw) : {};
+          all[cacheKey] = data.record;
+          localStorage.setItem(CLASS_TEACHER_REMARKS_CACHE_KEY, JSON.stringify(all));
+        } catch (_) {}
+        return data.record;
+      }
+    }
+  } catch (err) {
+    console.warn('Deferred class teacher remark fetch:', err);
+  }
+
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(CLASS_TEACHER_REMARKS_CACHE_KEY) : null;
+    if (raw) {
+      const all = JSON.parse(raw);
+      if (all[cacheKey]) return all[cacheKey];
+      if (all[cleanId]) return all[cleanId];
+    }
+  } catch (_) {}
+
+  return null;
+}
+
+export async function saveClassTeacherRemark(
+  studentId: string,
+  remark: string,
+  term: string = 'First Term',
+  session: string = '2026/2027',
+  teacherName: string = 'Class Teacher',
+  token?: string | null
+): Promise<any> {
+  const cleanId = String(studentId).trim().toUpperCase();
+  const cacheKey = `${cleanId}_${term}_${session}`;
+  const record = {
+    studentId: cleanId,
+    remark: remark.trim(),
+    term,
+    session,
+    teacherName,
+    updatedAt: new Date().toISOString(),
+  };
+
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(CLASS_TEACHER_REMARKS_CACHE_KEY) : null;
+    const all = raw ? JSON.parse(raw) : {};
+    all[cacheKey] = record;
+    all[cleanId] = record;
+    localStorage.setItem(CLASS_TEACHER_REMARKS_CACHE_KEY, JSON.stringify(all));
+  } catch (_) {}
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('fis:class-teacher-remark-updated', { detail: record }));
+  }
+
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    await fetch(`/api/students/${encodeURIComponent(cleanId)}/class-teacher-remark`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(record),
+    });
+  } catch (err) {
+    console.warn('Backend class teacher remark deferred:', err);
+  }
+
+  return record;
+}

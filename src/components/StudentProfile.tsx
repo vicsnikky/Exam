@@ -27,7 +27,15 @@ import {
   CreditCard,
 } from 'lucide-react';
 import { Student, AssessmentRecord } from '../types/index.ts';
-import { getLocalStudents, getInstitutionalVault, fetchAllStudentsUnified, updateStudent } from '../lib/schoolStore.ts';
+import {
+  getLocalStudents,
+  getInstitutionalVault,
+  fetchAllStudentsUnified,
+  updateStudent,
+  fetchClassTeacherAssignments,
+  fetchClassTeacherRemark,
+  saveClassTeacherRemark,
+} from '../lib/schoolStore.ts';
 import { supabase } from '../supabaseConfig.ts';
 import {
   isStudentFeeLocked,
@@ -72,6 +80,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     user?.role === 'admin';
   const canAddScore = !isStudent && !isBursar && Boolean(onAddScoreForStudent);
   const canManageScores = !isStudent && !isBursar;
+  const canEditClassTeacherRemark = !isStudent && !isBursar;
 
   const [student, setStudent] = useState<Student | null>(initialStudent || null);
   const [assessments, setAssessments] = useState<AssessmentRecord[]>([]);
@@ -122,6 +131,17 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   const [editParentName, setEditParentName] = useState('');
   const [editParentPhone, setEditParentPhone] = useState('');
   const [savingGuardian, setSavingGuardian] = useState(false);
+
+  // Report Card Term & Exam Period Selection
+  const [selectedPrintTerm, setSelectedPrintTerm] = useState<'First Term' | 'Second Term' | 'Third Term'>('First Term');
+  const [selectedExamType, setSelectedExamType] = useState<'terminal' | 'midterm'>('terminal');
+
+  // Class Teacher & Remark State
+  const [assignedClassTeacher, setAssignedClassTeacher] = useState<{ teacherId: string | number; teacherName: string; className: string } | null>(null);
+  const [classTeacherRemark, setClassTeacherRemark] = useState<string>('');
+  const [editingTeacherRemark, setEditingTeacherRemark] = useState<boolean>(false);
+  const [remarkDraft, setRemarkDraft] = useState<string>('');
+  const [savingRemark, setSavingRemark] = useState<boolean>(false);
 
   const loadProfile = async () => {
     if (!initialStudent) {
@@ -726,6 +746,57 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     }
   };
 
+  // Class Teacher Remark handler
+  const handleSaveTeacherRemark = async () => {
+    if (!student) return;
+    setSavingRemark(true);
+    try {
+      const sId = student.studentId || String(student.id);
+      const teacherName = user?.firstName
+        ? `${user.firstName} ${user.lastName || ''}`.trim()
+        : (assignedClassTeacher?.teacherName || 'Class Teacher');
+      await saveClassTeacherRemark(
+        sId,
+        remarkDraft,
+        selectedPrintTerm,
+        student.session || '2026/2027',
+        teacherName,
+        token
+      );
+      setClassTeacherRemark(remarkDraft);
+      setEditingTeacherRemark(false);
+    } catch (err: any) {
+      alert('Failed to save class teacher remark: ' + (err.message || 'Error'));
+    } finally {
+      setSavingRemark(false);
+    }
+  };
+
+  useEffect(() => {
+    if (student) {
+      const sId = student.studentId || String(student.id);
+      const cName = student.currentClass;
+      fetchClassTeacherAssignments(token).then((assignments) => {
+        if (assignments && cName && assignments[cName]) {
+          setAssignedClassTeacher(assignments[cName]);
+        }
+      }).catch(() => {});
+
+      fetchClassTeacherRemark(sId, selectedPrintTerm, student.session || '2026/2027', token).then((rem) => {
+        if (rem && rem.remark) {
+          setClassTeacherRemark(rem.remark);
+          setRemarkDraft(rem.remark);
+        } else {
+          const def = isSenior
+            ? "A commendable and disciplined performance. Displays keen intellectual curiosity and strong academic aptitude. Recommended for sustained dedication and leadership."
+            : "An energetic, well-behaved and promising scholar. Demonstrates consistent application across all continuous assessments.";
+          setClassTeacherRemark(def);
+          setRemarkDraft(def);
+        }
+      }).catch(() => {});
+    }
+  }, [student, selectedPrintTerm, token]);
+
   const handleDeleteScore = async (scoreId: number | string, subjectTitle: string, targetAssessment?: any) => {
     try {
       const isFaculty = user && user.role !== 'student' && user.role !== 'bursar';
@@ -1037,6 +1108,9 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
   const cgpaSummary = calculateCgpa(groupedSubjectRows.map((r) => ({ totalScore: r.totalScore, units: 2 })));
   const juniorAverageSummary = calculateJuniorAverage(groupedSubjectRows.map((r) => ({ totalScore: r.totalScore })));
+  const seniorAverageOver100 = groupedSubjectRows.length > 0
+    ? (groupedSubjectRows.reduce((acc, r) => acc + (Number(r.totalScore) || 0), 0) / groupedSubjectRows.length).toFixed(1)
+    : '0.0';
   const highestSubjectScore = groupedSubjectRows.length > 0 ? Math.max(...groupedSubjectRows.map((r) => r.totalScore)) : stats.highestScore;
 
   // Handler to open Edit Modal for a grouped subject row
@@ -1073,7 +1147,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     <ErrorBoundary fallbackTitle="Student Profile Recovery">
       <div className="space-y-6">
         {/* Top Bar with Back & Action */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 print:hidden">
           {onBack && (
             <button
               onClick={onBack}
@@ -1086,11 +1160,14 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
           <div className="flex items-center gap-2 ml-auto">
             <button
-              onClick={() => window.print()}
+              onClick={() => {
+                setProfileTab('printable-slip');
+                setTimeout(() => window.print(), 100);
+              }}
               className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-medium flex items-center gap-1.5 transition cursor-pointer border border-slate-700"
             >
               <Printer className="w-3.5 h-3.5 text-emerald-400" />
-              Print Record
+              Print Official Report Card
             </button>
             {canAddScore && (
               <button
@@ -1104,9 +1181,9 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           </div>
         </div>
 
-        {/* 1. WELCOME BACK BANNER (For Student Portal) */}
+        {/* 1. WELCOME BACK BANNER (For Student Portal - Screen Only, Never On Printed Report Card) */}
         {isStudent && (
-          <div className="bg-gradient-to-r from-emerald-950/80 via-slate-900 to-indigo-950/80 border border-emerald-500/40 p-5 rounded-2xl shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="bg-gradient-to-r from-emerald-950/80 via-slate-900 to-indigo-950/80 border border-emerald-500/40 p-5 rounded-2xl shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 print:hidden">
             <div className="flex items-center gap-3.5">
               <div className="w-12 h-12 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center text-2xl shrink-0 shadow-md">
                 👋
@@ -1131,9 +1208,9 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           </div>
         )}
 
-        {/* 2. SSS3 JAMB MOCK SCORE BANNER (OVER 400) */}
+        {/* 2. SSS3 JAMB MOCK SCORE BANNER (Screen Only - Has Dedicated Interface & Not on Printed General Result) */}
         {isSS3 && (
-          <div className="bg-gradient-to-r from-amber-950/50 via-slate-900 to-emerald-950/40 border border-amber-500/40 p-5 rounded-2xl shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="bg-gradient-to-r from-amber-950/50 via-slate-900 to-emerald-950/40 border border-amber-500/40 p-5 rounded-2xl shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 print:hidden">
             <div className="flex items-center gap-3.5">
               <div className="w-12 h-12 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center justify-center shrink-0 shadow-md">
                 <Award className="w-6 h-6 text-amber-400" />
@@ -1173,8 +1250,8 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           </div>
         )}
 
-        {/* Main Student Header Card */}
-        <div className="bg-slate-900 border border-slate-800 p-6 sm:p-8 rounded-2xl shadow-xl fis-card-accent relative overflow-hidden">
+        {/* Main Student Header Card (Screen Only) */}
+        <div className="bg-slate-900 border border-slate-800 p-6 sm:p-8 rounded-2xl shadow-xl fis-card-accent relative overflow-hidden print:hidden">
           {/* School Crest Watermark */}
           <div className="absolute right-0 top-0 bottom-0 opacity-5 pointer-events-none flex items-center pr-8">
             <img src={FIS_LOGOS.crest} alt="FIS Crest" className="h-48 w-auto" />
@@ -1365,7 +1442,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
         </div>
 
         {/* View Switcher: Assessments vs SS3 Mock Results vs Printable Report */}
-        <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 pb-3">
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 pb-3 print:hidden">
           <button
             onClick={() => setProfileTab('assessments')}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
@@ -1754,283 +1831,354 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
               />
             </div>
           ) : (
-            <div className="bg-slate-900 border-2 border-slate-700 rounded-3xl p-8 sm:p-12 shadow-2xl relative overflow-hidden print:p-0 print:border-none print:shadow-none print:bg-white print:text-black">
-              {/* Header with Crest */}
-              <div className="flex flex-col items-center text-center pb-6 border-b-2 border-emerald-600 print:border-black">
-                <img src={FIS_LOGOS.crest} alt="FIS Crest" className="h-20 w-auto mb-2 object-contain" />
-                <h2 className="text-xl sm:text-2xl font-black text-white print:text-black tracking-tight uppercase">
-                  Fenster International School
-                </h2>
-                <span className="text-xs text-amber-400 print:text-slate-800 font-semibold uppercase tracking-wider">
-                  Excellence in Academics & Moral Discipline • Institutional Examination Registry
-                </span>
-                <span className="text-[11px] text-slate-400 print:text-slate-600 mt-1">
-                  Official Scholar Transcript & Academic Performance Certificate
-                </span>
+            <div className="space-y-6">
+              {/* Term & Exam Period Controls Toolbar (Screen Only) */}
+              <div className="bg-slate-800/90 border border-slate-700 p-4 rounded-2xl flex flex-wrap items-center justify-between gap-4 shadow-lg print:hidden">
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-700 rounded-xl p-1">
+                    {(['First Term', 'Second Term', 'Third Term'] as const).map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => setSelectedPrintTerm(t)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                          selectedPrintTerm === t
+                            ? 'bg-emerald-600 text-white shadow-sm'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-700 rounded-xl p-1">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedExamType('terminal')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                        selectedExamType === 'terminal'
+                          ? 'bg-indigo-600 text-white shadow-sm'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Terminal Exam
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedExamType('midterm')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                        selectedExamType === 'midterm'
+                          ? 'bg-indigo-600 text-white shadow-sm'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      First Half Exam (Mid-Term)
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold rounded-xl shadow-lg shadow-emerald-950 flex items-center gap-2 transition cursor-pointer"
+                >
+                  <Printer className="w-4 h-4" />
+                  Print Official Report Card
+                </button>
               </div>
 
-              {/* Student Metadata Table */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 my-6 p-4 bg-slate-950/80 print:bg-slate-100 rounded-2xl border border-slate-800 print:border-slate-300 text-xs">
-                <div>
-                  <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">Scholar Name</span>
-                  <strong className="text-white print:text-black text-sm">
-                    {student.firstName} {student.surname}
-                  </strong>
-                </div>
-                <div>
-                  <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">Admission ID</span>
-                  <strong className="font-mono text-emerald-400 print:text-emerald-900">{student.studentId}</strong>
-                </div>
-                <div>
-                  <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">Class / Session</span>
-                  <strong className="text-white print:text-black">
-                    {student.currentClass} • {student.session || '2026/2027'}
-                  </strong>
-                </div>
-                <div>
-                  <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">Grading Model</span>
-                  <strong className="text-amber-400 print:text-amber-900 font-bold">
-                    {isSenior ? '5.0 CGPA (2 Units/Sub)' : 'Class Average (%)'}
-                  </strong>
+              {/* OFFICIAL REPORT CARD SHEET */}
+              <div className="bg-slate-900 border-2 border-slate-700 rounded-3xl p-6 sm:p-10 shadow-2xl relative overflow-hidden print:p-0 print:border-none print:shadow-none print:bg-white print:text-black">
+                {/* 1. Header with BOTH School Logos Boldly Placed */}
+                <div className="flex items-center justify-between pb-6 border-b-2 border-emerald-600 print:border-black gap-4 sm:gap-6">
+                  <img
+                    src={FIS_LOGOS.crest}
+                    alt="Fenster International School Crest"
+                    className="h-20 sm:h-24 w-auto object-contain shrink-0 filter drop-shadow-md"
+                  />
+
+                  <div className="flex flex-col items-center text-center flex-1 px-2">
+                    <h2 className="text-xl sm:text-2xl lg:text-3xl font-black text-white print:text-black tracking-tight uppercase leading-tight">
+                      Fenster International School
+                    </h2>
+                    <span className="text-xs sm:text-sm text-amber-400 print:text-slate-800 font-extrabold uppercase tracking-wider mt-1">
+                      Excellence in Academics & Moral Discipline • Official Examination Registry
+                    </span>
+                    <span className="text-[11px] text-slate-300 print:text-slate-700 mt-0.5">
+                      Accredited Basic & Senior Secondary Comprehensive Education
+                    </span>
+                  </div>
+
+                  <img
+                    src={FIS_LOGOS.full}
+                    alt="Fenster International School Brand Logo"
+                    className="h-14 sm:h-20 w-auto object-contain shrink-0 filter drop-shadow-md"
+                  />
                 </div>
 
-                {/* Parent / Guardian Information on Official Result */}
-                <div className="pt-2 border-t border-slate-800 print:border-slate-300 col-span-2">
-                  <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">Parent / Guardian Full Name</span>
-                  <strong className="text-white print:text-black">
-                    {student.parentName || 'Parent / Guardian (Registered on File)'}
-                  </strong>
-                </div>
-                <div className="pt-2 border-t border-slate-800 print:border-slate-300 col-span-2">
-                  <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">Guardian Telephone Contact</span>
-                  <strong className="text-amber-400 print:text-amber-900 font-mono">
-                    {student.parentPhone || 'Phone Registered with School Registry'}
-                  </strong>
+                {/* 2. Student Name & Designated Season/Term Directly Under Name */}
+                <div className="text-center my-6 pb-4 border-b border-slate-800 print:border-slate-300">
+                  <h1 className="text-2xl sm:text-3xl font-black text-white print:text-black tracking-tight uppercase">
+                    {student.firstName} {student.middleName ? student.middleName + ' ' : ''}{student.surname}
+                  </h1>
+
+                  {/* Season/Term in Nigerian Academic Format under name: e.g. first term 2026/2027 first term first half exam or first term terminal exam */}
+                  <div className="text-sm sm:text-base font-bold text-amber-400 print:text-emerald-900 mt-1 uppercase tracking-wide">
+                    {selectedPrintTerm} {student.session || '2026/2027'} {selectedPrintTerm}{' '}
+                    {selectedExamType === 'midterm' ? 'First Half Exam' : 'Terminal Exam'}
+                  </div>
+
+                  <div className="text-xs text-slate-400 print:text-slate-600 font-mono mt-0.5">
+                    Admission Number: {student.studentId}
+                  </div>
                 </div>
 
-                {/* Attendance Metadata Row */}
-                <div className="pt-2 border-t border-slate-800 print:border-slate-300">
-                  <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">Times School Opened</span>
-                  <strong className="text-white print:text-black font-mono">{attendance.timesOpened} days</strong>
-                </div>
-                <div className="pt-2 border-t border-slate-800 print:border-slate-300">
-                  <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">Times Present</span>
-                  <strong className="text-emerald-400 print:text-emerald-900 font-mono">{attendance.timesPresent} days</strong>
-                </div>
-                <div className="pt-2 border-t border-slate-800 print:border-slate-300">
-                  <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">Times Absent</span>
-                  <strong className="text-rose-400 print:text-rose-900 font-mono">{attendance.timesAbsent} days</strong>
-                </div>
-                <div className="pt-2 border-t border-slate-800 print:border-slate-300">
-                  <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">Attendance Rate</span>
-                  <strong className="text-amber-300 print:text-black font-mono">{attendance.rate}% Punctual</strong>
-                </div>
-              </div>
+                {/* 3. Student Details Row: Class, Guidance Detail, Term Recorded, Cumulative GPA, and for SS1 to SS3: Class Average over 100 */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 my-6 p-4.5 bg-slate-950/80 print:bg-slate-100 rounded-2xl border border-slate-800 print:border-slate-300 text-xs">
+                  <div>
+                    <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">
+                      Scholar Name
+                    </span>
+                    <strong className="text-white print:text-black text-sm">
+                      {student.firstName} {student.surname}
+                    </strong>
+                  </div>
 
-              {/* SS3 JAMB Mock Examination Highlight Box (Over 400) */}
-              {isSS3 && (
-                <div className="my-5 p-4.5 bg-amber-500/10 print:bg-slate-100 border-2 border-amber-500/50 print:border-black rounded-2xl flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <Award className="w-8 h-8 text-amber-500 print:text-black shrink-0" />
-                    <div>
-                      <span className="text-[11px] font-bold text-amber-500 print:text-black uppercase tracking-wider block">
-                        Official SSS 3 UTME / JAMB Mock Examination Result
+                  <div>
+                    <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">
+                      Class
+                    </span>
+                    <strong className="text-white print:text-black text-sm font-bold">
+                      {student.currentClass}
+                    </strong>
+                  </div>
+
+                  <div className="col-span-2">
+                    <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">
+                      Guidance Detail (Parent / Guardian)
+                    </span>
+                    <strong className="text-white print:text-black">
+                      {student.parentName || 'Parent / Guardian on File'}{' '}
+                      {student.parentPhone ? `• Contact: ${student.parentPhone}` : ''}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">
+                      Term Recorded
+                    </span>
+                    <strong className="text-white print:text-black font-semibold">
+                      {selectedPrintTerm} ({selectedExamType === 'midterm' ? 'First Half Exam' : 'Terminal Exam'})
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">
+                      Cumulative GPA (CGPA)
+                    </span>
+                    <strong className="text-emerald-400 print:text-emerald-900 font-mono font-black text-sm">
+                      {isSenior ? `${cgpaSummary.cgpa.toFixed(2)} / 5.00` : `${(juniorAverageSummary.averagePercentage / 20).toFixed(2)} / 5.00`}
+                    </strong>
+                  </div>
+
+                  {/* For SS1 to SS3: After cumulative GPA, average over 100 */}
+                  {isSenior ? (
+                    <div className="col-span-2">
+                      <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">
+                        Class Average (Over 100)
                       </span>
-                      <strong className="text-white print:text-black text-sm">
-                        Week {latestWeekMockWeek} Mock Composite Aggregate (4-Core Subjects)
+                      <strong className="text-amber-300 print:text-amber-900 font-mono font-black text-base">
+                        {seniorAverageOver100}% <span className="text-xs font-normal text-slate-400 print:text-slate-600">/ 100</span>
                       </strong>
-                      <span className="text-[11px] text-slate-400 print:text-slate-600 block mt-0.5">
-                        English Language (Scaled /60) + 3 Core Subject Electives (Scaled /40)
-                      </span>
                     </div>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-3xl font-black text-amber-400 print:text-black font-mono">
-                      {jambMockDisplayScore > 0 ? jambMockDisplayScore : '---'} / 400
-                    </span>
-                    <span className="text-[11px] text-slate-400 print:text-slate-700 block font-semibold">
-                      {jambMockDisplayScore > 0 ? `(${jambMockPercentage}% • ${jambMockDisplayScore >= 280 ? 'Distinction' : jambMockDisplayScore >= 200 ? 'Credit' : 'Pass'})` : 'Score in Compilation'}
-                    </span>
-                  </div>
+                  ) : (
+                    <div className="col-span-2">
+                      <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">
+                        Class Average (Over 100)
+                      </span>
+                      <strong className="text-amber-300 print:text-amber-900 font-mono font-black text-base">
+                        {juniorAverageSummary.averagePercentage}% <span className="text-xs font-normal text-slate-400 print:text-slate-600">/ 100</span>
+                      </strong>
+                    </div>
+                  )}
                 </div>
-              )}
 
-              {/* Official Academic Scores Table (CA 40 + Exam 60 = 100) */}
-              <div className="overflow-x-auto my-6">
-                <table className="w-full text-left text-xs border border-slate-800 print:border-black">
-                  <thead className="bg-slate-800 print:bg-slate-200 text-slate-300 print:text-black font-bold uppercase text-[11px]">
-                    <tr>
-                      <th className="py-2.5 px-3 border border-slate-700 print:border-black text-center w-10">#</th>
-                      <th className="py-2.5 px-3 border border-slate-700 print:border-black">Subject Title</th>
-                      {isSenior && (
-                        <th className="py-2.5 px-2 border border-slate-700 print:border-black text-center w-16">Units</th>
-                      )}
-                      <th className="py-2.5 px-3 border border-slate-700 print:border-black text-right">CA (/40)</th>
-                      <th className="py-2.5 px-3 border border-slate-700 print:border-black text-right">Exam (/60)</th>
-                      <th className="py-2.5 px-3 border border-slate-700 print:border-black text-right font-black">Total (/100)</th>
-                      <th className="py-2.5 px-3 border border-slate-700 print:border-black text-center">Grade</th>
-                      {isSenior && (
-                        <>
-                          <th className="py-2.5 px-2 border border-slate-700 print:border-black text-center w-16">GP (5.0)</th>
-                          <th className="py-2.5 px-2 border border-slate-700 print:border-black text-right w-20">QP</th>
-                        </>
-                      )}
-                      <th className="py-2.5 px-3 border border-slate-700 print:border-black">Teacher / Registrar Remark</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-700 print:divide-black text-slate-200 print:text-black">
-                    {groupedSubjectRows.length === 0 ? (
+                {/* 4. Official Academic Scores Table */}
+                <div className="overflow-x-auto my-6">
+                  <table className="w-full text-left text-xs border border-slate-800 print:border-black">
+                    <thead className="bg-slate-800 print:bg-slate-200 text-slate-300 print:text-black font-bold uppercase text-[11px]">
                       <tr>
-                        <td colSpan={isSenior ? 10 : 8} className="py-6 text-center text-slate-400 print:text-slate-600">
-                          No continuous assessment scores recorded yet for this session.
-                        </td>
+                        <th className="py-2.5 px-3 border border-slate-700 print:border-black text-center w-10">#</th>
+                        <th className="py-2.5 px-3 border border-slate-700 print:border-black">Subject</th>
+                        <th className="py-2.5 px-3 border border-slate-700 print:border-black text-center w-16">Unit</th>
+                        <th className="py-2.5 px-3 border border-slate-700 print:border-black text-right">CA (/40)</th>
+                        <th className="py-2.5 px-3 border border-slate-700 print:border-black text-right">Exam (/60)</th>
+                        <th className="py-2.5 px-3 border border-slate-700 print:border-black text-right font-black">Total (/100)</th>
+                        <th className="py-2.5 px-3 border border-slate-700 print:border-black text-center">Grade</th>
+                        {isSenior && (
+                          <th className="py-2.5 px-2 border border-slate-700 print:border-black text-center w-16">GP (5.0)</th>
+                        )}
+                        <th className="py-2.5 px-3 border border-slate-700 print:border-black">Subject Teacher Remark</th>
                       </tr>
-                    ) : (
-                      groupedSubjectRows.map((r, idx) => (
-                        <tr key={`grp_sub_${r.subjectId || r.subjectCode}_${idx}`}>
-                          <td className="py-2.5 px-3 text-center font-mono border border-slate-800 print:border-black">
-                            {idx + 1}
+                    </thead>
+                    <tbody className="divide-y divide-slate-700 print:divide-black text-slate-200 print:text-black">
+                      {groupedSubjectRows.length === 0 ? (
+                        <tr>
+                          <td colSpan={isSenior ? 9 : 8} className="py-8 text-center text-slate-400 print:text-slate-600">
+                            No subject assessment scores recorded yet for this academic term.
                           </td>
-                          <td className="py-2.5 px-3 font-semibold text-white print:text-black border border-slate-800 print:border-black">
-                            {r.subjectName} <span className="text-slate-400 print:text-slate-600 font-normal">({r.subjectCode})</span>
-                          </td>
-                          {isSenior && (
-                            <td className="py-2.5 px-2 text-center font-mono font-bold text-amber-300 print:text-black border border-slate-800 print:border-black">
-                              {r.units} u
+                        </tr>
+                      ) : (
+                        groupedSubjectRows.map((r, idx) => (
+                          <tr key={`grp_sub_${r.subjectId || r.subjectCode}_${idx}`}>
+                            <td className="py-2.5 px-3 text-center font-mono border border-slate-800 print:border-black">
+                              {idx + 1}
                             </td>
-                          )}
-                          <td className="py-2.5 px-3 text-right font-mono border border-slate-800 print:border-black">
-                            {r.caScore !== null ? r.caScore : '—'}
-                          </td>
-                          <td className="py-2.5 px-3 text-right font-mono border border-slate-800 print:border-black">
-                            {r.examScore !== null ? r.examScore : '—'}
-                          </td>
-                          <td className="py-2.5 px-3 text-right font-mono font-black text-white print:text-black text-sm border border-slate-800 print:border-black bg-slate-950/40 print:bg-slate-100">
-                            {r.totalScore}
-                          </td>
-                          <td className="py-2.5 px-3 text-center font-bold border border-slate-800 print:border-black">
-                            {r.grade}
-                          </td>
-                          {isSenior && (
-                            <>
+                            {/* Subject title: Clean name, NO 'SUB' under it */}
+                            <td className="py-2.5 px-3 font-semibold text-white print:text-black border border-slate-800 print:border-black">
+                              {r.subjectName}
+                            </td>
+                            {/* Unit column: 2 alone, no 2U */}
+                            <td className="py-2.5 px-3 text-center font-mono font-bold text-amber-300 print:text-black border border-slate-800 print:border-black">
+                              2
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono border border-slate-800 print:border-black">
+                              {r.caScore !== null ? r.caScore : '—'}
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono border border-slate-800 print:border-black">
+                              {r.examScore !== null ? r.examScore : '—'}
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono font-black text-white print:text-black text-sm border border-slate-800 print:border-black bg-slate-950/40 print:bg-slate-100">
+                              {r.totalScore}
+                            </td>
+                            <td className="py-2.5 px-3 text-center font-bold border border-slate-800 print:border-black">
+                              {r.grade}
+                            </td>
+                            {isSenior && (
                               <td className="py-2.5 px-2 text-center font-mono font-bold text-amber-400 print:text-black border border-slate-800 print:border-black">
                                 {r.gradePoint.toFixed(1)}
                               </td>
-                              <td className="py-2.5 px-2 text-right font-mono font-semibold text-emerald-300 print:text-black border border-slate-800 print:border-black">
-                                {r.qualityPoints.toFixed(1)}
-                              </td>
-                            </>
-                          )}
-                          <td className="py-2.5 px-3 text-slate-300 print:text-slate-800 italic border border-slate-800 print:border-black">
-                            {r.teacherComment || r.remark || 'Satisfactory Progress'}
-                          </td>
-                        </tr>
-                      ))
+                            )}
+                            <td className="py-2.5 px-3 text-slate-300 print:text-slate-800 italic border border-slate-800 print:border-black">
+                              {r.teacherComment || r.remark || 'Satisfactory Progress'}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* 5. Down Part of the Result: CLASS TEACHER'S REMARK */}
+                <div className="my-6 p-5 bg-slate-950/80 print:bg-slate-100 rounded-2xl border-2 border-slate-800 print:border-black">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-bold text-amber-400 print:text-black uppercase tracking-wider flex items-center gap-1.5">
+                      <GraduationCap className="w-4 h-4 text-amber-400 print:text-black" />
+                      Class Teacher's Remark
+                    </span>
+                    {canEditClassTeacherRemark && !editingTeacherRemark && (
+                      <button
+                        type="button"
+                        onClick={() => setEditingTeacherRemark(true)}
+                        className="text-[11px] text-amber-300 hover:text-amber-200 bg-amber-500/10 hover:bg-amber-500/20 px-2.5 py-1 rounded-lg border border-amber-500/30 flex items-center gap-1 transition cursor-pointer print:hidden"
+                      >
+                        <Edit2 className="w-3 h-3" />
+                        Edit Class Teacher's Remark
+                      </button>
                     )}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Performance Summary & Graduation Standing Box */}
-              <div className="my-6 p-5 bg-slate-950/80 print:bg-slate-100 rounded-2xl border border-slate-800 print:border-slate-300">
-                {isSenior ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
-                    <div>
-                      <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">Total Credit Units</span>
-                      <strong className="text-white print:text-black text-base font-mono">
-                        {cgpaSummary.totalUnits} Units <span className="text-[10px] font-normal text-slate-400">({groupedSubjectRows.length} × 2)</span>
-                      </strong>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">Total Quality Points (TQP)</span>
-                      <strong className="text-amber-300 print:text-black text-base font-mono">
-                        {cgpaSummary.totalQualityPoints} QP
-                      </strong>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">Senior CGPA (5.0 Scale)</span>
-                      <strong className="text-emerald-400 print:text-emerald-900 text-xl font-mono font-black">
-                        {cgpaSummary.cgpa.toFixed(2)} / 5.00
-                      </strong>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">Academic Classification</span>
-                      <strong className="text-amber-400 print:text-black text-sm block">
-                        {cgpaSummary.standing}
-                      </strong>
-                    </div>
                   </div>
-                ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
-                    <div>
-                      <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">Total Marks Obtained</span>
-                      <strong className="text-white print:text-black text-base font-mono">
-                        {juniorAverageSummary.totalMarks} / {juniorAverageSummary.obtainableMarks}
-                      </strong>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">Terminal Class Average</span>
-                      <strong className="text-emerald-400 print:text-emerald-900 text-xl font-mono font-black">
-                        {juniorAverageSummary.averagePercentage}%
-                      </strong>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">Composite Grade</span>
-                      <strong className="text-amber-300 print:text-black text-base font-mono">
-                        {juniorAverageSummary.overallGrade}
-                      </strong>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">Performance Standing</span>
-                      <strong className="text-white print:text-black text-sm block">
-                        {juniorAverageSummary.standing}
-                      </strong>
-                    </div>
-                  </div>
-                )}
 
-                <div className="mt-3 pt-3 border-t border-slate-800 print:border-slate-300 flex flex-wrap items-center justify-between text-[11px] text-slate-400 print:text-slate-700">
-                  <span>
-                    <strong>Curriculum Standard:</strong> {isSenior ? 'Senior Secondary 5.0 CGPA Scale (2 Credit Units Per Evaluated Subject)' : 'Junior & Basic Primary Class Average Percentage Scale'}
-                  </span>
-                  <span>
-                    <strong>Attendance Record:</strong> Opened: {attendance.timesOpened} days • Present: {attendance.timesPresent} days • Absent: {attendance.timesAbsent} days • Rate: {attendance.rate}%
-                  </span>
-                </div>
-              </div>
+                  {editingTeacherRemark ? (
+                    <div className="space-y-3 print:hidden">
+                      <textarea
+                        value={remarkDraft}
+                        onChange={(e) => setRemarkDraft(e.target.value)}
+                        rows={3}
+                        placeholder="Enter class teacher's official remark for this scholar..."
+                        className="w-full bg-slate-900 border border-amber-500/50 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-amber-400"
+                      />
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setEditingTeacherRemark(false)}
+                          className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleSaveTeacherRemark}
+                          disabled={savingRemark}
+                          className="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold rounded-lg text-xs flex items-center gap-1.5 cursor-pointer"
+                        >
+                          {savingRemark ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                          Save Remark
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-white print:text-black text-sm italic font-medium leading-relaxed">
+                      "{classTeacherRemark || 'An exemplary and disciplined scholar whose commitment to academic excellence and moral conduct is highly commendable.'}"
+                    </p>
+                  )}
 
-              {/* Official Signatures */}
-              <div className="mt-12 pt-6 border-t border-slate-700 print:border-black flex flex-col sm:flex-row justify-between items-center text-xs text-slate-400 print:text-slate-800 gap-6">
-                <div className="flex items-center gap-3">
-                  <ShieldCheck className="w-8 h-8 text-emerald-400 print:text-black" />
-                  <div>
-                    <strong className="text-white print:text-black block text-sm">
-                      Fenster International School Official Registry
-                    </strong>
-                    <span className="text-[11px]">
-                      Validated against Master Ledger • Issued on {new Date().toLocaleDateString('en-GB')}
+                  <div className="mt-4 pt-3 border-t border-slate-800 print:border-slate-300 flex flex-wrap items-center justify-between text-xs text-slate-400 print:text-slate-800 gap-2">
+                    <span>
+                      <strong>Assigned Class Teacher:</strong> {assignedClassTeacher?.teacherName || 'Victor Alo (Class Teacher)'}
+                    </span>
+                    <span>
+                      <strong>Class:</strong> {student.currentClass}
+                    </span>
+                    <span>
+                      <strong>Attendance:</strong> {attendance.timesPresent} / {attendance.timesOpened} Days ({attendance.rate}%)
                     </span>
                   </div>
                 </div>
 
-                <div className="flex items-end gap-12 text-center">
-                  <div>
-                    <div className="w-32 border-b border-slate-600 print:border-black mb-1.5" />
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300 print:text-black block">
-                      Registrar
-                    </span>
+                {/* 6. Official Signatures: Class Teacher, Registrar, and School Principal */}
+                <div className="mt-8 pt-6 border-t-2 border-slate-700 print:border-black flex flex-col sm:flex-row justify-between items-center text-xs text-slate-400 print:text-slate-800 gap-6">
+                  <div className="flex items-center gap-3">
+                    <ShieldCheck className="w-8 h-8 text-emerald-400 print:text-black shrink-0" />
+                    <div>
+                      <strong className="text-white print:text-black block text-sm">
+                        Fenster International School Official Registry
+                      </strong>
+                      <span className="text-[11px]">
+                        Validated against Institutional Master Ledger • Issued on {new Date().toLocaleDateString('en-GB')}
+                      </span>
+                    </div>
                   </div>
 
-                  <div className="flex flex-col items-center">
-                    <img
-                      src="https://i.ibb.co/MzHp6Yt/Whats-App-Image-2026-10-02-at-11-29-34-AM.jpg"
-                      alt="Principal Signature"
-                      className="h-12 w-auto object-contain mb-1 filter contrast-125 print:mix-blend-multiply"
-                    />
-                    <div className="w-36 border-b border-slate-600 print:border-black mb-1.5" />
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300 print:text-black block">
-                      Principal
-                    </span>
+                  <div className="flex items-end gap-8 sm:gap-12 text-center">
+                    <div>
+                      <div className="w-32 border-b border-slate-600 print:border-black mb-1.5" />
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300 print:text-black block">
+                        Class Teacher
+                      </span>
+                      <span className="text-[10px] text-slate-400 print:text-slate-600 block">
+                        {assignedClassTeacher?.teacherName || 'Class Teacher'}
+                      </span>
+                    </div>
+
+                    <div>
+                      <div className="w-32 border-b border-slate-600 print:border-black mb-1.5" />
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300 print:text-black block">
+                        Registrar
+                      </span>
+                    </div>
+
+                    <div className="flex flex-col items-center">
+                      <img
+                        src="https://i.ibb.co/MzHp6Yt/Whats-App-Image-2026-10-02-at-11-29-34-AM.jpg"
+                        alt="School Principal Signature"
+                        className="h-12 w-auto object-contain mb-1 filter contrast-125 print:mix-blend-multiply"
+                      />
+                      <div className="w-36 border-b border-slate-600 print:border-black mb-1.5" />
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300 print:text-black block">
+                        School Principal
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>

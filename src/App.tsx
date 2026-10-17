@@ -234,7 +234,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-amber-400 selection:text-emerald-950">
       {/* Top Navbar */}
-      <header className="sticky top-0 z-30 bg-slate-900/95 backdrop-blur border-b border-slate-800 fis-card-accent">
+      <header className="sticky top-0 z-30 bg-slate-900/95 backdrop-blur border-b border-slate-800 fis-card-accent print:hidden">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-18 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <button
@@ -371,9 +371,9 @@ export default function App() {
       />
 
       {/* Main Layout */}
-      <div className="flex-1 flex max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 gap-6">
+      <div className="flex-1 flex max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 gap-6 print:p-0 print:m-0 print:max-w-none print:block">
         {/* Desktop Sidebar Navigation */}
-        <aside className="hidden lg:block w-64 shrink-0 space-y-6">
+        <aside className="hidden lg:block w-64 shrink-0 space-y-6 print:hidden">
           <nav className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-3 space-y-1 relative shadow-sm">
             
             {/* 1. BURSAR NAVIGATION (NO TEACHER PRIVILEGES) */}

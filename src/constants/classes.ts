@@ -19,6 +19,8 @@ export const SCHOOL_CLASSES = [
 
 export type SchoolClass = (typeof SCHOOL_CLASSES)[number];
 
+export const CLASS_OPTIONS = SCHOOL_CLASSES;
+
 export const SCHOOL_CLASS_OPTIONS = [
   { value: 'Creche', label: 'Creche (Early Years / Daycare)' },
   { value: 'KG 1', label: 'KG 1 (Kindergarten 1)' },

@@ -15,6 +15,8 @@ import {
   GraduationCap
 } from 'lucide-react';
 
+import { SCHOOL_CLASSES, CLASS_OPTIONS } from '../constants/classes.ts';
+
 interface EditTeacherModalProps {
   isOpen: boolean;
   teacher: TeacherRecord | null;
@@ -37,6 +39,7 @@ export const EditTeacherModal: React.FC<EditTeacherModalProps> = ({
   const [schoolName, setSchoolName] = useState('Fenster International School');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<'teacher' | 'bursar' | 'admin' | 'super_admin'>('teacher');
+  const [assignedClass, setAssignedClass] = useState<string>('none');
 
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -50,6 +53,7 @@ export const EditTeacherModal: React.FC<EditTeacherModalProps> = ({
       setSchoolName(teacher.schoolName || 'Fenster International School');
       setPassword(teacher.password || '');
       setRole((teacher.role as any) || 'teacher');
+      setAssignedClass(teacher.assignedClass || 'none');
       setErrorMsg(null);
     }
   }, [teacher, isOpen]);
@@ -77,6 +81,7 @@ export const EditTeacherModal: React.FC<EditTeacherModalProps> = ({
         schoolName: schoolName.trim(),
         password: password ? password.trim() : undefined,
         role,
+        assignedClass: assignedClass === 'none' ? null : assignedClass,
       });
 
       if (res.success && res.teacher) {
@@ -195,6 +200,30 @@ export const EditTeacherModal: React.FC<EditTeacherModalProps> = ({
                 <option value="super_admin">Super Administrator (Supreme Master Privileges)</option>
               </select>
             </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-slate-300 mb-1">
+              Class Teacher Role & Assigned Class
+            </label>
+            <div className="relative">
+              <GraduationCap className="w-3.5 h-3.5 text-amber-400 absolute left-3 top-2.5" />
+              <select
+                value={assignedClass}
+                onChange={(e) => setAssignedClass(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500 font-semibold"
+              >
+                <option value="none">-- Not Assigned as Class Teacher --</option>
+                {CLASS_OPTIONS.map((c) => (
+                  <option key={c} value={c}>
+                    Class Teacher of {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <span className="text-[10px] text-slate-400 mt-0.5 block">
+              Designated class teachers have authority to write and update official class teacher remarks on report cards for students in this class.
+            </span>
           </div>
 
           <div>
