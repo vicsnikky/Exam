@@ -544,6 +544,8 @@ export async function fetchTeachersUnified(token?: string | null): Promise<Teach
               schoolName: st.schoolName || existing?.schoolName || 'Fenster International School',
               role: st.role || existing?.role || 'teacher',
               createdAt: st.createdAt || existing?.createdAt || new Date().toISOString(),
+              assignedClass: st.assignedClass !== undefined ? st.assignedClass : existing?.assignedClass || null,
+              isClassTeacher: st.isClassTeacher !== undefined ? st.isClassTeacher : Boolean(st.assignedClass || existing?.assignedClass),
             });
           }
         }
@@ -577,6 +579,8 @@ export async function fetchTeachersUnified(token?: string | null): Promise<Teach
             schoolName: st.school_name || existing?.schoolName || 'Fenster International School',
             role: u?.role || existing?.role || 'teacher',
             createdAt: st.created_at || existing?.createdAt || new Date().toISOString(),
+            assignedClass: existing?.assignedClass || null,
+            isClassTeacher: existing?.isClassTeacher || Boolean(existing?.assignedClass),
           });
         }
       }
@@ -584,6 +588,19 @@ export async function fetchTeachersUnified(token?: string | null): Promise<Teach
   } catch (supaErr) {
     console.warn('Supabase teachers fetch deferred:', supaErr);
   }
+
+  // 4. Merge class teacher assignments from local and server cache so no teacher assignment is ever lost
+  try {
+    const rawAssignments = localStorage.getItem(CLASS_TEACHERS_CACHE_KEY);
+    const localAssignments = rawAssignments ? JSON.parse(rawAssignments) : {};
+    for (const [key, t] of mergedMap.entries()) {
+      const match = localAssignments[t.teacherId] || localAssignments[String(t.id)];
+      if (match && match.className) {
+        t.assignedClass = match.className;
+        t.isClassTeacher = true;
+      }
+    }
+  } catch (_) {}
 
   const merged = Array.from(mergedMap.values());
   saveLocalTeachers(merged);
@@ -869,6 +886,7 @@ export async function registerNewTeacher(
     schoolName?: string;
     password: string;
     role?: string;
+    assignedClass?: string | null;
   }
 ): Promise<{ success: boolean; teacher: TeacherRecord; password: string; message: string }> {
   const currentTeachers = getLocalTeachers();
@@ -888,6 +906,9 @@ export async function registerNewTeacher(
   const teacherId = `${prefix}-${year}-${nextNum}`;
   const newId = Date.now();
 
+  const isAssigned = Boolean(data.assignedClass && data.assignedClass !== 'none' && data.assignedClass !== 'unassigned');
+  const cleanAssignedClass = isAssigned ? String(data.assignedClass).trim() : null;
+
   const newTeacher: TeacherRecord = {
     id: newId,
     userId: newId,
@@ -900,7 +921,19 @@ export async function registerNewTeacher(
     schoolName: data.schoolName || 'Fenster International School',
     role: designatedRole,
     createdAt: new Date().toISOString(),
+    assignedClass: cleanAssignedClass,
+    isClassTeacher: isAssigned,
   };
+
+  // If assigned as class teacher, assign immediately
+  if (cleanAssignedClass) {
+    assignClassTeacher(
+      cleanAssignedClass,
+      newTeacher.teacherId,
+      `${newTeacher.firstName} ${newTeacher.lastName}`,
+      token
+    ).catch(() => {});
+  }
 
   // 1. Immediately persist locally
   const updatedList = [newTeacher, ...currentTeachers];
@@ -968,8 +1001,26 @@ export async function registerNewTeacher(
 
       if (res.ok && res.data?.teacher) {
         const serverTeacher = res.data.teacher;
-        const merged = updatedList.map((t) => (t.id === newId ? { ...t, id: serverTeacher.id || t.id } : t));
+        newTeacher.id = serverTeacher.id || newTeacher.id;
+        newTeacher.userId = serverTeacher.userId || newTeacher.userId;
+        newTeacher.teacherId = serverTeacher.teacherId || newTeacher.teacherId;
+        newTeacher.assignedClass = serverTeacher.assignedClass !== undefined ? serverTeacher.assignedClass : newTeacher.assignedClass;
+        newTeacher.isClassTeacher = serverTeacher.isClassTeacher !== undefined ? serverTeacher.isClassTeacher : newTeacher.isClassTeacher;
+
+        const merged = updatedList.map((t) =>
+          (t.id === newId || t.email === newTeacher.email)
+            ? {
+                ...t,
+                id: serverTeacher.id || t.id,
+                userId: serverTeacher.userId || t.userId,
+                teacherId: serverTeacher.teacherId || t.teacherId,
+                assignedClass: newTeacher.assignedClass,
+                isClassTeacher: newTeacher.isClassTeacher,
+              }
+            : t
+        );
         saveLocalTeachers(merged);
+        mirrorToInstitutionalVault('teacher', newTeacher);
       }
     } catch (e) {
       console.warn('Backend teacher sync deferred, saved locally:', e);
@@ -1074,18 +1125,42 @@ export async function deleteTeacher(
 
 export async function updateTeacher(
   token: string | null,
-  data: Partial<TeacherRecord> & { teacherId: string }
+  data: Partial<TeacherRecord> & { teacherId?: string; id?: number | string }
 ): Promise<{ success: boolean; teacher: TeacherRecord; message: string }> {
   const currentTeachers = getLocalTeachers();
   const index = currentTeachers.findIndex(
-    (t) => t.teacherId === data.teacherId || (data.id !== undefined && String(t.id) === String(data.id))
+    (t) => (data.teacherId && t.teacherId === data.teacherId) || (data.id !== undefined && String(t.id) === String(data.id))
   );
 
-  if (index === -1) {
-    throw new Error('Teacher record not found in system');
+  let existing: TeacherRecord;
+  if (index !== -1) {
+    existing = currentTeachers[index];
+  } else {
+    // Check institutional vault
+    const vault = getInstitutionalVault();
+    const foundVault = vault.teachers.find(
+      (t) => (data.teacherId && t.teacherId === data.teacherId) || (data.id !== undefined && String(t.id) === String(data.id))
+    );
+    if (foundVault) {
+      existing = foundVault;
+    } else {
+      existing = {
+        id: typeof data.id === 'number' ? data.id : Date.now(),
+        teacherId: data.teacherId || `TCH-${Date.now().toString().slice(-4)}`,
+        firstName: data.firstName || 'Faculty',
+        lastName: data.lastName || 'Member',
+        email: data.email || 'faculty@fenster.edu.ng',
+        phone: data.phone || null,
+        schoolName: data.schoolName || 'Fenster International School',
+        role: data.role || 'teacher',
+        createdAt: new Date().toISOString(),
+      };
+    }
   }
 
-  const existing = currentTeachers[index];
+  const isAssigned = Boolean(data.assignedClass && data.assignedClass !== 'none' && data.assignedClass !== 'unassigned');
+  const cleanAssignedClass = isAssigned ? String(data.assignedClass).trim() : null;
+
   const updatedTeacher: TeacherRecord = {
     ...existing,
     ...data,
@@ -1096,27 +1171,27 @@ export async function updateTeacher(
     schoolName: (data.schoolName || existing.schoolName || 'Fenster International School').trim(),
     password: data.password ? data.password.trim() : existing.password,
     role: data.role || existing.role || 'teacher',
-    assignedClass: data.assignedClass !== undefined ? (data.assignedClass === 'none' ? null : data.assignedClass) : existing.assignedClass,
-    isClassTeacher: data.assignedClass !== undefined ? (data.assignedClass !== 'none' && Boolean(data.assignedClass)) : existing.isClassTeacher,
+    assignedClass: data.assignedClass !== undefined ? cleanAssignedClass : existing.assignedClass,
+    isClassTeacher: data.assignedClass !== undefined ? isAssigned : existing.isClassTeacher,
   };
 
   // Sync Class Teacher assignment
   if (data.assignedClass !== undefined) {
-    if (data.assignedClass && data.assignedClass !== 'none') {
-      assignClassTeacher(
-        data.assignedClass,
-        updatedTeacher.teacherId,
-        `${updatedTeacher.firstName} ${updatedTeacher.lastName}`,
-        token
-      ).catch(() => {});
-    } else if (existing.assignedClass) {
-      assignClassTeacher(existing.assignedClass, '', '', token).catch(() => {});
-    }
+    assignClassTeacher(
+      data.assignedClass,
+      updatedTeacher.teacherId,
+      `${updatedTeacher.firstName} ${updatedTeacher.lastName}`,
+      token
+    ).catch(() => {});
   }
 
   // 1. Immediately persist locally & institutional vault
   const updatedList = [...currentTeachers];
-  updatedList[index] = updatedTeacher;
+  if (index !== -1) {
+    updatedList[index] = updatedTeacher;
+  } else {
+    updatedList.unshift(updatedTeacher);
+  }
   saveLocalTeachers(updatedList);
   mirrorToInstitutionalVault('teacher', updatedTeacher);
 
@@ -1349,6 +1424,16 @@ export async function authenticateLocalTeacher(identifier: string, passwordAttem
         ? `local-bursar-auth:${teacher.email}`
         : `local-teacher-auth:${teacher.email}`;
 
+      let userAssignedClass = teacher.assignedClass || null;
+      try {
+        const rawAss = localStorage.getItem(CLASS_TEACHERS_CACHE_KEY);
+        if (rawAss) {
+          const parsed = JSON.parse(rawAss);
+          const match = parsed[teacher.teacherId] || parsed[String(teacher.id)] || parsed[teacher.email];
+          if (match && match.className) userAssignedClass = match.className;
+        }
+      } catch (_) {}
+
       return {
         token,
         user: {
@@ -1359,6 +1444,8 @@ export async function authenticateLocalTeacher(identifier: string, passwordAttem
           teacherId: teacher.teacherId,
           schoolName: teacher.schoolName,
           role: actualRole,
+          assignedClass: userAssignedClass,
+          isClassTeacher: Boolean(userAssignedClass),
         },
       };
     }
@@ -1412,6 +1499,17 @@ export async function authenticateLocalTeacher(identifier: string, passwordAttem
           ? `local-bursar-auth:${u.email}`
           : `local-teacher-auth:${u.email}`;
 
+        let userAssignedClass: string | null = null;
+        try {
+          const rawAss = localStorage.getItem(CLASS_TEACHERS_CACHE_KEY);
+          if (rawAss) {
+            const parsed = JSON.parse(rawAss);
+            const tchId = t?.teacher_id || 'TCH-2026-0001';
+            const match = parsed[tchId] || parsed[String(u.id)] || parsed[u.email?.toLowerCase()];
+            if (match && match.className) userAssignedClass = match.className;
+          }
+        } catch (_) {}
+
         return {
           token,
           user: {
@@ -1422,6 +1520,8 @@ export async function authenticateLocalTeacher(identifier: string, passwordAttem
             teacherId: t?.teacher_id || 'TCH-2026-0001',
             schoolName: t?.school_name || 'Fenster International School',
             role: actualRole,
+            assignedClass: userAssignedClass,
+            isClassTeacher: Boolean(userAssignedClass),
           },
         };
       }
@@ -1472,6 +1572,17 @@ export async function authenticateLocalTeacher(identifier: string, passwordAttem
               ? `local-bursar-auth:${u.email}`
               : `local-teacher-auth:${u.email}`;
 
+            let userAssignedClass: string | null = null;
+            try {
+              const rawAss = localStorage.getItem(CLASS_TEACHERS_CACHE_KEY);
+              if (rawAss) {
+                const parsed = JSON.parse(rawAss);
+                const tchId = t.teacher_id;
+                const match = parsed[tchId] || parsed[String(u.id)] || parsed[u.email?.toLowerCase()];
+                if (match && match.className) userAssignedClass = match.className;
+              }
+            } catch (_) {}
+
             return {
               token,
               user: {
@@ -1482,6 +1593,8 @@ export async function authenticateLocalTeacher(identifier: string, passwordAttem
                 teacherId: t.teacher_id,
                 schoolName: t.school_name,
                 role: actualRole,
+                assignedClass: userAssignedClass,
+                isClassTeacher: Boolean(userAssignedClass),
               },
             };
           }
@@ -1624,8 +1737,19 @@ export async function fetchClassTeacherAssignments(
   };
 }
 
+export function getClassTeachers(
+  className?: string | null,
+  assignments?: Record<string, any>
+): Array<{ teacherId: string | number; teacherName: string; className: string }> {
+  if (!className) return [];
+  const source = assignments || {};
+  return Object.values(source).filter(
+    (a: any) => a && a.className && a.className.trim().toUpperCase() === className.trim().toUpperCase()
+  );
+}
+
 export async function assignClassTeacher(
-  className: string,
+  className: string | null | undefined,
   teacherId: string | number,
   teacherName: string,
   token?: string | null
@@ -1636,29 +1760,65 @@ export async function assignClassTeacher(
     current = raw ? JSON.parse(raw) : {};
   } catch (_) {}
 
-  if (!teacherId || teacherId === 'none' || teacherId === 'unassigned') {
-    delete current[className];
+  const tKey = String(teacherId).trim();
+  const isAssigned = Boolean(className && className !== 'none' && className !== 'unassigned');
+  const cleanClass = isAssigned ? normalizeClassName(String(className)) || String(className).trim() : null;
+
+  const localTeachers = getLocalTeachers();
+  const matchedTeacher = localTeachers.find(
+    (t) =>
+      String(t.teacherId).toUpperCase() === tKey.toUpperCase() ||
+      String(t.id) === tKey ||
+      (t.email && t.email.toLowerCase() === tKey.toLowerCase())
+  );
+
+  const keysToUpdate = new Set<string>([tKey]);
+  if (matchedTeacher) {
+    if (matchedTeacher.teacherId) keysToUpdate.add(matchedTeacher.teacherId);
+    if (matchedTeacher.id !== undefined) keysToUpdate.add(String(matchedTeacher.id));
+    if (matchedTeacher.email) keysToUpdate.add(matchedTeacher.email.toLowerCase().trim());
+  }
+
+  const effectiveTeacherName =
+    teacherName ||
+    (matchedTeacher ? `${matchedTeacher.firstName} ${matchedTeacher.lastName}`.trim() : 'Class Teacher');
+
+  if (!isAssigned) {
+    keysToUpdate.forEach((k) => delete current[k]);
   } else {
-    // Remove if previously assigned to another class
-    Object.keys(current).forEach((c) => {
-      if (String(current[c]?.teacherId) === String(teacherId)) {
-        delete current[c];
-      }
-    });
-    current[className] = {
-      teacherId,
-      teacherName: teacherName || 'Class Teacher',
-      className,
+    const entry = {
+      teacherId: matchedTeacher?.teacherId || tKey,
+      teacherName: effectiveTeacherName,
+      className: cleanClass!,
       updatedAt: new Date().toISOString(),
     };
+    keysToUpdate.forEach((k) => {
+      current[k] = entry;
+    });
   }
 
   try {
     localStorage.setItem(CLASS_TEACHERS_CACHE_KEY, JSON.stringify(current));
   } catch (_) {}
 
+  // Update in local teachers list immediately
+  try {
+    const idx = localTeachers.findIndex(
+      (t) =>
+        keysToUpdate.has(String(t.teacherId)) ||
+        keysToUpdate.has(String(t.id)) ||
+        (t.email && keysToUpdate.has(t.email.toLowerCase().trim()))
+    );
+    if (idx !== -1) {
+      localTeachers[idx].assignedClass = cleanClass;
+      localTeachers[idx].isClassTeacher = isAssigned;
+      saveLocalTeachers(localTeachers);
+    }
+  } catch (_) {}
+
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('fis:class-teachers-updated', { detail: current }));
+    window.dispatchEvent(new CustomEvent('fis:teachers-updated'));
   }
 
   try {
@@ -1667,7 +1827,11 @@ export async function assignClassTeacher(
     await fetch('/api/class-teachers', {
       method: 'POST',
       headers,
-      body: JSON.stringify({ className, teacherId, teacherName }),
+      body: JSON.stringify({
+        className: cleanClass,
+        teacherId: matchedTeacher?.teacherId || tKey,
+        teacherName: effectiveTeacherName,
+      }),
     });
   } catch (err) {
     console.warn('Backend class teacher assignment deferred:', err);

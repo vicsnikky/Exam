@@ -329,6 +329,21 @@ app.post('/api/auth/login', async (req, res) => {
       ? `local-bursar-auth:${u.email}`
       : `local-teacher-auth:${u.email}`;
 
+    const userTeacherId = teacherRec[0]?.teacherId || (u.role === 'super_admin' ? 'ADMIN-GLOBAL' : 'TCH-2026-0001');
+    const teacherDbId = teacherRec[0]?.id;
+    const assignment =
+      inMemoryClassTeacherAssignments[userTeacherId] ||
+      (teacherDbId ? inMemoryClassTeacherAssignments[String(teacherDbId)] : null) ||
+      inMemoryClassTeacherAssignments[String(u.id)] ||
+      (u.email ? inMemoryClassTeacherAssignments[u.email.toLowerCase()] : null) ||
+      Object.values(inMemoryClassTeacherAssignments).find((a) => {
+        if (!a || !a.className) return false;
+        if (a.teacherId && userTeacherId && String(a.teacherId).toUpperCase() === String(userTeacherId).toUpperCase()) return true;
+        if (a.teacherName && `${u.firstName} ${u.lastName}`.trim().toLowerCase() === a.teacherName.toLowerCase()) return true;
+        return false;
+      });
+    const userAssignedClass = assignment ? assignment.className : null;
+
     return res.json({
       token,
       role: u.role,
@@ -338,8 +353,10 @@ app.post('/api/auth/login', async (req, res) => {
         firstName: u.firstName,
         lastName: u.lastName,
         role: u.role,
-        teacherId: teacherRec[0]?.teacherId || (u.role === 'super_admin' ? 'ADMIN-GLOBAL' : 'TCH-2026-0001'),
+        teacherId: userTeacherId,
         schoolName: teacherRec[0]?.schoolName || 'Fenster International School',
+        assignedClass: userAssignedClass,
+        isClassTeacher: Boolean(userAssignedClass),
       },
     });
   } catch (error: any) {
@@ -351,8 +368,26 @@ app.post('/api/auth/login', async (req, res) => {
 
 // Current User Me
 app.get('/api/auth/me', authenticate, async (req: AuthRequest, res) => {
+  if (!req.appUser) return res.status(401).json({ error: 'Unauthorized' });
+  const tchId = req.appUser.teacherProfile?.teacherId || (req.appUser as any).teacherId;
+  const assignment =
+    (tchId ? inMemoryClassTeacherAssignments[tchId] : null) ||
+    inMemoryClassTeacherAssignments[String(req.appUser.id)] ||
+    (req.appUser.email ? inMemoryClassTeacherAssignments[req.appUser.email.toLowerCase()] : null) ||
+    Object.values(inMemoryClassTeacherAssignments).find((a) => {
+      if (!a || !a.className) return false;
+      if (a.teacherId && tchId && String(a.teacherId).toUpperCase() === String(tchId).toUpperCase()) return true;
+      if (a.teacherName && `${req.appUser?.firstName} ${req.appUser?.lastName}`.trim().toLowerCase() === a.teacherName.toLowerCase()) return true;
+      return false;
+    });
+  const assignedClass = assignment ? assignment.className : ((req.appUser as any).assignedClass || null);
+
   return res.json({
-    user: req.appUser,
+    user: {
+      ...req.appUser,
+      assignedClass,
+      isClassTeacher: Boolean(assignedClass),
+    },
   });
 });
 
@@ -1341,9 +1376,13 @@ app.post('/api/bursar/fee-adjustments', authenticate, async (req: AuthRequest, r
 // ----------------------------------------------------
 // CLASS TEACHER ASSIGNMENTS & REPORT CARD REMARKS
 // ----------------------------------------------------
+// ----------------------------------------------------
+// CLASS TEACHER ASSIGNMENTS & REPORT CARD REMARKS
+// ----------------------------------------------------
 const CLASS_TEACHERS_FILE = path.resolve(process.cwd(), '.class_teachers.json');
+// Keyed by teacherId (string), value: { teacherId, teacherName, className, updatedAt }
 const inMemoryClassTeacherAssignments: Record<string, { teacherId: string | number; teacherName: string; className: string; updatedAt: string }> = {
-  'SS 3': { teacherId: 'TCH-2026-0001', teacherName: 'Victor Alo', className: 'SS 3', updatedAt: new Date().toISOString() },
+  'TCH-2026-0001': { teacherId: 'TCH-2026-0001', teacherName: 'Victor Alo', className: 'SS 3', updatedAt: new Date().toISOString() },
 };
 const inMemoryClassTeacherRemarks: Record<string, { studentId: string; remark: string; term: string; session: string; teacherName: string; updatedAt: string }> = {};
 
@@ -1351,7 +1390,21 @@ try {
   if (fs.existsSync(CLASS_TEACHERS_FILE)) {
     const raw = fs.readFileSync(CLASS_TEACHERS_FILE, 'utf-8');
     const parsed = JSON.parse(raw);
-    if (parsed.assignments) Object.assign(inMemoryClassTeacherAssignments, parsed.assignments);
+    if (parsed.assignments) {
+      Object.entries(parsed.assignments).forEach(([k, v]: [string, any]) => {
+        if (v && v.teacherId && v.className) {
+          const tId = String(v.teacherId);
+          inMemoryClassTeacherAssignments[tId] = {
+            teacherId: tId,
+            teacherName: v.teacherName || 'Class Teacher',
+            className: v.className,
+            updatedAt: v.updatedAt || new Date().toISOString(),
+          };
+        } else if (v && v.className) {
+          inMemoryClassTeacherAssignments[k] = v;
+        }
+      });
+    }
     if (parsed.remarks) Object.assign(inMemoryClassTeacherRemarks, parsed.remarks);
   }
 } catch (e) {
@@ -1371,7 +1424,18 @@ function persistClassTeachersData() {
 }
 
 app.get('/api/class-teachers', authenticate, async (_req: AuthRequest, res) => {
-  return res.json({ assignments: inMemoryClassTeacherAssignments });
+  const byClass: Record<string, any[]> = {};
+  Object.values(inMemoryClassTeacherAssignments).forEach((item) => {
+    if (item && item.className) {
+      if (!byClass[item.className]) byClass[item.className] = [];
+      byClass[item.className].push(item);
+    }
+  });
+
+  return res.json({
+    assignments: inMemoryClassTeacherAssignments,
+    byClass,
+  });
 });
 
 app.post('/api/class-teachers', authenticate, async (req: AuthRequest, res) => {
@@ -1381,29 +1445,78 @@ app.post('/api/class-teachers', authenticate, async (req: AuthRequest, res) => {
       return res.status(403).json({ error: 'Permission denied: Students cannot assign class teachers.' });
     }
     const { className, teacherId, teacherName } = req.body;
-    if (!className) {
-      return res.status(400).json({ error: 'Class name is required' });
+    if (!teacherId) {
+      return res.status(400).json({ error: 'Teacher ID is required to assign class teacher role.' });
     }
 
-    if (!teacherId || teacherId === 'none' || teacherId === 'unassigned') {
-      delete inMemoryClassTeacherAssignments[className];
+    const tKey = String(teacherId).trim();
+    let dbTeacher: any = null;
+    let dbUser: any = null;
+    if (!isNaN(Number(tKey))) {
+      const found = await db.select().from(teachers).where(eq(teachers.id, Number(tKey))).limit(1);
+      if (found.length > 0) dbTeacher = found[0];
+    }
+    if (!dbTeacher) {
+      const found = await db.select().from(teachers).where(eq(teachers.teacherId, tKey.toUpperCase())).limit(1);
+      if (found.length > 0) dbTeacher = found[0];
+    }
+    if (!dbTeacher) {
+      const foundUser = await db.select().from(users).where(eq(users.email, tKey.toLowerCase())).limit(1);
+      if (foundUser.length > 0) {
+        dbUser = foundUser[0];
+        const found = await db.select().from(teachers).where(eq(teachers.userId, foundUser[0].id)).limit(1);
+        if (found.length > 0) dbTeacher = found[0];
+      }
+    }
+    if (dbTeacher && !dbUser && dbTeacher.userId) {
+      const foundUser = await db.select().from(users).where(eq(users.id, dbTeacher.userId)).limit(1);
+      if (foundUser.length > 0) dbUser = foundUser[0];
+    }
+
+    if (!className || className === 'none' || className === 'unassigned') {
+      delete inMemoryClassTeacherAssignments[tKey];
+      if (dbTeacher) {
+        delete inMemoryClassTeacherAssignments[dbTeacher.teacherId];
+        delete inMemoryClassTeacherAssignments[String(dbTeacher.id)];
+        if (dbTeacher.userId) delete inMemoryClassTeacherAssignments[String(dbTeacher.userId)];
+      }
+      if (dbUser && dbUser.email) {
+        delete inMemoryClassTeacherAssignments[dbUser.email.toLowerCase()];
+      }
     } else {
-      // Remove this teacher from any other class assignment first
-      Object.keys(inMemoryClassTeacherAssignments).forEach((c) => {
-        if (String(inMemoryClassTeacherAssignments[c].teacherId) === String(teacherId)) {
-          delete inMemoryClassTeacherAssignments[c];
-        }
-      });
-      inMemoryClassTeacherAssignments[className] = {
-        teacherId,
-        teacherName: teacherName || 'Class Teacher',
-        className,
+      const effectiveName = String(teacherName || (dbUser ? `${dbUser.firstName} ${dbUser.lastName}` : 'Class Teacher')).trim();
+      const entry = {
+        teacherId: dbTeacher ? dbTeacher.teacherId : tKey,
+        teacherName: effectiveName,
+        className: String(className).trim(),
         updatedAt: new Date().toISOString(),
       };
+      inMemoryClassTeacherAssignments[tKey] = entry;
+      if (dbTeacher) {
+        inMemoryClassTeacherAssignments[dbTeacher.teacherId] = entry;
+        inMemoryClassTeacherAssignments[String(dbTeacher.id)] = entry;
+        if (dbTeacher.userId) inMemoryClassTeacherAssignments[String(dbTeacher.userId)] = entry;
+      }
+      if (dbUser && dbUser.email) {
+        inMemoryClassTeacherAssignments[dbUser.email.toLowerCase()] = entry;
+      }
     }
 
     persistClassTeachersData();
-    return res.json({ success: true, assignments: inMemoryClassTeacherAssignments });
+
+    const byClass: Record<string, any[]> = {};
+    Object.values(inMemoryClassTeacherAssignments).forEach((item) => {
+      if (item && item.className) {
+        if (!byClass[item.className]) byClass[item.className] = [];
+        byClass[item.className].push(item);
+      }
+    });
+
+    return res.json({
+      success: true,
+      assignments: inMemoryClassTeacherAssignments,
+      byClass,
+    });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
@@ -3630,9 +3743,21 @@ app.get('/api/admin/teachers', authenticate, async (req: AuthRequest, res) => {
       .orderBy(desc(teachers.createdAt));
 
     const teachersWithClass = teacherList.map((t) => {
-      const assigned = Object.values(inMemoryClassTeacherAssignments).find(
-        (a) => String(a.teacherId) === String(t.teacherId) || String(a.teacherId) === String(t.id)
-      );
+      const assigned =
+        inMemoryClassTeacherAssignments[t.teacherId] ||
+        inMemoryClassTeacherAssignments[String(t.id)] ||
+        inMemoryClassTeacherAssignments[String(t.userId)] ||
+        (t.email ? inMemoryClassTeacherAssignments[t.email.toLowerCase()] : null) ||
+        Object.values(inMemoryClassTeacherAssignments).find((a) => {
+          if (!a || !a.className) return false;
+          if (a.teacherId && t.teacherId && String(a.teacherId).trim().toUpperCase() === String(t.teacherId).trim().toUpperCase()) return true;
+          if (a.teacherId && (String(a.teacherId) === String(t.id) || String(a.teacherId) === String(t.userId))) return true;
+          if (a.teacherName && t.firstName && t.lastName) {
+            const fullName = `${t.firstName} ${t.lastName}`.trim().toLowerCase();
+            if (a.teacherName.trim().toLowerCase() === fullName) return true;
+          }
+          return false;
+        });
       return {
         ...t,
         assignedClass: assigned ? assigned.className : null,
@@ -3655,7 +3780,7 @@ app.post('/api/admin/teachers', authenticate, async (req: AuthRequest, res) => {
       return res.status(403).json({ error: 'Access denied: Administrative authorization required' });
     }
 
-    const { firstName, lastName, email, phone, schoolName, password, role: requestedRole } = req.body;
+    const { firstName, lastName, email, phone, schoolName, password, role: requestedRole, assignedClass } = req.body;
 
     if (!firstName || !lastName || !email || !password) {
       return res.status(400).json({ error: 'First name, last name, email, and password are required' });
@@ -3702,7 +3827,9 @@ app.post('/api/admin/teachers', authenticate, async (req: AuthRequest, res) => {
 
     const teacherYear = new Date().getFullYear();
     const prefix = assignedRole === 'director' ? 'DIR' : assignedRole === 'principal' ? 'PRN' : assignedRole === 'admin' ? 'ADM' : assignedRole === 'bursar' ? 'BUR' : 'TCH';
-    const teacherId = `${prefix}-${teacherYear}-${String(newUser.id).padStart(4, '0')}`;
+    const teacherId = req.body.teacherId && String(req.body.teacherId).trim().length > 0
+      ? String(req.body.teacherId).trim().toUpperCase()
+      : `${prefix}-${teacherYear}-${String(newUser.id).padStart(4, '0')}`;
 
     const [newTeacher] = await db.insert(teachers).values({
       userId: newUser.id,
@@ -3712,13 +3839,26 @@ app.post('/api/admin/teachers', authenticate, async (req: AuthRequest, res) => {
       schoolId: 1,
     }).returning();
 
+    // Assign Class Teacher if requested during registration
+    let assignedClassName: string | null = null;
+    if (assignedClass && assignedClass !== 'none' && assignedClass !== 'unassigned') {
+      assignedClassName = String(assignedClass).trim();
+      inMemoryClassTeacherAssignments[newTeacher.teacherId] = {
+        teacherId: newTeacher.teacherId,
+        teacherName: `${newUser.firstName} ${newUser.lastName}`.trim(),
+        className: assignedClassName,
+        updatedAt: new Date().toISOString(),
+      };
+      persistClassTeachersData();
+    }
+
     // Audit log
     await db.insert(auditLogs).values({
       actorName: `${req.appUser?.firstName} ${req.appUser?.lastName}`,
       actorRole: callerRole || 'super_admin',
       action: 'FACULTY_ACCOUNT_CREATED',
       targetEntity: 'users',
-      details: `${callerRole} created account ${teacherId} with role '${assignedRole}' for ${newUser.firstName} ${newUser.lastName}`,
+      details: `${callerRole} created account ${teacherId} with role '${assignedRole}' for ${newUser.firstName} ${newUser.lastName}${assignedClassName ? ` (Class Teacher of ${assignedClassName})` : ''}`,
       schoolId: 1,
     });
 
@@ -3734,6 +3874,8 @@ app.post('/api/admin/teachers', authenticate, async (req: AuthRequest, res) => {
         role: assignedRole,
         phone: newTeacher.phone,
         schoolName: newTeacher.schoolName,
+        assignedClass: assignedClassName,
+        isClassTeacher: Boolean(assignedClassName),
       },
     });
   } catch (error: any) {
@@ -3800,25 +3942,78 @@ app.delete('/api/admin/teachers/:id', authenticate, async (req: AuthRequest, res
   }
 });
 
-// Executive Leadership (Super Admin, Director, Principal): Update Teacher Details
+// Executive Leadership & Administration (Super Admin, Director, Principal, Admin): Update Teacher Details
 app.put('/api/admin/teachers/:id', authenticate, async (req: AuthRequest, res) => {
   try {
     const callerRole = req.appUser?.role;
-    if (callerRole !== 'super_admin' && callerRole !== 'director' && callerRole !== 'principal') {
-      return res.status(403).json({ error: 'Access denied: Executive leadership authorization required' });
+    if (callerRole !== 'super_admin' && callerRole !== 'director' && callerRole !== 'principal' && callerRole !== 'admin') {
+      return res.status(403).json({ error: 'Access denied: Executive leadership or Administrative authorization required' });
     }
 
     const rawId = req.params.id;
     let targetTeacher: any = null;
     if (!isNaN(Number(rawId))) {
       const found = await db.select().from(teachers).where(eq(teachers.id, Number(rawId))).limit(1);
-      targetTeacher = found[0];
-    } else {
+      if (found.length > 0) targetTeacher = found[0];
+    }
+    if (!targetTeacher) {
       const found = await db.select().from(teachers).where(eq(teachers.teacherId, rawId.toUpperCase().trim())).limit(1);
-      targetTeacher = found[0];
+      if (found.length > 0) targetTeacher = found[0];
+    }
+    if (!targetTeacher && req.body.email) {
+      const foundUser = await db.select().from(users).where(eq(users.email, req.body.email.toLowerCase().trim())).limit(1);
+      if (foundUser.length > 0) {
+        const found = await db.select().from(teachers).where(eq(teachers.userId, foundUser[0].id)).limit(1);
+        if (found.length > 0) targetTeacher = found[0];
+        else {
+          // Provision teachers record for existing user
+          const tId = req.body.teacherId || rawId.toUpperCase().trim();
+          const [createdTch] = await db.insert(teachers).values({
+            userId: foundUser[0].id,
+            teacherId: tId,
+            phone: req.body.phone || null,
+            schoolName: req.body.schoolName || 'Fenster International School',
+            schoolId: 1,
+          }).returning();
+          targetTeacher = createdTch;
+        }
+      }
     }
 
     if (!targetTeacher) {
+      if (req.body.assignedClass !== undefined) {
+        const cleanClass = req.body.assignedClass && req.body.assignedClass !== 'none' && req.body.assignedClass !== 'unassigned'
+          ? String(req.body.assignedClass).trim()
+          : null;
+        const tName = `${req.body.firstName || ''} ${req.body.lastName || ''}`.trim() || 'Class Teacher';
+        const entry = {
+          teacherId: req.body.teacherId || rawId,
+          teacherName: tName,
+          className: cleanClass || '',
+          updatedAt: new Date().toISOString(),
+        };
+        const keys = [rawId, req.body.teacherId, req.body.email].filter(Boolean);
+        if (cleanClass) {
+          keys.forEach((k) => { inMemoryClassTeacherAssignments[String(k)] = entry; });
+        } else {
+          keys.forEach((k) => { delete inMemoryClassTeacherAssignments[String(k)]; });
+        }
+        persistClassTeachersData();
+        return res.json({
+          success: true,
+          message: 'Class teacher assignment updated',
+          teacher: {
+            id: rawId,
+            teacherId: req.body.teacherId || rawId,
+            firstName: req.body.firstName || 'Faculty',
+            lastName: req.body.lastName || 'Member',
+            email: req.body.email || '',
+            role: req.body.role || 'teacher',
+            assignedClass: cleanClass,
+            isClassTeacher: Boolean(cleanClass),
+          },
+        });
+      }
       return res.status(404).json({ error: 'Teacher not found' });
     }
 
@@ -3871,23 +4066,28 @@ app.put('/api/admin/teachers/:id', authenticate, async (req: AuthRequest, res) =
     // Handle Class Teacher Assignment
     const { assignedClass } = req.body;
     if (assignedClass !== undefined) {
-      // Remove any previous class assigned to this teacher
-      Object.keys(inMemoryClassTeacherAssignments).forEach((k) => {
-        if (
-          String(inMemoryClassTeacherAssignments[k].teacherId) === String(targetTeacher.teacherId) ||
-          String(inMemoryClassTeacherAssignments[k].teacherId) === String(targetTeacher.id)
-        ) {
-          delete inMemoryClassTeacherAssignments[k];
-        }
-      });
+      const tKey = String(targetTeacher.teacherId);
+      const idKey = String(targetTeacher.id);
+      const userKey = targetTeacher.userId ? String(targetTeacher.userId) : null;
+      const emailKey = email || targetTeacher.email;
       if (assignedClass && assignedClass.trim() !== '' && assignedClass !== 'none' && assignedClass !== 'unassigned') {
         const cleanClass = assignedClass.trim();
-        inMemoryClassTeacherAssignments[cleanClass] = {
+        const effectiveName = `${firstName || targetTeacher.firstName || ''} ${lastName || targetTeacher.lastName || ''}`.trim() || 'Class Teacher';
+        const entry = {
           teacherId: targetTeacher.teacherId,
-          teacherName: `${firstName || ''} ${lastName || ''}`.trim() || 'Class Teacher',
+          teacherName: effectiveName,
           className: cleanClass,
           updatedAt: new Date().toISOString(),
         };
+        inMemoryClassTeacherAssignments[tKey] = entry;
+        inMemoryClassTeacherAssignments[idKey] = entry;
+        if (userKey) inMemoryClassTeacherAssignments[userKey] = entry;
+        if (emailKey) inMemoryClassTeacherAssignments[String(emailKey).toLowerCase()] = entry;
+      } else {
+        delete inMemoryClassTeacherAssignments[tKey];
+        delete inMemoryClassTeacherAssignments[idKey];
+        if (userKey) delete inMemoryClassTeacherAssignments[userKey];
+        if (emailKey) delete inMemoryClassTeacherAssignments[String(emailKey).toLowerCase()];
       }
       persistClassTeachersData();
     }
@@ -3908,6 +4108,8 @@ app.put('/api/admin/teachers/:id', authenticate, async (req: AuthRequest, res) =
       : null;
     const freshTeacher = (await db.select().from(teachers).where(eq(teachers.id, targetTeacher.id)).limit(1))[0];
 
+    const teacherAssignment = inMemoryClassTeacherAssignments[String(freshTeacher.teacherId)] || inMemoryClassTeacherAssignments[String(freshTeacher.id)];
+
     return res.json({
       success: true,
       message: `Teacher ${freshTeacher.teacherId} updated successfully.`,
@@ -3918,8 +4120,11 @@ app.put('/api/admin/teachers/:id', authenticate, async (req: AuthRequest, res) =
         firstName: updatedUser?.firstName || firstName,
         lastName: updatedUser?.lastName || lastName,
         email: updatedUser?.email || email,
+        role: updatedUser?.role || targetTeacher.role || 'teacher',
         phone: freshTeacher.phone,
         schoolName: freshTeacher.schoolName,
+        assignedClass: teacherAssignment ? teacherAssignment.className : null,
+        isClassTeacher: Boolean(teacherAssignment),
       },
     });
   } catch (error: any) {

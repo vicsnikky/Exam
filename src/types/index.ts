@@ -13,6 +13,8 @@ export interface User {
   session?: string;
   parentName?: string | null;
   parentPhone?: string | null;
+  assignedClass?: string | null;
+  isClassTeacher?: boolean;
 }
 
 export interface Student {

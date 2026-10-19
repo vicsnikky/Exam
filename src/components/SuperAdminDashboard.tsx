@@ -38,6 +38,7 @@ import {
 } from 'lucide-react';
 import {
   getLocalTeachers,
+  saveLocalTeachers,
   getLocalStudents,
   fetchAllStudentsUnified,
   registerNewTeacher,
@@ -49,6 +50,7 @@ import {
   getInstitutionalVault,
   syncVaultToLiveDatabase,
   exportInstitutionalVault,
+  assignClassTeacher,
   TeacherRecord,
 } from '../lib/schoolStore.ts';
 import { safeFetchJson } from '../lib/api.ts';
@@ -58,7 +60,7 @@ import { DeleteConfirmModal } from './DeleteConfirmModal.tsx';
 import { EditStudentModal } from './EditStudentModal.tsx';
 import { EditTeacherModal } from './EditTeacherModal.tsx';
 import { ExecutiveComplaintsManager } from './ExecutiveComplaintsManager.tsx';
-import { CLASS_OPTIONS } from '../constants/classes.ts';
+import { CLASS_OPTIONS, isSameClass } from '../constants/classes.ts';
 
 export const SuperAdminDashboard: React.FC = () => {
   const { token, user } = useAuth();
@@ -101,6 +103,7 @@ export const SuperAdminDashboard: React.FC = () => {
   const [schoolName, setSchoolName] = useState('Fenster International School');
   const [password, setPassword] = useState('');
   const [teacherRole, setTeacherRole] = useState<'teacher' | 'bursar' | 'admin' | 'director' | 'principal'>('teacher');
+  const [registrationClassTeacher, setRegistrationClassTeacher] = useState<string>('none');
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -262,7 +265,26 @@ export const SuperAdminDashboard: React.FC = () => {
         : localTeachers;
 
       if (tchRes.ok && Array.isArray(tchRes.data?.teachers) && tchRes.data.teachers.length > 0) {
-        setTeachersList(tchRes.data.teachers);
+        let rawAss: any = {};
+        try {
+          const raw = localStorage.getItem('fis_class_teachers_v1');
+          if (raw) rawAss = JSON.parse(raw);
+        } catch (_) {}
+
+        const merged = tchRes.data.teachers.map((st: any) => {
+          const loc = localTeachers.find((lt) => lt.teacherId === st.teacherId || lt.id === st.id || (st.email && lt.email?.toLowerCase() === st.email.toLowerCase()));
+          const ass = rawAss[st.teacherId] || rawAss[String(st.id)] || (st.email ? rawAss[st.email.toLowerCase()] : null);
+          const assignedClass = st.assignedClass !== undefined && st.assignedClass !== null
+            ? (st.assignedClass || null)
+            : (ass?.className || loc?.assignedClass || null);
+          return {
+            ...st,
+            assignedClass,
+            isClassTeacher: Boolean(assignedClass),
+          };
+        });
+        setTeachersList(merged);
+        saveLocalTeachers(merged);
       }
 
       if (usrRes.ok && Array.isArray(usrRes.data?.users) && usrRes.data.users.length > 0) {
@@ -330,22 +352,29 @@ export const SuperAdminDashboard: React.FC = () => {
         schoolName,
         password,
         role: teacherRole,
+        assignedClass: registrationClassTeacher === 'none' ? null : registrationClassTeacher,
       });
 
       if (result.success) {
+        const baseRoleTitle =
+          teacherRole === 'director'
+            ? 'School Director (Owner)'
+            : teacherRole === 'principal'
+            ? 'School Principal'
+            : teacherRole === 'bursar'
+            ? 'Bursar & Accounts Officer'
+            : teacherRole === 'admin'
+            ? 'Institutional Administrator'
+            : 'Senior Academic Faculty';
+
+        const roleOrClassStr = result.teacher.assignedClass
+          ? `${baseRoleTitle} • Class Teacher of ${result.teacher.assignedClass}`
+          : baseRoleTitle;
+
         setRegisteredSuccess({
           name: `${result.teacher.firstName} ${result.teacher.lastName}`,
           uniqueId: result.teacher.teacherId,
-          roleOrClass:
-            teacherRole === 'director'
-              ? 'School Director (Owner)'
-              : teacherRole === 'principal'
-              ? 'School Principal'
-              : teacherRole === 'bursar'
-              ? 'Bursar & Accounts Officer'
-              : teacherRole === 'admin'
-              ? 'Institutional Administrator'
-              : 'Senior Academic Faculty',
+          roleOrClass: roleOrClassStr,
           email: result.teacher.email,
           password: result.password,
         });
@@ -356,6 +385,7 @@ export const SuperAdminDashboard: React.FC = () => {
         setPhone('');
         setPassword('');
         setTeacherRole('teacher');
+        setRegistrationClassTeacher('none');
         fetchAdminData();
       } else {
         setErrorMsg('Failed to complete teacher registration');
@@ -794,16 +824,27 @@ export const SuperAdminDashboard: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-[11px] font-medium text-slate-300 mb-1">Assigned Institution</label>
+              <label className="block text-[11px] font-medium text-slate-300 mb-1">
+                Assign Class Teacher Role (Optional)
+              </label>
               <div className="relative">
-                <School className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
-                <input
-                  type="text"
-                  value={schoolName}
-                  onChange={(e) => setSchoolName(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-8 pr-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500"
-                />
+                <GraduationCap className="w-3.5 h-3.5 text-amber-400 absolute left-3 top-2.5" />
+                <select
+                  value={registrationClassTeacher}
+                  onChange={(e) => setRegistrationClassTeacher(e.target.value)}
+                  className="w-full bg-slate-900 border border-amber-500/40 rounded-xl pl-8 pr-3 py-2 text-xs text-amber-300 focus:outline-none focus:border-amber-400 font-semibold"
+                >
+                  <option value="none">-- Not Assigned as Class Teacher --</option>
+                  {CLASS_OPTIONS.map((c) => (
+                    <option key={`reg_class_${c}`} value={c}>
+                      Class Teacher of {c}
+                    </option>
+                  ))}
+                </select>
               </div>
+              <span className="text-[10px] text-slate-400 mt-0.5 block">
+                Class teachers write official remarks on student results. Multiple teachers can be assigned to the same class.
+              </span>
             </div>
 
             <button
@@ -976,21 +1017,44 @@ export const SuperAdminDashboard: React.FC = () => {
                     <div className="flex items-center gap-2 shrink-0">
                       {/* Assign Class Teacher dropdown */}
                       <select
-                        value={t.assignedClass || 'none'}
+                        value={
+                          CLASS_OPTIONS.find((c) => isSameClass(c, t.assignedClass)) ||
+                          (t.assignedClass ? t.assignedClass : 'none')
+                        }
                         onChange={async (e) => {
                           const val = e.target.value;
+                          const cleanClass = val === 'none' ? null : val;
                           try {
+                            await assignClassTeacher(
+                              cleanClass,
+                              t.teacherId,
+                              `${t.firstName} ${t.lastName}`,
+                              token
+                            );
                             await updateTeacher(token, {
                               id: t.id,
                               teacherId: t.teacherId,
-                              assignedClass: val === 'none' ? null : val,
+                              firstName: t.firstName,
+                              lastName: t.lastName,
+                              email: t.email,
+                              phone: t.phone,
+                              schoolName: t.schoolName,
+                              role: t.role,
+                              assignedClass: cleanClass,
                             });
+                            setTeachersList((prev) =>
+                              prev.map((item) =>
+                                item.teacherId === t.teacherId || item.id === t.id || item.email === t.email
+                                  ? { ...item, assignedClass: cleanClass, isClassTeacher: Boolean(cleanClass) }
+                                  : item
+                              )
+                            );
                             setNotification({
                               type: 'success',
                               message:
                                 val === 'none'
                                   ? `Class teacher role cleared for ${t.firstName} ${t.lastName}`
-                                  : `${t.firstName} ${t.lastName} assigned as Class Teacher of ${val}`,
+                                  : `${t.firstName} ${t.lastName} assigned as Class Teacher of ${cleanClass}`,
                             });
                             fetchAdminData();
                           } catch (err: any) {

@@ -10,6 +10,7 @@ export const FIS_LOGOS = {
   primaryColor: '#0b5c37', // Fenster Deep Emerald Green
   secondaryColor: '#f2a900', // Fenster Golden Yellow / Amber
   navyAccent: '#0a1d37', // Fenster Regalia Navy Blue
+  address: '1, Kolade Adedeji Street, Agbado, Ogun State',
 };
 
 export const FENSTER_LOGOS = FIS_LOGOS;

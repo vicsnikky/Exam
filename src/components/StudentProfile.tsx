@@ -33,6 +33,7 @@ import {
   fetchAllStudentsUnified,
   updateStudent,
   fetchClassTeacherAssignments,
+  getClassTeachers,
   fetchClassTeacherRemark,
   saveClassTeacherRemark,
 } from '../lib/schoolStore.ts';
@@ -515,6 +516,64 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
         setAssessments(realAssessments);
         setMockScores(realMockScores);
+
+        // Auto-synchronize Term and Exam Period from the student's recorded assessments
+        // 1. Check broadsheet cache for the student's most recently recorded score
+        let syncedFromBroadsheet = false;
+        try {
+          const rawBroad = localStorage.getItem('fis_broadsheet_scores_v2');
+          if (rawBroad) {
+            const list = JSON.parse(rawBroad);
+            const myScores = list.filter((b: any) =>
+              String(b.studentId) === String(resolvedStudent!.id) ||
+              (b.studentNumber && b.studentNumber === resolvedStudent!.studentId)
+            );
+            if (myScores.length > 0) {
+              const latestBroad = myScores[myScores.length - 1];
+              if (latestBroad.examPeriod === 'first-half') {
+                setSelectedExamType('midterm');
+                syncedFromBroadsheet = true;
+              } else if (latestBroad.examPeriod === 'terminal') {
+                setSelectedExamType('terminal');
+                syncedFromBroadsheet = true;
+              }
+              if (latestBroad.term && ['First Term', 'Second Term', 'Third Term'].includes(latestBroad.term)) {
+                setSelectedPrintTerm(latestBroad.term);
+              }
+            }
+          }
+        } catch (_) {}
+
+        // 2. Check the most recent assessment in realAssessments (index 0 is newest due to desc created_at)
+        if (!syncedFromBroadsheet && realAssessments.length > 0) {
+          for (const a of realAssessments) {
+            let p: 'midterm' | 'terminal' | null = null;
+            try {
+              if (a.teacherComment && a.teacherComment.trim().startsWith('{')) {
+                const parsed = JSON.parse(a.teacherComment);
+                if (parsed.examPeriod === 'first-half') p = 'midterm';
+                else if (parsed.examPeriod === 'terminal') p = 'terminal';
+              }
+            } catch (_) {}
+
+            if (!p) {
+              const titleLower = (a.assessmentTitle || '').toLowerCase();
+              if (titleLower.includes('first half') || titleLower.includes('first-half') || titleLower.includes('1st half') || titleLower.includes('mid')) {
+                p = 'midterm';
+              } else if (titleLower.includes('terminal')) {
+                p = 'terminal';
+              }
+            }
+
+            if (p) {
+              setSelectedExamType(p);
+              if (a.term && ['First Term', 'Second Term', 'Third Term'].includes(a.term)) {
+                setSelectedPrintTerm(a.term as any);
+              }
+              break;
+            }
+          }
+        }
 
         // Calculate statistics safely
         if (realAssessments.length > 0) {

@@ -1,10 +1,16 @@
 {
   "assignments": {
-    "SS 3": {
+    "TCH-2026-0001": {
       "teacherId": "TCH-2026-0001",
       "teacherName": "Victor Alo",
       "className": "SS 3",
       "updatedAt": "2026-10-17T06:27:48.242Z"
+    },
+    "TCH-2026-0002": {
+      "teacherId": "TCH-2026-0002",
+      "teacherName": "Test Teacher",
+      "className": "SS 1",
+      "updatedAt": "2026-10-19T07:56:57.224Z"
     }
   },
   "remarks": {

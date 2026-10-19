@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { TeacherRecord, updateTeacher } from '../lib/schoolStore.ts';
+import { TeacherRecord, updateTeacher, assignClassTeacher } from '../lib/schoolStore.ts';
 import { useAuth } from '../context/AuthContext.tsx';
 import {
   X,
@@ -15,7 +15,7 @@ import {
   GraduationCap
 } from 'lucide-react';
 
-import { SCHOOL_CLASSES, CLASS_OPTIONS } from '../constants/classes.ts';
+import { SCHOOL_CLASSES, CLASS_OPTIONS, isSameClass } from '../constants/classes.ts';
 
 interface EditTeacherModalProps {
   isOpen: boolean;
@@ -53,7 +53,8 @@ export const EditTeacherModal: React.FC<EditTeacherModalProps> = ({
       setSchoolName(teacher.schoolName || 'Fenster International School');
       setPassword(teacher.password || '');
       setRole((teacher.role as any) || 'teacher');
-      setAssignedClass(teacher.assignedClass || 'none');
+      const matched = CLASS_OPTIONS.find((c) => isSameClass(c, teacher.assignedClass));
+      setAssignedClass(matched || (teacher.assignedClass || 'none'));
       setErrorMsg(null);
     }
   }, [teacher, isOpen]);
@@ -71,6 +72,14 @@ export const EditTeacherModal: React.FC<EditTeacherModalProps> = ({
     setErrorMsg(null);
 
     try {
+      const cleanClass = assignedClass === 'none' ? null : assignedClass;
+      await assignClassTeacher(
+        cleanClass,
+        teacher.teacherId,
+        `${firstName.trim()} ${lastName.trim()}`,
+        token
+      );
+
       const res = await updateTeacher(token, {
         id: teacher.id,
         teacherId: teacher.teacherId,
@@ -81,11 +90,15 @@ export const EditTeacherModal: React.FC<EditTeacherModalProps> = ({
         schoolName: schoolName.trim(),
         password: password ? password.trim() : undefined,
         role,
-        assignedClass: assignedClass === 'none' ? null : assignedClass,
+        assignedClass: cleanClass,
       });
 
       if (res.success && res.teacher) {
-        onSaved(res.teacher);
+        onSaved({
+          ...res.teacher,
+          assignedClass: cleanClass,
+          isClassTeacher: Boolean(cleanClass),
+        });
         onClose();
       }
     } catch (err: any) {

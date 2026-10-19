@@ -12,8 +12,8 @@ export const SCHOOL_CLASSES = [
   'JSS 1',
   'JSS 2',
   'JSS 3',
-  'SSS 1',
-  'SSS 2',
+  'SS 1',
+  'SS 2',
   'SS 3',
 ] as const;
 
@@ -35,8 +35,8 @@ export const SCHOOL_CLASS_OPTIONS = [
   { value: 'JSS 1', label: 'JSS 1 (Junior Secondary 1)' },
   { value: 'JSS 2', label: 'JSS 2 (Junior Secondary 2)' },
   { value: 'JSS 3', label: 'JSS 3 (Junior Secondary 3)' },
-  { value: 'SSS 1', label: 'SSS 1 (Senior Secondary 1)' },
-  { value: 'SSS 2', label: 'SSS 2 (Senior Secondary 2)' },
+  { value: 'SS 1', label: 'SS 1 (Senior Secondary 1)' },
+  { value: 'SS 2', label: 'SS 2 (Senior Secondary 2)' },
   { value: 'SS 3', label: 'SS 3 (Senior Secondary 3 - Final Mock)' },
 ] as const;
 
@@ -56,8 +56,8 @@ export function normalizeClassName(className?: string | null): string {
   if (/^(JSS|JS)\s*1(\b|\s|[A-Z])/i.test(clean)) return 'JSS 1';
   if (/^(JSS|JS)\s*2(\b|\s|[A-Z])/i.test(clean)) return 'JSS 2';
   if (/^(JSS|JS)\s*3(\b|\s|[A-Z])/i.test(clean)) return 'JSS 3';
-  if (/^(SSS|SS)\s*1(\b|\s|[A-Z])/i.test(clean)) return 'SSS 1';
-  if (/^(SSS|SS)\s*2(\b|\s|[A-Z])/i.test(clean)) return 'SSS 2';
+  if (/^(SSS|SS)\s*1(\b|\s|[A-Z])/i.test(clean)) return 'SS 1';
+  if (/^(SSS|SS)\s*2(\b|\s|[A-Z])/i.test(clean)) return 'SS 2';
   if (/^(SSS|SS)\s*3(\b|\s|[A-Z])/i.test(clean)) return 'SS 3';
   return className.trim();
 }
