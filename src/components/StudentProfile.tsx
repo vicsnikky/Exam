@@ -25,6 +25,7 @@ import {
   Save,
   Sparkles,
   CreditCard,
+  MapPin,
 } from 'lucide-react';
 import { Student, AssessmentRecord } from '../types/index.ts';
 import {
@@ -56,6 +57,7 @@ import {
   calculateGradePoint5,
   calculateCgpa,
   calculateJuniorAverage,
+  isSameClass,
 } from '../constants/classes.ts';
 
 interface StudentProfileProps {
@@ -76,12 +78,12 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   const isBursar = user?.role === 'bursar';
   const hasAdminPrivileges =
     user?.role === 'super_admin' ||
+    user?.email?.toLowerCase() === 'victoralo1862@gmail.com' ||
     user?.role === 'director' ||
     user?.role === 'principal' ||
     user?.role === 'admin';
   const canAddScore = !isStudent && !isBursar && Boolean(onAddScoreForStudent);
   const canManageScores = !isStudent && !isBursar;
-  const canEditClassTeacherRemark = !isStudent && !isBursar;
 
   const [student, setStudent] = useState<Student | null>(initialStudent || null);
   const [assessments, setAssessments] = useState<AssessmentRecord[]>([]);
@@ -139,10 +141,29 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
   // Class Teacher & Remark State
   const [assignedClassTeacher, setAssignedClassTeacher] = useState<{ teacherId: string | number; teacherName: string; className: string } | null>(null);
+  const [allAssignments, setAllAssignments] = useState<Record<string, any>>({});
   const [classTeacherRemark, setClassTeacherRemark] = useState<string>('');
   const [editingTeacherRemark, setEditingTeacherRemark] = useState<boolean>(false);
   const [remarkDraft, setRemarkDraft] = useState<string>('');
   const [savingRemark, setSavingRemark] = useState<boolean>(false);
+
+  // Check if current user is the assigned Class Teacher for this student
+  const userAssignedClass =
+    user?.assignedClass ||
+    (user?.teacherId && allAssignments[user.teacherId]?.className) ||
+    (user?.email && allAssignments[user.email.toLowerCase()]?.className) ||
+    Object.values(allAssignments).find(
+      (a: any) => a?.teacherId && user?.teacherId && String(a.teacherId).toUpperCase() === String(user.teacherId).toUpperCase()
+    )?.className;
+
+  const isClassTeacherForThisStudent = Boolean(
+    userAssignedClass &&
+    student?.currentClass &&
+    isSameClass(userAssignedClass, student.currentClass)
+  );
+
+  // Rule: Only Class Teacher (for this class), Admin, and Super Admin can write/edit class teacher's comment!
+  const canEditClassTeacherRemark = hasAdminPrivileges || isClassTeacherForThisStudent;
 
   const loadProfile = async () => {
     if (!initialStudent) {
@@ -1694,7 +1715,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                           <th className="py-3 px-3 text-center w-10">#</th>
                           <th className="py-3 px-4">Subject</th>
                           {isSenior && <th className="py-3 px-3 text-center">Units</th>}
-                          <th className="py-3 px-3 text-right">CA (/40)</th>
+                          <th className="py-3 px-3 text-right">CA (40)</th>
                           <th className="py-3 px-3 text-right">Exam (/60)</th>
                           <th className="py-3 px-3 text-right">Total (/100)</th>
                           <th className="py-3 px-3 text-center">Grade</th>
@@ -1967,6 +1988,10 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                     <span className="text-[11px] text-slate-300 print:text-slate-700 mt-0.5">
                       Accredited Basic & Senior Secondary Comprehensive Education
                     </span>
+                    <span className="text-[11px] sm:text-xs font-semibold text-emerald-400 print:text-black mt-1 flex items-center justify-center gap-1.5">
+                      <MapPin className="w-3.5 h-3.5 text-amber-400 print:text-black shrink-0" />
+                      {FIS_LOGOS.address}
+                    </span>
                   </div>
 
                   <img
@@ -2071,7 +2096,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                         <th className="py-2.5 px-3 border border-slate-700 print:border-black text-center w-10">#</th>
                         <th className="py-2.5 px-3 border border-slate-700 print:border-black">Subject</th>
                         <th className="py-2.5 px-3 border border-slate-700 print:border-black text-center w-16">Unit</th>
-                        <th className="py-2.5 px-3 border border-slate-700 print:border-black text-right">CA (/40)</th>
+                        <th className="py-2.5 px-3 border border-slate-700 print:border-black text-right">CA (40)</th>
                         <th className="py-2.5 px-3 border border-slate-700 print:border-black text-right">Exam (/60)</th>
                         <th className="py-2.5 px-3 border border-slate-700 print:border-black text-right font-black">Total (/100)</th>
                         <th className="py-2.5 px-3 border border-slate-700 print:border-black text-center">Grade</th>
@@ -2209,19 +2234,9 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                     </div>
                   </div>
 
-                  <div className="flex items-end gap-8 sm:gap-12 text-center">
+                  <div className="flex items-end gap-8 sm:gap-16 text-center">
                     <div>
-                      <div className="w-32 border-b border-slate-600 print:border-black mb-1.5" />
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300 print:text-black block">
-                        Class Teacher
-                      </span>
-                      <span className="text-[10px] text-slate-400 print:text-slate-600 block">
-                        {assignedClassTeacher?.teacherName || 'Class Teacher'}
-                      </span>
-                    </div>
-
-                    <div>
-                      <div className="w-32 border-b border-slate-600 print:border-black mb-1.5" />
+                      <div className="w-36 border-b border-slate-600 print:border-black mb-1.5" />
                       <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300 print:text-black block">
                         Registrar
                       </span>

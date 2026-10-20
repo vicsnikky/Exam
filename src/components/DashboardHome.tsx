@@ -35,6 +35,33 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
   onSelectStudent,
 }) => {
   const { token, user } = useAuth();
+
+  const isVictorSuperAdmin = user?.role === 'super_admin' || user?.email?.toLowerCase() === 'victoralo1862@gmail.com';
+  const isDirector = user?.role === 'director';
+  const isPrincipal = user?.role === 'principal';
+  const isAdmin = user?.role === 'admin';
+  const isExecutive = isVictorSuperAdmin || isDirector || isPrincipal || isAdmin;
+
+  const isClassTeacher = Boolean(
+    user?.isClassTeacher ||
+    user?.assignedClass ||
+    (typeof window !== 'undefined' && (() => {
+      try {
+        const raw = localStorage.getItem('fis_class_teachers_v1');
+        if (!raw) return false;
+        const parsed = JSON.parse(raw);
+        const tchId = user?.teacherId || '';
+        const email = user?.email?.toLowerCase() || '';
+        const userId = user?.id ? String(user.id) : '';
+        return Boolean(parsed[tchId] || parsed[userId] || parsed[email]);
+      } catch (_) {
+        return false;
+      }
+    })())
+  );
+
+  const canAccessBroadsheet = isExecutive || isClassTeacher;
+
   const [stats, setStats] = useState({
     totalStudents: 0,
     totalTeachers: 1,
@@ -233,7 +260,7 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
         </div>
 
         <div
-          onClick={() => onNavigate('results')}
+          onClick={() => onNavigate(canAccessBroadsheet ? 'results' : 'add-score')}
           className="bg-slate-800/80 border border-slate-700 p-4 rounded-2xl cursor-pointer hover:border-teal-500/50 transition group col-span-2 lg:col-span-1"
         >
           <div className="flex items-center justify-between text-slate-400 text-xs">
@@ -263,7 +290,7 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
               <p className="text-[11px] text-slate-400 mt-0.5">Continuous assessments and online tests</p>
             </div>
             <button
-              onClick={() => onNavigate('results')}
+              onClick={() => onNavigate(canAccessBroadsheet ? 'results' : 'add-score')}
               className="text-xs text-indigo-400 hover:underline flex items-center gap-1 cursor-pointer"
             >
               View All

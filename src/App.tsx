@@ -46,7 +46,8 @@ import {
   DollarSign,
   MessageSquareWarning,
   Key,
-  KeyRound
+  KeyRound,
+  ShieldCheck,
 } from 'lucide-react';
 import { Student } from './types/index.ts';
 
@@ -55,7 +56,7 @@ export default function App() {
 
   const isStudent = user?.role === 'student';
   const isBursar = user?.role === 'bursar';
-  const isVictorSuperAdmin = user?.role === 'super_admin';
+  const isVictorSuperAdmin = user?.role === 'super_admin' || user?.email?.toLowerCase() === 'victoralo1862@gmail.com';
   const isDirector = user?.role === 'director';
   const isPrincipal = user?.role === 'principal';
   const isAdminOnly = user?.role === 'admin';
@@ -67,6 +68,27 @@ export default function App() {
   const hasBursarAccess = isBursar || isExecutive;
   const canRegisterStudent = !isStudent && !isBursar; // Teachers, Admins, Principal, Director & Super Admin can register students on their dashboard
   const isTeacher = !isStudent && !isBursar;
+
+  // Broadsheet permissions: Only Class Teachers, Admins, and Super Admins can access broadsheets.
+  // Regular subject teachers are strictly limited to entering student scores.
+  const isClassTeacher = Boolean(
+    user?.isClassTeacher ||
+    user?.assignedClass ||
+    (typeof window !== 'undefined' && (() => {
+      try {
+        const raw = localStorage.getItem('fis_class_teachers_v1');
+        if (!raw) return false;
+        const parsed = JSON.parse(raw);
+        const tchId = user?.teacherId || '';
+        const email = user?.email?.toLowerCase() || '';
+        const userId = user?.id ? String(user.id) : '';
+        return Boolean(parsed[tchId] || parsed[userId] || parsed[email]);
+      } catch (_) {
+        return false;
+      }
+    })())
+  );
+  const canAccessBroadsheet = isSuperAdmin || isAdminOnly || isClassTeacher;
 
   const adminConsoleTitle = isVictorSuperAdmin
     ? 'Super Admin Console'
@@ -205,7 +227,29 @@ export default function App() {
           />
         ) : null;
       case 'results':
-        return <ResultsView />;
+        return canAccessBroadsheet ? (
+          <ResultsView />
+        ) : (
+          <div className="max-w-2xl mx-auto my-12 p-8 bg-slate-900 border border-slate-800 rounded-3xl text-center space-y-4">
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+              <ShieldCheck className="w-7 h-7" />
+            </div>
+            <h3 className="text-xl font-bold text-white">Broadsheet Access Restricted</h3>
+            <p className="text-sm text-slate-300 max-w-lg mx-auto">
+              Master class broadsheets and official term ledgers are reserved for <strong className="text-amber-300">Class Teachers</strong>, <strong className="text-white">School Administrators</strong>, and <strong className="text-emerald-400">Super Administrators</strong>.
+            </p>
+            <p className="text-xs text-slate-400">
+              As a subject specialist teacher, you are authorized to input and review scholar subject scores directly via the Score Entry Portal.
+            </p>
+            <button
+              onClick={() => setActiveTab('add-score')}
+              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition inline-flex items-center gap-2 cursor-pointer shadow-lg shadow-emerald-950"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              Go to Add Student Score
+            </button>
+          </div>
+        );
       case 'ss3-mock-student':
         return <SS3MockStudentDashboard />;
       case 'ss3-mock-teacher':
@@ -659,26 +703,28 @@ export default function App() {
                   </span>
                 </motion.button>
 
-                <motion.button
-                  whileHover={{ x: 2 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => setActiveTab('results')}
-                  className={`w-full relative flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition-colors cursor-pointer ${
-                    activeTab === 'results' ? 'text-white' : 'text-slate-300 hover:text-white hover:bg-slate-700/40'
-                  }`}
-                >
-                  {activeTab === 'results' && (
-                    <motion.div
-                      layoutId="activeSidebarIndicator"
-                      className="absolute inset-0 bg-emerald-700 rounded-xl shadow-md shadow-emerald-900/40 border border-emerald-600/40 z-0"
-                      transition={{ type: 'spring', stiffness: 450, damping: 32 }}
-                    />
-                  )}
-                  <span className="relative z-10 flex items-center gap-3">
-                    <FileText className="w-4 h-4 shrink-0" />
-                    Class Broadsheet & Results
-                  </span>
-                </motion.button>
+                {canAccessBroadsheet && (
+                  <motion.button
+                    whileHover={{ x: 2 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => setActiveTab('results')}
+                    className={`w-full relative flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition-colors cursor-pointer ${
+                      activeTab === 'results' ? 'text-white' : 'text-slate-300 hover:text-white hover:bg-slate-700/40'
+                    }`}
+                  >
+                    {activeTab === 'results' && (
+                      <motion.div
+                        layoutId="activeSidebarIndicator"
+                        className="absolute inset-0 bg-emerald-700 rounded-xl shadow-md shadow-emerald-900/40 border border-emerald-600/40 z-0"
+                        transition={{ type: 'spring', stiffness: 450, damping: 32 }}
+                      />
+                    )}
+                    <span className="relative z-10 flex items-center gap-3">
+                      <FileText className="w-4 h-4 shrink-0" />
+                      Class Broadsheet & Results
+                    </span>
+                  </motion.button>
+                )}
 
                 <motion.button
                   whileHover={{ x: 2 }}

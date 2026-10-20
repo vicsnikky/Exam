@@ -58,8 +58,34 @@ export function calculateSubjectGrade(totalScore: number): string {
 export const ClassBroadsheet: React.FC = () => {
   const { user, token } = useAuth();
 
-  // Filters & Scope
-  const [selectedClass, setSelectedClass] = useState<string>('SS 3');
+  const isVictorSuperAdmin = user?.role === 'super_admin' || user?.email?.toLowerCase() === 'victoralo1862@gmail.com';
+  const isDirector = user?.role === 'director';
+  const isPrincipal = user?.role === 'principal';
+  const isAdmin = user?.role === 'admin';
+  const isExecutive = isVictorSuperAdmin || isDirector || isPrincipal || isAdmin;
+
+  const detectedClassTeacherClass =
+    user?.assignedClass ||
+    (typeof window !== 'undefined' && (() => {
+      try {
+        const raw = localStorage.getItem('fis_class_teachers_v1');
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        const tchId = user?.teacherId || '';
+        const email = user?.email?.toLowerCase() || '';
+        const userId = user?.id ? String(user.id) : '';
+        const match = parsed[tchId] || parsed[userId] || parsed[email];
+        return match?.className || null;
+      } catch (_) {
+        return null;
+      }
+    })());
+
+  // Filters & Scope: Default to assigned class for Class Teachers
+  const [selectedClass, setSelectedClass] = useState<string>(() => {
+    if (detectedClassTeacherClass) return detectedClassTeacherClass;
+    return 'SS 3';
+  });
   const [selectedTerm, setSelectedTerm] = useState<string>('First Term');
   const [selectedSession, setSelectedSession] = useState<string>('2026/2027');
   const [examPeriod, setExamPeriod] = useState<'first-half' | 'terminal'>('terminal');
@@ -1582,13 +1608,13 @@ export const ClassBroadsheet: React.FC = () => {
               onChange={(e) => setExamPeriod(e.target.value as any)}
               className="w-full bg-slate-900 border border-amber-500/50 text-amber-300 font-bold rounded-xl px-3 py-2 text-xs focus:outline-none"
             >
-              <option value="first-half">1st Half Exam (6th Week) — CA/40 + Exam/60 = 100</option>
-              <option value="terminal">Terminal Exam — CA/40 + Exam/60 = 100</option>
+              <option value="first-half">1st Half Exam (6th Week) — CA (40) + Exam (60) = 100</option>
+              <option value="terminal">Terminal Exam — CA (40) + Exam (60) = 100</option>
             </select>
           ) : (
             <div className="w-full bg-slate-900/80 border border-emerald-500/30 text-emerald-300 rounded-xl px-3 py-2 text-xs font-semibold flex items-center justify-between">
               <span>Terminal Exam (Once a term)</span>
-              <span className="text-[10px] text-slate-400 font-mono">CA/40 + Ex/60 = 100</span>
+              <span className="text-[10px] text-slate-400 font-mono">CA (40) + Exam (60) = 100</span>
             </div>
           )}
         </div>
@@ -1601,7 +1627,7 @@ export const ClassBroadsheet: React.FC = () => {
           {isSenior ? (
             <span>
               <strong className="text-amber-300">Senior Secondary Standard ({selectedClass}):</strong> Each evaluated subject carries{' '}
-              <strong>2 Credit Units</strong>. Evaluated on the <strong>5.0 CGPA scale</strong> (70+=5.0, 60+=4.0, 50+=3.0, 45+=2.0, 40+=1.0, &lt;40=0.0). Quality Points = 2 × GP. Broadsheet records CA (/40) + Exam (/60) = 100.
+              <strong>2 Credit Units</strong>. Evaluated on the <strong>5.0 CGPA scale</strong> (70+=5.0, 60+=4.0, 50+=3.0, 45+=2.0, 40+=1.0, &lt;40=0.0). Quality Points = 2 × GP. Broadsheet records CA (40) + Exam (60) = 100.
             </span>
           ) : isSecondary ? (
             <span>
@@ -1675,7 +1701,7 @@ export const ClassBroadsheet: React.FC = () => {
                         </button>
                       </div>
                       <div className="text-[9px] font-normal text-slate-400 mt-0.5 font-mono">
-                        CA /40 | Ex /60 | Tot /100
+                        CA (40) | Ex (60) | Tot (100)
                       </div>
                     </th>
                   ))}

@@ -62,6 +62,13 @@ export function normalizeClassName(className?: string | null): string {
   return className.trim();
 }
 
+if (typeof window !== 'undefined') {
+  (window as any).normalizeClassName = normalizeClassName;
+}
+if (typeof globalThis !== 'undefined') {
+  (globalThis as any).normalizeClassName = normalizeClassName;
+}
+
 export function isSameClass(classA?: string | null, classB?: string | null): boolean {
   if (!classA || !classB) return false;
   if (classA.toLowerCase() === 'all' || classB.toLowerCase() === 'all') return true;

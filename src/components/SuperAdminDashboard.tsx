@@ -60,7 +60,7 @@ import { DeleteConfirmModal } from './DeleteConfirmModal.tsx';
 import { EditStudentModal } from './EditStudentModal.tsx';
 import { EditTeacherModal } from './EditTeacherModal.tsx';
 import { ExecutiveComplaintsManager } from './ExecutiveComplaintsManager.tsx';
-import { CLASS_OPTIONS, isSameClass } from '../constants/classes.ts';
+import { CLASS_OPTIONS, isSameClass, normalizeClassName } from '../constants/classes.ts';
 
 export const SuperAdminDashboard: React.FC = () => {
   const { token, user } = useAuth();

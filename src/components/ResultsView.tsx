@@ -17,7 +17,8 @@ import {
   X,
   Save,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  ShieldCheck,
 } from 'lucide-react';
 import { Subject } from '../types/index.ts';
 import { SCHOOL_CLASSES } from '../constants/classes.ts';
@@ -25,6 +26,33 @@ import { ClassBroadsheet } from './ClassBroadsheet.tsx';
 
 export const ResultsView: React.FC = () => {
   const { token, user } = useAuth();
+
+  const isVictorSuperAdmin = user?.role === 'super_admin' || user?.email?.toLowerCase() === 'victoralo1862@gmail.com';
+  const isDirector = user?.role === 'director';
+  const isPrincipal = user?.role === 'principal';
+  const isAdmin = user?.role === 'admin';
+  const isExecutive = isVictorSuperAdmin || isDirector || isPrincipal || isAdmin;
+
+  const isClassTeacher = Boolean(
+    user?.isClassTeacher ||
+    user?.assignedClass ||
+    (typeof window !== 'undefined' && (() => {
+      try {
+        const raw = localStorage.getItem('fis_class_teachers_v1');
+        if (!raw) return false;
+        const parsed = JSON.parse(raw);
+        const tchId = user?.teacherId || '';
+        const email = user?.email?.toLowerCase() || '';
+        const userId = user?.id ? String(user.id) : '';
+        return Boolean(parsed[tchId] || parsed[userId] || parsed[email]);
+      } catch (_) {
+        return false;
+      }
+    })())
+  );
+
+  const canAccessBroadsheet = isExecutive || isClassTeacher;
+
   const [viewMode, setViewMode] = useState<'broadsheet' | 'ledger'>('broadsheet');
   const [results, setResults] = useState<any[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
@@ -264,6 +292,23 @@ export const ResultsView: React.FC = () => {
     link.click();
     document.body.removeChild(link);
   };
+
+  if (!canAccessBroadsheet) {
+    return (
+      <div className="max-w-2xl mx-auto my-12 p-8 bg-slate-900 border border-slate-800 rounded-3xl text-center space-y-4">
+        <div className="w-14 h-14 mx-auto rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+          <ShieldCheck className="w-7 h-7" />
+        </div>
+        <h3 className="text-xl font-bold text-white">Broadsheet Access Restricted</h3>
+        <p className="text-sm text-slate-300 max-w-lg mx-auto">
+          Master class broadsheets and official term ledgers are reserved for <strong className="text-amber-300">Class Teachers</strong>, <strong className="text-white">School Administrators</strong>, and <strong className="text-emerald-400">Super Administrators</strong>.
+        </p>
+        <p className="text-xs text-slate-400">
+          As a subject specialist teacher, you are authorized to input and review scholar subject scores directly via the Score Entry Portal.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

@@ -599,7 +599,7 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
       window.dispatchEvent(new CustomEvent('fis:broadsheet-scores-updated'));
 
       setSaveSuccess(
-        `✓ Successfully saved scores for ${subName}: CA ${numCa ?? 0}/40 + Exam ${numExam ?? 0}/60 = Total ${liveTotal}/100 (Grade ${liveGrade}). Automatically saved to broadsheet and student portal!`
+        `✓ Successfully saved scores for ${subName}: CA ${numCa ?? 0} (40) + Exam ${numExam ?? 0} (60) = Total ${liveTotal}/100 (Grade ${liveGrade}). Automatically saved to broadsheet and student portal!`
       );
 
       // Clear score inputs for rapid next entry
@@ -1019,7 +1019,7 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
               </span>
             ) : (
               <span className="text-[11px] font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-lg border border-emerald-500/30">
-                Primary Level (Terminal Exam: CA /40 + Exam /60 = 100)
+                Primary Level (Terminal Exam: CA (40) + Exam (60) = 100)
               </span>
             )}
           </div>

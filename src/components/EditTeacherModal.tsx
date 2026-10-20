@@ -15,7 +15,7 @@ import {
   GraduationCap
 } from 'lucide-react';
 
-import { SCHOOL_CLASSES, CLASS_OPTIONS, isSameClass } from '../constants/classes.ts';
+import { SCHOOL_CLASSES, CLASS_OPTIONS, isSameClass, normalizeClassName } from '../constants/classes.ts';
 
 interface EditTeacherModalProps {
   isOpen: boolean;

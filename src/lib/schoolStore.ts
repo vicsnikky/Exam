@@ -2,6 +2,8 @@ import type { Student, User } from '../types/index.ts';
 import { safeFetchJson } from './api.ts';
 import { supabase } from '../supabaseConfig.ts';
 import bcrypt from 'bcryptjs';
+import { normalizeClassName } from '../constants/classes.ts';
+export { normalizeClassName };
 
 export interface TeacherRecord {
   id: number;
@@ -1762,7 +1764,9 @@ export async function assignClassTeacher(
 
   const tKey = String(teacherId).trim();
   const isAssigned = Boolean(className && className !== 'none' && className !== 'unassigned');
-  const cleanClass = isAssigned ? normalizeClassName(String(className)) || String(className).trim() : null;
+  const cleanClass = isAssigned
+    ? ((typeof normalizeClassName === 'function' ? normalizeClassName(String(className)) : String(className).trim()) || String(className).trim())
+    : null;
 
   const localTeachers = getLocalTeachers();
   const matchedTeacher = localTeachers.find(

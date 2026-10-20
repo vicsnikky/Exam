@@ -1540,8 +1540,19 @@ app.get('/api/students/:id/class-teacher-remark', authenticate, async (req: Auth
 app.post('/api/students/:id/class-teacher-remark', authenticate, async (req: AuthRequest, res) => {
   try {
     const role = req.appUser?.role;
-    if (role === 'student') {
-      return res.status(403).json({ error: 'Permission denied: Students cannot enter teacher remarks.' });
+    if (role === 'student' || role === 'bursar') {
+      return res.status(403).json({ error: 'Permission denied: Students and bursars cannot author class teacher remarks.' });
+    }
+
+    const isExecOrAdmin = role === 'super_admin' || role === 'admin' || role === 'director' || role === 'principal' || req.appUser?.email === 'victoralo1862@gmail.com';
+    const tchId = req.appUser?.teacherProfile?.teacherId || (req.appUser as any)?.teacherId;
+    const assignment =
+      (tchId ? inMemoryClassTeacherAssignments[tchId] : null) ||
+      inMemoryClassTeacherAssignments[String(req.appUser?.id)] ||
+      (req.appUser?.email ? inMemoryClassTeacherAssignments[req.appUser.email.toLowerCase()] : null);
+
+    if (!isExecOrAdmin && !assignment) {
+      return res.status(403).json({ error: 'Permission denied: Only designated Class Teachers and School Administrators can author official class teacher comments.' });
     }
     const rawId = req.params.id;
     const cleanId = String(rawId).trim().toUpperCase();
