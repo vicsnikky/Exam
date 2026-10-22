@@ -30,6 +30,7 @@ import {
   GraduationCap,
   FileText,
   MessageSquare,
+  User,
 } from 'lucide-react';
 import {
   SCHOOL_CLASSES,
@@ -191,8 +192,9 @@ export const ClassBroadsheet: React.FC = () => {
   const [inputClassSchoolDays, setInputClassSchoolDays] = useState('115');
   const [savingClassDays, setSavingClassDays] = useState(false);
 
-  // Batch Report Cards Printing State (All students in class printed at once)
+  // Batch & Single Report Cards Printing State
   const [batchPrintOpen, setBatchPrintOpen] = useState(false);
+  const [selectedSingleStudentCard, setSelectedSingleStudentCard] = useState<BroadsheetRow | null>(null);
   const [classTeacherRemarksMap, setClassTeacherRemarksMap] = useState<Record<string, string>>({});
   const [principalRemarksMap, setPrincipalRemarksMap] = useState<Record<string, string>>({});
 
@@ -1676,6 +1678,303 @@ export const ClassBroadsheet: React.FC = () => {
   const liveTotal = (inputTestScore !== '' || inputExamScore !== '') ? liveTest + liveExam : 0;
   const liveGrade = calculateSubjectGrade(liveTotal);
 
+  // Helper to render official report card for a single scholar (used by both Batch and Single Modal)
+  const renderOfficialReportCard = (row: BroadsheetRow, mode: 'batch' | 'single', rIdx: number = 0) => {
+    const sKey = `${String(row.student.studentId || row.student.id).toUpperCase()}_${selectedTerm}_${selectedSession}`;
+    const sIdKey = String(row.student.studentId || row.student.id).toUpperCase();
+    const stRemark =
+      classTeacherRemarksMap[sKey] ||
+      classTeacherRemarksMap[sIdKey] ||
+      classTeacherRemarksMap[String(row.student.id)] ||
+      'An exemplary and disciplined scholar whose commitment to academic excellence and moral conduct is highly commendable.';
+    // Principal's comment is empty by default, allowing manual digital entry or handwriting in print
+    const stPrincipalRemark =
+      principalRemarksMap[sKey] ||
+      principalRemarksMap[sIdKey] ||
+      principalRemarksMap[String(row.student.id)] ||
+      '';
+
+    const sheetClass = mode === 'batch' ? 'batch-report-card-sheet' : 'single-report-card-sheet';
+
+    return (
+      <div
+        key={`${mode}_card_${row.student.id}_${rIdx}`}
+        className={`${sheetClass} bg-white text-black p-6 sm:p-8 rounded-3xl border-2 border-slate-300 shadow-xl print:p-0 print:border-none print:shadow-none print:rounded-none relative overflow-hidden`}
+      >
+        {/* Screen-only individual scholar action header (in batch mode) */}
+        {mode === 'batch' && (
+          <div className="card-screen-toolbar mb-4 pb-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 print:hidden bg-slate-50 -mx-6 -mt-6 sm:-mx-8 sm:-mt-8 px-6 sm:px-8 py-3 rounded-t-3xl">
+            <div className="flex items-center gap-2">
+              <span className="w-6 h-6 rounded-full bg-emerald-600 text-white text-xs font-bold flex items-center justify-center">
+                {rIdx + 1}
+              </span>
+              <strong className="text-xs text-slate-800">
+                {row.student.firstName} {row.student.surname}
+              </strong>
+              <span className="text-[10px] text-slate-500 font-mono">
+                ({row.student.studentId || row.student.id})
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  loadRemarks();
+                  setBatchPrintOpen(false);
+                  setSelectedSingleStudentCard(row);
+                }}
+                className="px-2.5 py-1 bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-800 border border-emerald-600/30 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                title="Print this card only (one-by-one mode)"
+              >
+                <Printer className="w-3.5 h-3.5 text-emerald-700" />
+                Print This Card Only
+              </button>
+              {(canEditTeacherComment || canEditPrincipalComment) && (
+                <button
+                  type="button"
+                  onClick={() => handleOpenCommentModal(row.student)}
+                  className="px-2.5 py-1 bg-amber-500/15 hover:bg-amber-500/25 text-amber-900 border border-amber-600/30 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                  title="Edit Class Teacher & Principal comments"
+                >
+                  <Edit2 className="w-3 h-3 text-amber-700" />
+                  Edit Comments
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* 1. Header with BOTH School Logos Boldly Placed */}
+        <div className="flex items-center justify-between pb-4 border-b-2 border-black gap-4 print:pb-1.5 print:gap-2">
+          <img
+            src={FIS_LOGOS.crest}
+            alt="Fenster Crest"
+            className="h-16 sm:h-20 print:h-11 w-auto object-contain shrink-0 filter drop-shadow-md"
+          />
+          <div className="flex flex-col items-center text-center flex-1 px-2">
+            <h2 className="text-xl sm:text-2xl print:text-[14px] font-black text-black tracking-tight uppercase leading-tight">
+              Fenster International School
+            </h2>
+            <span className="text-[11px] sm:text-xs print:text-[9px] text-slate-800 font-extrabold uppercase tracking-wider mt-0.5 print:mt-0.5">
+              Excellence in Academics &amp; Moral Discipline • Official Examination Registry
+            </span>
+            <span className="text-[10px] print:text-[8px] text-slate-700 mt-0.5 print:mt-0">
+              Accredited Basic &amp; Senior Secondary Comprehensive Education
+            </span>
+            <span className="text-[10px] sm:text-[11px] print:text-[7.5px] font-semibold text-slate-900 mt-1 print:mt-0.5 flex items-center justify-center gap-1">
+              <MapPin className="w-3 h-3 print:w-2 print:h-2 text-emerald-800 shrink-0 print:hidden" />
+              {FIS_LOGOS.address}
+            </span>
+          </div>
+          <img
+            src={FIS_LOGOS.full}
+            alt="Fenster Brand"
+            className="h-12 sm:h-16 print:h-9 w-auto object-contain shrink-0 filter drop-shadow-md"
+          />
+        </div>
+
+        {/* 2. Student Name & Term Heading (Directly under name in Nigerian academic format) */}
+        <div className="text-center my-4 pb-3 border-b border-slate-300 print:my-1 print:pb-0.5">
+          <h1 className="text-xl sm:text-2xl print:text-[14px] font-black text-black tracking-tight uppercase print:leading-tight">
+            {row.student.firstName} {row.student.middleName ? row.student.middleName + ' ' : ''}{row.student.surname}
+          </h1>
+          <div className="text-xs sm:text-sm print:text-[10px] font-bold text-emerald-900 mt-0.5 uppercase tracking-wide">
+            {selectedTerm} {selectedSession} {selectedTerm}{' '}
+            {isSecondary ? (effectiveExamPeriod === 'first-half' ? 'First Half Exam' : 'Terminal Exam') : 'Terminal Exam'}
+          </div>
+          <div className="text-[11px] print:text-[8.5px] text-slate-600 font-mono mt-0.5 print:mt-0">
+            Admission Number: {row.student.studentId || row.student.id}
+          </div>
+        </div>
+
+        {/* 3. Details Grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 my-4 p-3.5 bg-slate-100 rounded-2xl border border-slate-300 text-xs print:my-1 print:p-1.5 print:gap-1 print:text-[8px] print:rounded-lg">
+          <div>
+            <span className="text-slate-600 block text-[9px] print:text-[7.5px] uppercase font-semibold">Scholar Name</span>
+            <strong className="text-black text-xs print:text-[9px]">{row.student.firstName} {row.student.surname}</strong>
+          </div>
+          <div>
+            <span className="text-slate-600 block text-[9px] print:text-[7.5px] uppercase font-semibold">Class</span>
+            <strong className="text-black text-xs print:text-[9px] font-bold">{selectedClass}</strong>
+          </div>
+          <div className="col-span-2">
+            <span className="text-slate-600 block text-[9px] print:text-[7.5px] uppercase font-semibold">Guidance Detail (Parent / Guardian)</span>
+            <strong className="text-black text-xs print:text-[9px] truncate block">
+              {row.student.parentName || 'Parent / Guardian on File'}{' '}
+              {row.student.parentPhone ? `• Contact: ${row.student.parentPhone}` : ''}
+            </strong>
+          </div>
+          <div>
+            <span className="text-slate-600 block text-[9px] print:text-[7.5px] uppercase font-semibold">Term Recorded</span>
+            <strong className="text-black text-xs print:text-[9px]">
+              {selectedTerm} ({isSecondary ? (effectiveExamPeriod === 'first-half' ? 'First Half' : 'Terminal') : 'Terminal'})
+            </strong>
+          </div>
+          <div>
+            <span className="text-slate-600 block text-[9px] print:text-[7.5px] uppercase font-semibold">Cumulative GPA (CGPA)</span>
+            <strong className="text-emerald-900 font-mono font-black text-xs print:text-[9px]">
+              {isSenior ? `${(row.cgpa || 0).toFixed(2)} / 5.00` : `${(row.averageScore / 20).toFixed(2)} / 5.00`}
+            </strong>
+          </div>
+          <div>
+            <span className="text-slate-600 block text-[9px] print:text-[7.5px] uppercase font-semibold">Class Average (100)</span>
+            <strong className="text-amber-900 font-mono font-black text-xs print:text-[9px]">
+              {row.averageScore}% (100)
+            </strong>
+          </div>
+          <div>
+            <span className="text-slate-600 block text-[9px] print:text-[7.5px] uppercase font-semibold">Class Rank / Position</span>
+            <strong className="text-black font-mono font-black text-xs print:text-[9px]">
+              #{row.rank || '-'} of {broadsheetRows.length}
+            </strong>
+          </div>
+        </div>
+
+        {/* 4. Academic Scores Table (Accommodates up to 20 subjects smoothly) */}
+        <div className="my-4 overflow-x-auto print:my-1">
+          <table className="w-full text-left text-[11px] print:text-[7.5px] border-collapse border border-black">
+            <thead>
+              <tr className="bg-slate-200 text-black font-bold uppercase text-[10px] print:text-[7px]">
+                <th className="py-2 px-2.5 print:py-0.5 print:px-1 border border-black text-center w-8">#</th>
+                <th className="py-2 px-3 print:py-0.5 print:px-1.5 border border-black">Subject</th>
+                {isSenior && <th className="py-2 px-2 print:py-0.5 print:px-1 border border-black text-center w-8">Unit</th>}
+                <th className="py-2 px-3 print:py-0.5 print:px-1.5 border border-black text-right">CA (40)</th>
+                <th className="py-2 px-3 print:py-0.5 print:px-1.5 border border-black text-right">Exam (60)</th>
+                <th className="py-2 px-3 print:py-0.5 print:px-1.5 border border-black text-right font-black">Total (100)</th>
+                <th className="py-2 px-2.5 print:py-0.5 print:px-1 border border-black text-center">Grade</th>
+                {isSenior && <th className="py-2 px-2 print:py-0.5 print:px-1 border border-black text-center w-10">GP (5.0)</th>}
+                <th className="py-2 px-3 print:py-0.5 print:px-1.5 border border-black">Subject Teacher Remark</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-black text-black">
+              {availableSubjects.map((sub, sIdx) => {
+                const cell = row.subjectCells[sub.id];
+                const hasScore = cell && (cell.testScore !== null || cell.examScore !== null || cell.totalScore !== null);
+                const totalVal = cell?.totalScore !== null && cell?.totalScore !== undefined ? cell.totalScore : (hasScore ? ((cell.testScore || 0) + (cell.examScore || 0)) : null);
+                const gradeVal = cell?.grade || (totalVal !== null ? calculateSubjectGrade(totalVal) : '—');
+                const gpVal = totalVal !== null ? calculateGradePoint5(totalVal).gradePoint.toFixed(1) : '—';
+                const subRemark = totalVal !== null
+                  ? (totalVal >= 75 ? 'Excellent Distinction' : totalVal >= 60 ? 'Credit Pass' : totalVal >= 50 ? 'Satisfactory' : 'Needs Improvement')
+                  : 'Pending';
+
+                return (
+                  <tr key={`${mode}_st_${row.student.id}_sub_${sub.id}_${sIdx}`} className="print:leading-tight">
+                    <td className="py-1.5 px-2.5 print:py-0.5 print:px-1 text-center font-mono border border-black">{sIdx + 1}</td>
+                    <td className="py-1.5 px-3 print:py-0.5 print:px-1.5 font-semibold border border-black truncate max-w-[170px]">{sub.name}</td>
+                    {isSenior && <td className="py-1.5 px-2 print:py-0.5 print:px-1 text-center font-mono font-bold border border-black">2</td>}
+                    <td className="py-1.5 px-3 print:py-0.5 print:px-1.5 text-right font-mono border border-black">{cell?.testScore !== null && cell?.testScore !== undefined ? cell.testScore : '—'}</td>
+                    <td className="py-1.5 px-3 print:py-0.5 print:px-1.5 text-right font-mono border border-black">{cell?.examScore !== null && cell?.examScore !== undefined ? cell.examScore : '—'}</td>
+                    <td className="py-1.5 px-3 print:py-0.5 print:px-1.5 text-right font-mono font-black border border-black bg-slate-100 print:text-[8px]">{totalVal !== null ? totalVal : '—'}</td>
+                    <td className="py-1.5 px-2.5 print:py-0.5 print:px-1 text-center font-bold border border-black">{gradeVal}</td>
+                    {isSenior && <td className="py-1.5 px-2 print:py-0.5 print:px-1 text-center font-mono font-bold border border-black">{gpVal}</td>}
+                    <td className="py-1.5 px-3 print:py-0.5 print:px-1.5 italic border border-black text-[11px] print:text-[7.5px]">{subRemark}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* 5. Class Teacher's & Principal's Comments (Side-by-side in print for single-page fit) */}
+        <div className="print:grid print:grid-cols-2 print:gap-2 print:my-1">
+          {/* Class Teacher's Comment Block (Teacher's name removed as requested) */}
+          <div className="my-3 p-3.5 bg-slate-100 rounded-2xl border-2 border-black text-left print:my-0 print:p-2 print:rounded-lg">
+            <div className="flex items-center justify-between mb-1 print:mb-0.5">
+              <span className="text-[11px] print:text-[8.5px] font-bold text-black uppercase tracking-wider flex items-center gap-1.5">
+                <GraduationCap className="w-3.5 h-3.5 print:w-3 print:h-3 text-black" />
+                Class Teacher's Comment
+              </span>
+              {(canEditTeacherComment || canEditPrincipalComment) && (
+                <button
+                  type="button"
+                  onClick={() => handleOpenCommentModal(row.student)}
+                  className="text-[10px] text-amber-900 bg-amber-500/20 hover:bg-amber-500/30 px-2 py-0.5 rounded border border-amber-600/40 font-semibold cursor-pointer print:hidden flex items-center gap-1 transition"
+                  title="Edit official scholar comments"
+                >
+                  <Edit2 className="w-2.5 h-2.5" />
+                  Edit Comment
+                </button>
+              )}
+            </div>
+            <p className="text-black text-xs print:text-[7.5px] italic font-medium leading-relaxed print:leading-snug">
+              "{stRemark}"
+            </p>
+            <div className="mt-2.5 pt-1.5 print:mt-1 print:pt-1 border-t border-slate-300 flex flex-wrap items-center justify-between text-[10px] print:text-[7px] text-slate-800 gap-2">
+              <span><strong>Class:</strong> {selectedClass}</span>
+              <span><strong>Attendance:</strong> {row.attendance.timesPresent} / {row.attendance.timesOpened} Days ({row.attendance.rate}%)</span>
+            </div>
+          </div>
+
+          {/* Principal's Comment Block (Empty by default, editable manually or handwriting line) */}
+          <div className="my-3 p-3.5 bg-slate-100 rounded-2xl border-2 border-black text-left print:my-0 print:p-2 print:rounded-lg">
+            <div className="flex items-center justify-between mb-1 print:mb-0.5">
+              <span className="text-[11px] print:text-[8.5px] font-bold text-black uppercase tracking-wider flex items-center gap-1.5">
+                <Award className="w-3.5 h-3.5 print:w-3 print:h-3 text-black" />
+                Principal's Comment
+              </span>
+              {canEditPrincipalComment && (
+                <button
+                  type="button"
+                  onClick={() => handleOpenCommentModal(row.student)}
+                  className="text-[10px] text-emerald-900 bg-emerald-500/20 hover:bg-emerald-500/30 px-2 py-0.5 rounded border border-emerald-600/40 font-semibold cursor-pointer print:hidden flex items-center gap-1 transition"
+                  title="Edit official Principal's comment"
+                >
+                  <Edit2 className="w-2.5 h-2.5" />
+                  Edit Comment
+                </button>
+              )}
+            </div>
+            {stPrincipalRemark ? (
+              <p className="text-black text-xs print:text-[7.5px] italic font-medium leading-relaxed print:leading-snug">
+                "{stPrincipalRemark}"
+              </p>
+            ) : (
+              <div className="py-1">
+                <div className="text-[10px] text-slate-500 italic print:hidden">
+                  (Awaiting School Principal's manual remark)
+                </div>
+                <div className="hidden print:block min-h-[16px] border-b border-dotted border-black/30 w-full mt-1" />
+              </div>
+            )}
+            <div className="mt-2.5 pt-1.5 print:mt-1 print:pt-1 border-t border-slate-300 flex flex-wrap items-center justify-between text-[10px] print:text-[7px] text-slate-800 gap-2">
+              <span><strong>Executive Endorsement:</strong> Fenster International School Directorate</span>
+              <span><strong>Status:</strong> Approved for Next Academic Period</span>
+            </div>
+          </div>
+        </div>
+
+        {/* 6. Signatures Footer */}
+        <div className="mt-4 pt-2.5 print:mt-1 print:pt-0.5 border-t-2 border-black flex flex-col sm:flex-row justify-between items-center text-xs text-slate-800 gap-4 print:gap-1.5">
+          <div className="flex items-center gap-2.5 print:gap-1.5">
+            <ShieldCheck className="w-7 h-7 print:w-4 print:h-4 text-black shrink-0" />
+            <div>
+              <strong className="text-black block text-xs print:text-[8px]">Fenster International School Official Registry</strong>
+              <span className="text-[10px] print:text-[7px] text-slate-700">
+                Validated against Institutional Master Ledger • Issued on {new Date().toLocaleDateString('en-GB')}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-end gap-10 sm:gap-14 print:gap-5 text-center">
+            <div>
+              <div className="w-32 print:w-20 border-b border-black mb-1 print:mb-0.5" />
+              <span className="text-[10px] print:text-[7px] font-bold uppercase tracking-wider text-black block">Registrar</span>
+            </div>
+            <div className="flex flex-col items-center">
+              <img
+                src="https://i.ibb.co/MzHp6Yt/Whats-App-Image-2026-10-02-at-11-29-34-AM.jpg"
+                alt="School Principal Signature"
+                className="h-10 print:h-5 w-auto object-contain mb-0.5 print:mb-0.5 filter contrast-125 mix-blend-multiply"
+              />
+              <div className="w-36 print:w-22 border-b border-black mb-1 print:mb-0.5" />
+              <span className="text-[10px] print:text-[7px] font-bold uppercase tracking-wider text-black block">School Principal</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6">
       {/* Header Banner */}
@@ -1749,18 +2048,56 @@ export const ClassBroadsheet: React.FC = () => {
             {showPrintPreview ? 'Exit Print Preview' : 'Print Preview'}
           </button>
           {canPrintClassResults && (
-            <button
-              onClick={() => {
-                loadRemarks();
-                setShowPrintPreview(false);
-                setBatchPrintOpen(true);
-              }}
-              className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-2 shadow-lg shadow-emerald-950 border border-emerald-400/40"
-              title={`Print official report cards for all ${broadsheetRows.length} scholars in ${selectedClass} at once`}
-            >
-              <FileText className="w-4 h-4 text-amber-300" />
-              <span>Print All Class Report Cards ({broadsheetRows.length})</span>
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => {
+                  loadRemarks();
+                  setShowPrintPreview(false);
+                  setSelectedSingleStudentCard(null);
+                  setBatchPrintOpen(true);
+                }}
+                className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-2 shadow-lg shadow-emerald-950 border border-emerald-400/40"
+                title={`Print official report cards for all ${broadsheetRows.length} scholars in ${selectedClass} at once`}
+              >
+                <Printer className="w-4 h-4 text-amber-300" />
+                <span>Print All Cards At Once ({broadsheetRows.length})</span>
+              </button>
+
+              <div className="flex items-center gap-1.5 bg-slate-800 border border-slate-700 rounded-xl px-2.5 py-1.5 shadow-sm">
+                <User className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <select
+                  value=""
+                  onChange={(e) => {
+                    const sId = e.target.value;
+                    if (!sId) return;
+                    const found = broadsheetRows.find(
+                      (r) => String(r.student.id) === sId || r.student.studentId === sId
+                    );
+                    if (found) {
+                      loadRemarks();
+                      setBatchPrintOpen(false);
+                      setShowPrintPreview(false);
+                      setSelectedSingleStudentCard(found);
+                    }
+                  }}
+                  className="bg-transparent text-xs text-slate-200 font-semibold focus:outline-none cursor-pointer pr-1"
+                  title="Select any individual scholar to preview and print their report card one by one"
+                >
+                  <option value="" className="bg-slate-900 text-slate-400">
+                    Print One by One (Select Scholar)...
+                  </option>
+                  {broadsheetRows.map((r, idx) => (
+                    <option
+                      key={`opt_pr_${r.student.id}`}
+                      value={String(r.student.id)}
+                      className="bg-slate-900 text-white"
+                    >
+                      {idx + 1}. {r.student.firstName} {r.student.surname} ({r.student.studentId || r.student.id})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
           )}
           <button
             onClick={() => {
@@ -2188,6 +2525,20 @@ export const ClassBroadsheet: React.FC = () => {
                       {/* Row Actions: Attendance, Clear Scores, Remove */}
                       <td className="py-2.5 px-2 text-center border-l border-slate-700/80 bg-slate-900/40">
                         <div className="flex items-center justify-center gap-1.5">
+                          {canPrintClassResults && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                loadRemarks();
+                                setSelectedSingleStudentCard(row);
+                              }}
+                              className="px-2 py-1 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/35 text-emerald-300 hover:text-white transition cursor-pointer border border-emerald-500/40 flex items-center gap-1 text-[11px] font-bold"
+                              title={`Print official report card for ${studentName} (One-by-One)`}
+                            >
+                              <Printer className="w-3.5 h-3.5 text-amber-300" />
+                              <span className="hidden xl:inline">Print Card</span>
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => handleOpenCommentModal(row.student)}
@@ -2989,7 +3340,7 @@ export const ClassBroadsheet: React.FC = () => {
             __html: `
               @page {
                 size: A4 portrait;
-                margin: 5mm 6mm;
+                margin: 4mm 5mm;
               }
               @media print {
                 body {
@@ -2998,7 +3349,7 @@ export const ClassBroadsheet: React.FC = () => {
                   -webkit-print-color-adjust: exact !important;
                   print-color-adjust: exact !important;
                 }
-                .batch-print-modal-bar {
+                .batch-print-modal-bar, .single-print-modal-bar, .card-screen-toolbar {
                   display: none !important;
                 }
                 .batch-report-card-sheet {
@@ -3009,10 +3360,10 @@ export const ClassBroadsheet: React.FC = () => {
                   border: none !important;
                   box-shadow: none !important;
                   margin: 0 !important;
-                  padding: 2mm 0 !important;
+                  padding: 1.5mm 0 !important;
                   background: white !important;
                   color: black !important;
-                  max-height: 286mm !important;
+                  max-height: 288mm !important;
                   box-sizing: border-box !important;
                   overflow: hidden !important;
                 }
@@ -3038,7 +3389,7 @@ export const ClassBroadsheet: React.FC = () => {
                   </span>
                 </h3>
                 <p className="text-[11px] text-slate-400">
-                  {selectedTerm} • {selectedSession} • {isSecondary ? (effectiveExamPeriod === 'first-half' ? 'First Half (6th Week) Exam' : 'Terminal Exam') : 'Terminal Exam'}
+                  {selectedTerm} • {selectedSession} • {isSecondary ? (effectiveExamPeriod === 'first-half' ? 'First Half (6th Week) Exam' : 'Terminal Exam') : 'Terminal Exam'} • Fits strictly 1 page each
                 </p>
               </div>
             </div>
@@ -3070,247 +3421,117 @@ export const ClassBroadsheet: React.FC = () => {
                 No scholars currently enrolled in {selectedClass}.
               </div>
             ) : (
-              broadsheetRows.map((row, rIdx) => {
-                const sKey = `${String(row.student.studentId || row.student.id).toUpperCase()}_${selectedTerm}_${selectedSession}`;
-                const sIdKey = String(row.student.studentId || row.student.id).toUpperCase();
-                const stRemark =
-                  classTeacherRemarksMap[sKey] ||
-                  classTeacherRemarksMap[sIdKey] ||
-                  classTeacherRemarksMap[String(row.student.id)] ||
-                  'An exemplary and disciplined scholar whose commitment to academic excellence and moral conduct is highly commendable.';
-                const stPrincipalRemark =
-                  principalRemarksMap[sKey] ||
-                  principalRemarksMap[sIdKey] ||
-                  principalRemarksMap[String(row.student.id)] ||
-                  'Commendable terminal outcome. Recommended to sustain intellectual zeal, moral conduct, and active participation in the subsequent session.';
-
-                return (
-                  <div
-                    key={`batch_card_${row.student.id}_${rIdx}`}
-                    className="batch-report-card-sheet bg-white text-black p-6 sm:p-8 rounded-3xl border-2 border-slate-300 shadow-xl print:p-0 print:border-none print:shadow-none print:rounded-none relative overflow-hidden"
-                  >
-                    {/* Header */}
-                    <div className="flex items-center justify-between pb-4 border-b-2 border-black gap-4 print:pb-1.5 print:gap-2">
-                      <img
-                        src={FIS_LOGOS.crest}
-                        alt="Fenster Crest"
-                        className="h-16 sm:h-20 print:h-12 w-auto object-contain shrink-0 filter drop-shadow-md"
-                      />
-                      <div className="flex flex-col items-center text-center flex-1 px-2">
-                        <h2 className="text-xl sm:text-2xl print:text-[15px] font-black text-black tracking-tight uppercase leading-tight">
-                          Fenster International School
-                        </h2>
-                        <span className="text-[11px] sm:text-xs print:text-[9.5px] text-slate-800 font-extrabold uppercase tracking-wider mt-0.5 print:mt-0.5">
-                          Excellence in Academics &amp; Moral Discipline • Official Examination Registry
-                        </span>
-                        <span className="text-[10px] print:text-[8.5px] text-slate-700 mt-0.5 print:mt-0">
-                          Accredited Basic &amp; Senior Secondary Comprehensive Education
-                        </span>
-                        <span className="text-[10px] sm:text-[11px] print:text-[8px] font-semibold text-slate-900 mt-1 print:mt-0.5 flex items-center justify-center gap-1">
-                          <MapPin className="w-3 h-3 print:w-2.5 print:h-2.5 text-emerald-800 shrink-0 print:hidden" />
-                          {FIS_LOGOS.address}
-                        </span>
-                      </div>
-                      <img
-                        src={FIS_LOGOS.full}
-                        alt="Fenster Brand"
-                        className="h-12 sm:h-16 print:h-9 w-auto object-contain shrink-0 filter drop-shadow-md"
-                      />
-                    </div>
-
-                    {/* Student Name & Term Heading */}
-                    <div className="text-center my-4 pb-3 border-b border-slate-300 print:my-1 print:pb-1">
-                      <h1 className="text-xl sm:text-2xl print:text-[15px] font-black text-black tracking-tight uppercase print:leading-tight">
-                        {row.student.firstName} {row.student.middleName ? row.student.middleName + ' ' : ''}{row.student.surname}
-                      </h1>
-                      <div className="text-xs sm:text-sm print:text-[10.5px] font-bold text-emerald-900 mt-0.5 uppercase tracking-wide">
-                        {selectedTerm} {selectedSession} {selectedTerm}{' '}
-                        {isSecondary ? (effectiveExamPeriod === 'first-half' ? 'First Half Exam' : 'Terminal Exam') : 'Terminal Exam'}
-                      </div>
-                      <div className="text-[11px] print:text-[9px] text-slate-600 font-mono mt-0.5 print:mt-0">
-                        Admission Number: {row.student.studentId || row.student.id}
-                      </div>
-                    </div>
-
-                    {/* Details Grid */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 my-4 p-3.5 bg-slate-100 rounded-2xl border border-slate-300 text-xs print:my-1 print:p-1.5 print:gap-1.5 print:text-[9px] print:rounded-lg">
-                      <div>
-                        <span className="text-slate-600 block text-[9px] print:text-[8px] uppercase font-semibold">Scholar Name</span>
-                        <strong className="text-black text-xs print:text-[9.5px]">{row.student.firstName} {row.student.surname}</strong>
-                      </div>
-                      <div>
-                        <span className="text-slate-600 block text-[9px] print:text-[8px] uppercase font-semibold">Class</span>
-                        <strong className="text-black text-xs print:text-[9.5px] font-bold">{selectedClass}</strong>
-                      </div>
-                      <div className="col-span-2">
-                        <span className="text-slate-600 block text-[9px] print:text-[8px] uppercase font-semibold">Guidance Detail (Parent / Guardian)</span>
-                        <strong className="text-black text-xs print:text-[9.5px] truncate block">
-                          {row.student.parentName || 'Parent / Guardian on File'}{' '}
-                          {row.student.parentPhone ? `• Contact: ${row.student.parentPhone}` : ''}
-                        </strong>
-                      </div>
-                      <div>
-                        <span className="text-slate-600 block text-[9px] print:text-[8px] uppercase font-semibold">Term Recorded</span>
-                        <strong className="text-black text-xs print:text-[9.5px]">
-                          {selectedTerm} ({isSecondary ? (effectiveExamPeriod === 'first-half' ? 'First Half' : 'Terminal') : 'Terminal'})
-                        </strong>
-                      </div>
-                      <div>
-                        <span className="text-slate-600 block text-[9px] print:text-[8px] uppercase font-semibold">Cumulative GPA (CGPA)</span>
-                        <strong className="text-emerald-900 font-mono font-black text-xs print:text-[9.5px]">
-                          {isSenior ? `${(row.cgpa || 0).toFixed(2)} / 5.00` : `${(row.averageScore / 20).toFixed(2)} / 5.00`}
-                        </strong>
-                      </div>
-                      <div>
-                        <span className="text-slate-600 block text-[9px] print:text-[8px] uppercase font-semibold">Class Average (100)</span>
-                        <strong className="text-amber-900 font-mono font-black text-xs print:text-[9.5px]">
-                          {row.averageScore}% (100)
-                        </strong>
-                      </div>
-                      <div>
-                        <span className="text-slate-600 block text-[9px] print:text-[8px] uppercase font-semibold">Class Rank / Position</span>
-                        <strong className="text-black font-mono font-black text-xs print:text-[9.5px]">
-                          #{row.rank || '-'} of {broadsheetRows.length}
-                        </strong>
-                      </div>
-                    </div>
-
-                    {/* Academic Scores Table */}
-                    <div className="my-4 overflow-x-auto print:my-1">
-                      <table className="w-full text-left text-[11px] print:text-[8px] border-collapse border border-black">
-                        <thead>
-                          <tr className="bg-slate-200 text-black font-bold uppercase text-[10px] print:text-[7.5px]">
-                            <th className="py-2 px-2.5 print:py-0.5 print:px-1 border border-black text-center w-8">#</th>
-                            <th className="py-2 px-3 print:py-0.5 print:px-1.5 border border-black">Subject</th>
-                            {isSenior && <th className="py-2 px-2 print:py-0.5 print:px-1 border border-black text-center w-8">Unit</th>}
-                            <th className="py-2 px-3 print:py-0.5 print:px-1.5 border border-black text-right">CA (40)</th>
-                            <th className="py-2 px-3 print:py-0.5 print:px-1.5 border border-black text-right">Exam (60)</th>
-                            <th className="py-2 px-3 print:py-0.5 print:px-1.5 border border-black text-right font-black">Total (100)</th>
-                            <th className="py-2 px-2.5 print:py-0.5 print:px-1 border border-black text-center">Grade</th>
-                            {isSenior && <th className="py-2 px-2 print:py-0.5 print:px-1 border border-black text-center w-10">GP (5.0)</th>}
-                            <th className="py-2 px-3 print:py-0.5 print:px-1.5 border border-black">Subject Teacher Remark</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-black text-black">
-                          {availableSubjects.map((sub, sIdx) => {
-                            const cell = row.subjectCells[sub.id];
-                            const hasScore = cell && (cell.testScore !== null || cell.examScore !== null || cell.totalScore !== null);
-                            const totalVal = cell?.totalScore !== null && cell?.totalScore !== undefined ? cell.totalScore : (hasScore ? ((cell.testScore || 0) + (cell.examScore || 0)) : null);
-                            const gradeVal = cell?.grade || (totalVal !== null ? calculateSubjectGrade(totalVal) : '—');
-                            const gpVal = totalVal !== null ? calculateGradePoint5(totalVal).gradePoint.toFixed(1) : '—';
-                            const subRemark = totalVal !== null
-                              ? (totalVal >= 75 ? 'Excellent Distinction' : totalVal >= 60 ? 'Credit Pass' : totalVal >= 50 ? 'Satisfactory' : 'Needs Improvement')
-                              : 'Pending';
-
-                            return (
-                              <tr key={`batch_st_${row.student.id}_sub_${sub.id}_${sIdx}`} className="print:leading-tight">
-                                <td className="py-1.5 px-2.5 print:py-0.5 print:px-1 text-center font-mono border border-black">{sIdx + 1}</td>
-                                <td className="py-1.5 px-3 print:py-0.5 print:px-1.5 font-semibold border border-black truncate max-w-[170px]">{sub.name}</td>
-                                {isSenior && <td className="py-1.5 px-2 print:py-0.5 print:px-1 text-center font-mono font-bold border border-black">2</td>}
-                                <td className="py-1.5 px-3 print:py-0.5 print:px-1.5 text-right font-mono border border-black">{cell?.testScore !== null && cell?.testScore !== undefined ? cell.testScore : '—'}</td>
-                                <td className="py-1.5 px-3 print:py-0.5 print:px-1.5 text-right font-mono border border-black">{cell?.examScore !== null && cell?.examScore !== undefined ? cell.examScore : '—'}</td>
-                                <td className="py-1.5 px-3 print:py-0.5 print:px-1.5 text-right font-mono font-black border border-black bg-slate-100 print:text-[8.5px]">{totalVal !== null ? totalVal : '—'}</td>
-                                <td className="py-1.5 px-2.5 print:py-0.5 print:px-1 text-center font-bold border border-black">{gradeVal}</td>
-                                {isSenior && <td className="py-1.5 px-2 print:py-0.5 print:px-1 text-center font-mono font-bold border border-black">{gpVal}</td>}
-                                <td className="py-1.5 px-3 print:py-0.5 print:px-1.5 italic border border-black text-[11px] print:text-[7.5px]">{subRemark}</td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    {/* 5. Class Teacher's & Principal's Comments (Rendered side-by-side in print for single-page fit) */}
-                    <div className="print:grid print:grid-cols-2 print:gap-2 print:my-1">
-                      {/* 1. Class Teacher's Comment Block (Class Teacher's name removed as requested) */}
-                      <div className="my-3 p-3.5 bg-slate-100 rounded-2xl border-2 border-black text-left print:my-0 print:p-2 print:rounded-lg">
-                        <div className="flex items-center justify-between mb-1 print:mb-0.5">
-                          <span className="text-[11px] print:text-[8.5px] font-bold text-black uppercase tracking-wider flex items-center gap-1.5">
-                            <GraduationCap className="w-3.5 h-3.5 print:w-3 print:h-3 text-black" />
-                            Class Teacher's Comment
-                          </span>
-                          {(canEditTeacherComment || canEditPrincipalComment) && (
-                            <button
-                              type="button"
-                              onClick={() => handleOpenCommentModal(row.student)}
-                              className="text-[10px] text-amber-900 bg-amber-500/20 hover:bg-amber-500/30 px-2 py-0.5 rounded border border-amber-600/40 font-semibold cursor-pointer print:hidden flex items-center gap-1 transition"
-                              title="Edit official scholar comments"
-                            >
-                              <Edit2 className="w-2.5 h-2.5" />
-                              Edit Comment
-                            </button>
-                          )}
-                        </div>
-                        <p className="text-black text-xs print:text-[8px] italic font-medium leading-relaxed print:leading-snug">
-                          "{stRemark}"
-                        </p>
-                        <div className="mt-2.5 pt-1.5 print:mt-1 print:pt-1 border-t border-slate-300 flex flex-wrap items-center justify-between text-[10px] print:text-[7.5px] text-slate-800 gap-2">
-                          <span><strong>Class:</strong> {selectedClass}</span>
-                          <span><strong>Attendance:</strong> {row.attendance.timesPresent} / {row.attendance.timesOpened} Days ({row.attendance.rate}%)</span>
-                        </div>
-                      </div>
-
-                      {/* 2. Principal's Comment Block */}
-                      <div className="my-3 p-3.5 bg-slate-100 rounded-2xl border-2 border-black text-left print:my-0 print:p-2 print:rounded-lg">
-                        <div className="flex items-center justify-between mb-1 print:mb-0.5">
-                          <span className="text-[11px] print:text-[8.5px] font-bold text-black uppercase tracking-wider flex items-center gap-1.5">
-                            <Award className="w-3.5 h-3.5 print:w-3 print:h-3 text-black" />
-                            Principal's Comment
-                          </span>
-                          {canEditPrincipalComment && (
-                            <button
-                              type="button"
-                              onClick={() => handleOpenCommentModal(row.student)}
-                              className="text-[10px] text-emerald-900 bg-emerald-500/20 hover:bg-emerald-500/30 px-2 py-0.5 rounded border border-emerald-600/40 font-semibold cursor-pointer print:hidden flex items-center gap-1 transition"
-                              title="Edit official Principal's comment"
-                            >
-                              <Edit2 className="w-2.5 h-2.5" />
-                              Edit Comment
-                            </button>
-                          )}
-                        </div>
-                        <p className="text-black text-xs print:text-[8px] italic font-medium leading-relaxed print:leading-snug">
-                          "{stPrincipalRemark}"
-                        </p>
-                        <div className="mt-2.5 pt-1.5 print:mt-1 print:pt-1 border-t border-slate-300 flex flex-wrap items-center justify-between text-[10px] print:text-[7.5px] text-slate-800 gap-2">
-                          <span><strong>Executive Endorsement:</strong> Fenster International School Directorate</span>
-                          <span><strong>Status:</strong> Approved for Next Academic Period</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Signatures Footer */}
-                    <div className="mt-5 pt-3 print:mt-1.5 print:pt-1 border-t-2 border-black flex flex-col sm:flex-row justify-between items-center text-xs text-slate-800 gap-4 print:gap-2">
-                      <div className="flex items-center gap-2.5 print:gap-1.5">
-                        <ShieldCheck className="w-7 h-7 print:w-5 print:h-5 text-black shrink-0" />
-                        <div>
-                          <strong className="text-black block text-xs print:text-[8.5px]">Fenster International School Official Registry</strong>
-                          <span className="text-[10px] print:text-[7.5px] text-slate-700">
-                            Validated against Institutional Master Ledger • Issued on {new Date().toLocaleDateString('en-GB')}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-end gap-10 sm:gap-14 print:gap-6 text-center">
-                        <div>
-                          <div className="w-32 print:w-24 border-b border-black mb-1 print:mb-0.5" />
-                          <span className="text-[10px] print:text-[7.5px] font-bold uppercase tracking-wider text-black block">Registrar</span>
-                        </div>
-                        <div className="flex flex-col items-center">
-                          <img
-                            src="https://i.ibb.co/MzHp6Yt/Whats-App-Image-2026-10-02-at-11-29-34-AM.jpg"
-                            alt="School Principal Signature"
-                            className="h-10 print:h-6 w-auto object-contain mb-0.5 print:mb-0.5 filter contrast-125 mix-blend-multiply"
-                          />
-                          <div className="w-36 print:w-24 border-b border-black mb-1 print:mb-0.5" />
-                          <span className="text-[10px] print:text-[7.5px] font-bold uppercase tracking-wider text-black block">School Principal</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })
+              broadsheetRows.map((row, rIdx) => renderOfficialReportCard(row, 'batch', rIdx))
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* SINGLE SCHOLAR REPORT CARD MODAL / ONE-BY-ONE PRINT VIEW */}
+      {/* ======================================================== */}
+      {selectedSingleStudentCard && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/95 backdrop-blur-md p-2 sm:p-6 print:static print:p-0 print:m-0 print:bg-white print:overflow-visible">
+          {/* Print Stylesheet for Single Report Card: Portrait, 1 page */}
+          <style dangerouslySetInnerHTML={{
+            __html: `
+              @page {
+                size: A4 portrait;
+                margin: 4mm 5mm;
+              }
+              @media print {
+                body {
+                  background: white !important;
+                  color: black !important;
+                  -webkit-print-color-adjust: exact !important;
+                  print-color-adjust: exact !important;
+                }
+                .single-print-modal-bar, .batch-print-modal-bar, .card-screen-toolbar {
+                  display: none !important;
+                }
+                .single-report-card-sheet {
+                  page-break-inside: avoid !important;
+                  break-inside: avoid !important;
+                  page-break-after: avoid !important;
+                  break-after: avoid !important;
+                  border: none !important;
+                  box-shadow: none !important;
+                  margin: 0 !important;
+                  padding: 1.5mm 0 !important;
+                  background: white !important;
+                  color: black !important;
+                  max-height: 288mm !important;
+                  box-sizing: border-box !important;
+                  overflow: hidden !important;
+                }
+              }
+            `
+          }} />
+
+          {/* Sticky Controls Header (Hidden in Print) */}
+          <div className="single-print-modal-bar max-w-4xl mx-auto mb-6 bg-slate-900 border border-slate-700 p-4 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4 shadow-2xl sticky top-2 z-50 print:hidden">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+                <GraduationCap className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <span>Official Report Card — {selectedSingleStudentCard.student.firstName} {selectedSingleStudentCard.student.surname}</span>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-800 text-slate-300 border border-slate-700">
+                    {selectedSingleStudentCard.student.studentId || selectedSingleStudentCard.student.id}
+                  </span>
+                </h3>
+                <p className="text-[11px] text-slate-400">
+                  {selectedClass} • {selectedTerm} • {selectedSession} • One-by-One Print Mode (Fits 1 Page)
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-emerald-950 cursor-pointer"
+              >
+                <Printer className="w-4 h-4 text-amber-300" />
+                Print This Report Card
+              </button>
+              {(canEditTeacherComment || canEditPrincipalComment) && (
+                <button
+                  type="button"
+                  onClick={() => handleOpenCommentModal(selectedSingleStudentCard.student)}
+                  className="px-3.5 py-2.5 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/40 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1.5"
+                  title="Edit official scholar comments"
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                  Edit Comments
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedSingleStudentCard(null);
+                  setBatchPrintOpen(true);
+                }}
+                className="px-3 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition cursor-pointer"
+                title="Switch to printing all cards for this class at once"
+              >
+                Print All Cards At Once ({broadsheetRows.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedSingleStudentCard(null)}
+                className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1.5"
+              >
+                <X className="w-4 h-4" />
+                Close
+              </button>
+            </div>
+          </div>
+
+          {/* The Single Scholar Report Card Sheet */}
+          <div className="max-w-4xl mx-auto print:max-w-none">
+            {renderOfficialReportCard(selectedSingleStudentCard, 'single')}
           </div>
         </div>
       )}

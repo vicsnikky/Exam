@@ -911,9 +911,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           setClassTeacherRemark(tRem);
           setRemarkDraft(tRem);
 
-          const pRem = comments.principalComment || (isSenior
-            ? "An exceptional scholar of high intellectual promise. Displays outstanding leadership and moral fortitude. Approved for graduation and high honors."
-            : "Satisfactory terminal outcome. Highly commended for consistent moral conduct and classroom attentiveness.");
+          const pRem = comments.principalComment || '';
           setPrincipalComment(pRem);
           setPrincipalDraft(pRem);
         }
@@ -2344,9 +2342,18 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                         </div>
                       </div>
                     ) : (
-                      <p className="text-white print:text-black text-sm print:text-[8px] italic font-medium leading-relaxed print:leading-snug">
-                        "{principalComment || 'Commendable terminal outcome. Recommended to sustain intellectual zeal, moral conduct, and active participation in the subsequent session.'}"
-                      </p>
+                      principalComment ? (
+                        <p className="text-white print:text-black text-sm print:text-[8px] italic font-medium leading-relaxed print:leading-snug">
+                          "{principalComment}"
+                        </p>
+                      ) : (
+                        <div className="py-1">
+                          <p className="text-slate-400 print:hidden text-xs italic font-normal">
+                            (Awaiting School Principal's manual remark)
+                          </p>
+                          <div className="hidden print:block min-h-[16px] border-b border-dotted border-black/30" />
+                        </div>
+                      )
                     )}
 
                     <div className="mt-4 pt-3 print:mt-1 print:pt-1 border-t border-slate-800 print:border-slate-300 flex flex-wrap items-center justify-between text-xs print:text-[7.5px] text-slate-400 print:text-slate-800 gap-2">

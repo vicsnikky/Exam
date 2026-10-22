@@ -1927,7 +1927,7 @@ export async function fetchStudentComments(
     cached || {
       studentId: cleanId,
       classTeacherComment: 'An exemplary and disciplined scholar whose commitment to academic excellence and moral conduct is highly commendable.',
-      principalComment: 'Commendable performance this academic session. Encouraged to sustain diligence and moral integrity in the next term.',
+      principalComment: '',
       term,
       session,
       teacherName: 'Class Teacher',
