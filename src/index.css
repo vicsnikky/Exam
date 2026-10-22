@@ -24,18 +24,39 @@
 
 @media print {
   @page {
-    margin: 10mm;
-    size: auto;
+    margin: 5mm 6mm;
+    size: A4 portrait;
   }
   body {
     background-color: #ffffff !important;
     color: #000000 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
   .print\:hidden {
     display: none !important;
   }
+  .report-card-single-page {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+    max-height: 286mm !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+  }
   .batch-report-card-sheet {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
     page-break-after: always !important;
     break-after: page !important;
+    max-height: 286mm !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+  }
+  .batch-report-card-sheet:last-child {
+    page-break-after: avoid !important;
+    break-after: avoid !important;
   }
 }
+
