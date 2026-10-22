@@ -1385,6 +1385,17 @@ const inMemoryClassTeacherAssignments: Record<string, { teacherId: string | numb
   'TCH-2026-0001': { teacherId: 'TCH-2026-0001', teacherName: 'Victor Alo', className: 'SS 3', updatedAt: new Date().toISOString() },
 };
 const inMemoryClassTeacherRemarks: Record<string, { studentId: string; remark: string; term: string; session: string; teacherName: string; updatedAt: string }> = {};
+export interface StudentCommentsRecord {
+  studentId: string;
+  classTeacherComment: string;
+  principalComment: string;
+  term: string;
+  session: string;
+  teacherName?: string;
+  principalName?: string;
+  updatedAt: string;
+}
+const inMemoryStudentComments: Record<string, StudentCommentsRecord> = {};
 
 try {
   if (fs.existsSync(CLASS_TEACHERS_FILE)) {
@@ -1405,7 +1416,26 @@ try {
         }
       });
     }
-    if (parsed.remarks) Object.assign(inMemoryClassTeacherRemarks, parsed.remarks);
+    if (parsed.remarks) {
+      Object.assign(inMemoryClassTeacherRemarks, parsed.remarks);
+      Object.entries(parsed.remarks).forEach(([k, v]: [string, any]) => {
+        if (!inMemoryStudentComments[k]) {
+          inMemoryStudentComments[k] = {
+            studentId: v.studentId || k,
+            classTeacherComment: v.remark || '',
+            principalComment: v.principalComment || '',
+            term: v.term || 'First Term',
+            session: v.session || '2026/2027',
+            teacherName: v.teacherName || 'Class Teacher',
+            principalName: v.principalName || 'School Principal',
+            updatedAt: v.updatedAt || new Date().toISOString(),
+          };
+        }
+      });
+    }
+    if (parsed.studentComments) {
+      Object.assign(inMemoryStudentComments, parsed.studentComments);
+    }
   }
 } catch (e) {
   console.warn('Could not load .class_teachers.json:', e);
@@ -1416,6 +1446,7 @@ function persistClassTeachersData() {
     const data = {
       assignments: inMemoryClassTeacherAssignments,
       remarks: inMemoryClassTeacherRemarks,
+      studentComments: inMemoryStudentComments,
     };
     fs.writeFileSync(CLASS_TEACHERS_FILE, JSON.stringify(data, null, 2), 'utf-8');
   } catch (e) {
@@ -1568,8 +1599,211 @@ app.post('/api/students/:id/class-teacher-remark', authenticate, async (req: Aut
     };
     inMemoryClassTeacherRemarks[key] = record;
     inMemoryClassTeacherRemarks[cleanId] = record;
+
+    // Sync inMemoryStudentComments
+    const existingComments = inMemoryStudentComments[key] || inMemoryStudentComments[cleanId] || {
+      studentId: cleanId,
+      classTeacherComment: '',
+      principalComment: '',
+      term: String(term),
+      session: String(session),
+      teacherName: record.teacherName,
+      principalName: 'School Principal',
+      updatedAt: new Date().toISOString(),
+    };
+    existingComments.classTeacherComment = record.remark;
+    existingComments.teacherName = record.teacherName;
+    existingComments.updatedAt = new Date().toISOString();
+    inMemoryStudentComments[key] = existingComments;
+    inMemoryStudentComments[cleanId] = existingComments;
+
     persistClassTeachersData();
-    return res.json({ success: true, record });
+    return res.json({ success: true, record, comments: existingComments });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// GET Dedicated Principal's Comment and Class Teacher's Comment for a student
+app.get('/api/students/:id/comments', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const rawId = req.params.id;
+    const cleanId = String(rawId).trim().toUpperCase();
+    const term = (req.query.term as string) || 'First Term';
+    const session = (req.query.session as string) || '2026/2027';
+    const key = `${cleanId}_${term}_${session}`;
+    const fallbackKey = `${cleanId}`;
+
+    const stored = inMemoryStudentComments[key] || inMemoryStudentComments[fallbackKey];
+    const legacyRemark = inMemoryClassTeacherRemarks[key] || inMemoryClassTeacherRemarks[fallbackKey];
+
+    const comments: StudentCommentsRecord = stored
+      ? {
+          ...stored,
+          classTeacherComment: stored.classTeacherComment || legacyRemark?.remark || '',
+        }
+      : {
+          studentId: cleanId,
+          classTeacherComment: legacyRemark?.remark || '',
+          principalComment: '',
+          term,
+          session,
+          teacherName: legacyRemark?.teacherName || 'Class Teacher',
+          principalName: 'School Principal',
+          updatedAt: new Date().toISOString(),
+        };
+
+    return res.json({ success: true, comments, record: { remark: comments.classTeacherComment, teacherName: comments.teacherName } });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// GET All Student Comments and Remarks Map (for Broadsheets and Reports)
+app.get('/api/students-comments', authenticate, async (_req: AuthRequest, res) => {
+  return res.json({
+    success: true,
+    comments: inMemoryStudentComments,
+    remarks: inMemoryClassTeacherRemarks,
+  });
+});
+
+app.get('/api/student-comments', authenticate, async (_req: AuthRequest, res) => {
+  return res.json({
+    success: true,
+    comments: inMemoryStudentComments,
+    remarks: inMemoryClassTeacherRemarks,
+  });
+});
+
+// POST Dedicated Comments (Class Teacher's Comment and/or Principal's Comment)
+app.post('/api/students/:id/comments', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const role = req.appUser?.role;
+    if (role === 'student' || role === 'bursar') {
+      return res.status(403).json({ error: 'Permission denied: Students and bursars cannot author official comments.' });
+    }
+
+    const isExecOrAdmin = role === 'super_admin' || role === 'admin' || role === 'director' || role === 'principal' || req.appUser?.email === 'victoralo1862@gmail.com';
+    const tchId = req.appUser?.teacherProfile?.teacherId || (req.appUser as any)?.teacherId;
+    const assignment =
+      (tchId ? inMemoryClassTeacherAssignments[tchId] : null) ||
+      inMemoryClassTeacherAssignments[String(req.appUser?.id)] ||
+      (req.appUser?.email ? inMemoryClassTeacherAssignments[req.appUser.email.toLowerCase()] : null) ||
+      ((req.appUser as any)?.isClassTeacher ? { className: (req.appUser as any)?.assignedClass || 'Assigned' } : null) ||
+      ((req.appUser as any)?.assignedClass ? { className: (req.appUser as any)?.assignedClass } : null);
+
+    const isClassTeacherUser = Boolean(assignment || (req.appUser as any)?.isClassTeacher || (req.appUser as any)?.assignedClass);
+
+    const rawId = req.params.id;
+    const cleanId = String(rawId).trim().toUpperCase();
+    const {
+      classTeacherComment,
+      principalComment,
+      term = 'First Term',
+      session = '2026/2027',
+      teacherName,
+      principalName,
+    } = req.body;
+
+    const key = `${cleanId}_${term}_${session}`;
+    const fallbackKey = `${cleanId}`;
+    const existing = inMemoryStudentComments[key] || inMemoryStudentComments[fallbackKey] || {
+      studentId: cleanId,
+      classTeacherComment: inMemoryClassTeacherRemarks[key]?.remark || inMemoryClassTeacherRemarks[fallbackKey]?.remark || '',
+      principalComment: '',
+      term: String(term),
+      session: String(session),
+      teacherName: teacherName || `${req.appUser?.firstName || 'Class'} ${req.appUser?.lastName || 'Teacher'}`.trim(),
+      principalName: principalName || 'School Principal',
+      updatedAt: new Date().toISOString(),
+    };
+
+    // Check permission for Principal comment: only principal, director, admin, super admin
+    if (principalComment !== undefined && !isExecOrAdmin) {
+      const currentP = existing?.principalComment || '';
+      if (String(principalComment).trim() !== currentP.trim()) {
+        return res.status(403).json({ error: 'Permission denied: Only the Principal, Director, and School Administrators can author the Principal’s comment.' });
+      }
+    }
+
+    // Check permission for Class Teacher comment: must be assigned class teacher or executive/admin
+    if (classTeacherComment !== undefined && !isExecOrAdmin && !isClassTeacherUser) {
+      return res.status(403).json({ error: 'Permission denied: Only designated Class Teachers and School Administrators can author the Class Teacher’s comment.' });
+    }
+
+    if (classTeacherComment !== undefined) {
+      existing.classTeacherComment = String(classTeacherComment || '').trim();
+      if (teacherName) existing.teacherName = teacherName;
+      // Mirror in legacy remarks
+      const legacyRecord = {
+        studentId: cleanId,
+        remark: existing.classTeacherComment,
+        term: String(term),
+        session: String(session),
+        teacherName: existing.teacherName || `${req.appUser?.firstName || 'Class'} ${req.appUser?.lastName || 'Teacher'}`.trim(),
+        updatedAt: new Date().toISOString(),
+      };
+      inMemoryClassTeacherRemarks[key] = legacyRecord;
+      inMemoryClassTeacherRemarks[cleanId] = legacyRecord;
+    }
+
+    if (principalComment !== undefined) {
+      existing.principalComment = String(principalComment || '').trim();
+      if (principalName) existing.principalName = principalName;
+    }
+
+    existing.term = String(term);
+    existing.session = String(session);
+    existing.updatedAt = new Date().toISOString();
+
+    inMemoryStudentComments[key] = existing;
+    inMemoryStudentComments[cleanId] = existing;
+
+    persistClassTeachersData();
+    return res.json({ success: true, comments: existing });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Dedicated POST Principal Comment Endpoint
+app.post('/api/students/:id/principal-comment', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const role = req.appUser?.role;
+    const isExecOrAdmin = role === 'super_admin' || role === 'admin' || role === 'director' || role === 'principal' || req.appUser?.email === 'victoralo1862@gmail.com';
+    if (!isExecOrAdmin) {
+      return res.status(403).json({ error: 'Permission denied: Only the Principal and School Administrators can update the Principal’s comment.' });
+    }
+
+    const rawId = req.params.id;
+    const cleanId = String(rawId).trim().toUpperCase();
+    const { comment, term = 'First Term', session = '2026/2027', principalName } = req.body;
+    const key = `${cleanId}_${term}_${session}`;
+    const fallbackKey = `${cleanId}`;
+
+    const existing = inMemoryStudentComments[key] || inMemoryStudentComments[fallbackKey] || {
+      studentId: cleanId,
+      classTeacherComment: inMemoryClassTeacherRemarks[key]?.remark || inMemoryClassTeacherRemarks[fallbackKey]?.remark || '',
+      principalComment: '',
+      term: String(term),
+      session: String(session),
+      teacherName: 'Class Teacher',
+      principalName: principalName || 'School Principal',
+      updatedAt: new Date().toISOString(),
+    };
+
+    existing.principalComment = String(comment || '').trim();
+    if (principalName) existing.principalName = principalName;
+    existing.term = String(term);
+    existing.session = String(session);
+    existing.updatedAt = new Date().toISOString();
+
+    inMemoryStudentComments[key] = existing;
+    inMemoryStudentComments[cleanId] = existing;
+    persistClassTeachersData();
+
+    return res.json({ success: true, comments: existing });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
@@ -1904,7 +2138,23 @@ app.get('/api/scores', authenticate, async (req: AuthRequest, res) => {
       .orderBy(desc(assessments.createdAt))
       .limit(1000);
 
-    return res.json({ results, scores: results });
+    const enrichedResults = results.map((r) => {
+      const sId = String(r.studentId || '').toUpperCase();
+      const term = r.term || 'First Term';
+      const session = r.session || '2026/2027';
+      const key = `${sId}_${term}_${session}`;
+      const cRecord = inMemoryStudentComments[key] || inMemoryStudentComments[sId];
+      const lRecord = inMemoryClassTeacherRemarks[key] || inMemoryClassTeacherRemarks[sId];
+      return {
+        ...r,
+        classTeacherComment: cRecord?.classTeacherComment || lRecord?.remark || r.teacherComment || '',
+        principalComment: cRecord?.principalComment || '',
+        classTeacherName: cRecord?.teacherName || lRecord?.teacherName || 'Class Teacher',
+        principalName: cRecord?.principalName || 'School Principal',
+      };
+    });
+
+    return res.json({ results: enrichedResults, scores: enrichedResults });
   } catch (error: any) {
     console.error('Scores fetch error:', error);
     return res.status(500).json({ error: error.message || 'Failed to fetch score results' });

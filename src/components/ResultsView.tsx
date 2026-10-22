@@ -19,10 +19,13 @@ import {
   CheckCircle2,
   AlertCircle,
   ShieldCheck,
+  MessageSquare,
+  GraduationCap,
 } from 'lucide-react';
 import { Subject } from '../types/index.ts';
 import { SCHOOL_CLASSES } from '../constants/classes.ts';
 import { ClassBroadsheet } from './ClassBroadsheet.tsx';
+import { fetchStudentComments, saveStudentComments } from '../lib/schoolStore.ts';
 
 export const ResultsView: React.FC = () => {
   const { token, user } = useAuth();
@@ -66,6 +69,69 @@ export const ResultsView: React.FC = () => {
   const [editComment, setEditComment] = useState<string>('');
   const [editSaving, setEditSaving] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Dedicated Comment Modal for Results View (Class Teacher & Principal Comments)
+  const [commentModalOpen, setCommentModalOpen] = useState(false);
+  const [commentStudentRecord, setCommentStudentRecord] = useState<any | null>(null);
+  const [commentDraftTeacher, setCommentDraftTeacher] = useState('');
+  const [commentDraftPrincipal, setCommentDraftPrincipal] = useState('');
+  const [savingComments, setSavingComments] = useState(false);
+
+  const canEditTeacherComment = isClassTeacher || isExecutive;
+  const canEditPrincipalComment = isExecutive;
+
+  const handleOpenCommentsModal = async (record: any) => {
+    setCommentStudentRecord(record);
+    const sId = record.studentId || String(record.studentDbId);
+    const term = record.term || 'First Term';
+    const session = record.session || '2026/2027';
+    try {
+      const comments = await fetchStudentComments(sId, term, session, token);
+      setCommentDraftTeacher(comments.classTeacherComment || '');
+      setCommentDraftPrincipal(comments.principalComment || '');
+    } catch (_) {
+      setCommentDraftTeacher('');
+      setCommentDraftPrincipal('');
+    }
+    setCommentModalOpen(true);
+  };
+
+  const handleSaveComments = async () => {
+    if (!commentStudentRecord) return;
+    setSavingComments(true);
+    try {
+      const sId = commentStudentRecord.studentId || String(commentStudentRecord.studentDbId);
+      const payload: any = {
+        term: commentStudentRecord.term || 'First Term',
+        session: commentStudentRecord.session || '2026/2027',
+      };
+      if (canEditTeacherComment) {
+        payload.classTeacherComment = commentDraftTeacher;
+        payload.teacherName = user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : 'Class Teacher';
+      }
+      if (canEditPrincipalComment) {
+        payload.principalComment = commentDraftPrincipal;
+        payload.principalName = 'School Principal';
+      }
+
+      await saveStudentComments(sId, payload, token);
+      window.dispatchEvent(new CustomEvent('fis:comments-updated'));
+      window.dispatchEvent(new CustomEvent('fis:student-comments-updated', { detail: { studentId: sId, ...payload } }));
+
+      setStatusMessage({
+        type: 'success',
+        text: `Official comments updated successfully for ${commentStudentRecord.studentName}!`,
+      });
+      setCommentModalOpen(false);
+    } catch (err: any) {
+      setStatusMessage({
+        type: 'error',
+        text: 'Failed to save comments: ' + (err.message || 'Error'),
+      });
+    } finally {
+      setSavingComments(false);
+    }
+  };
 
   // Filters
   const [studentQuery, setStudentQuery] = useState('');
@@ -336,6 +402,22 @@ export const ResultsView: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-3">
+          {(isExecutive || isClassTeacher) && (
+            <button
+              onClick={() => {
+                sessionStorage.setItem('fis_auto_open_batch_print', 'true');
+                setViewMode('broadsheet');
+                setTimeout(() => {
+                  window.dispatchEvent(new CustomEvent('fis:trigger-batch-print'));
+                }, 50);
+              }}
+              className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition cursor-pointer shadow-lg shadow-emerald-950 border border-emerald-400/40"
+              title="Print all report cards and broadsheet results for the class at once"
+            >
+              <Printer className="w-4 h-4 text-amber-300" />
+              <span>Print All Class Results</span>
+            </button>
+          )}
           {viewMode === 'ledger' && (
             <button
               onClick={handleExportCSV}
@@ -517,7 +599,10 @@ export const ResultsView: React.FC = () => {
                         </td>
                         <td className="py-3.5 px-4">{r.assessmentTitle}</td>
                         <td className="py-3.5 px-4 text-right font-mono font-bold text-white">
-                          {r.score} / {r.maxScore}
+                          {r.score}
+                          <span className="text-[10px] text-slate-400 font-normal ml-1.5">
+                            ({Number(r.maxScore) === 60 ? '60' : Number(r.maxScore) === 100 ? '100' : r.maxScore})
+                          </span>
                         </td>
                         <td className="py-3.5 px-4 text-right font-mono text-indigo-300 font-semibold">
                           {r.percentage}%
@@ -540,6 +625,13 @@ export const ResultsView: React.FC = () => {
                         </td>
                         <td className="py-3.5 px-4 text-center">
                           <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              onClick={() => handleOpenCommentsModal(r)}
+                              title="Edit official Class Teacher's Comment & Principal's Comment"
+                              className="p-1.5 bg-slate-700/70 hover:bg-emerald-500/20 text-emerald-400 rounded-lg transition cursor-pointer"
+                            >
+                              <MessageSquare className="w-3.5 h-3.5" />
+                            </button>
                             <button
                               onClick={() => handleOpenEdit(r)}
                               title="Edit this score record"
@@ -660,6 +752,121 @@ export const ResultsView: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Dedicated Comment Modal for Class Teacher & Principal */}
+      {commentModalOpen && commentStudentRecord && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl p-6 max-w-xl w-full shadow-2xl relative text-left">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-amber-500/10 text-amber-400 rounded-xl border border-amber-500/20">
+                  <MessageSquare className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">
+                    Official Scholar Comments &amp; Endorsement
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    {commentStudentRecord.studentName} • {commentStudentRecord.studentId} ({commentStudentRecord.class})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCommentModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 my-4">
+              {/* Class Teacher's Comment Field */}
+              <div className="p-3.5 bg-slate-950/80 rounded-2xl border border-slate-800">
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <GraduationCap className="w-4 h-4 text-amber-400" />
+                    Class Teacher's Comment
+                  </label>
+                  {!canEditTeacherComment && (
+                    <span className="text-[10px] text-slate-500 italic">
+                      Class Teacher &amp; Admin only
+                    </span>
+                  )}
+                </div>
+                {canEditTeacherComment ? (
+                  <textarea
+                    rows={3}
+                    value={commentDraftTeacher}
+                    onChange={(e) => setCommentDraftTeacher(e.target.value)}
+                    placeholder="Enter official Class Teacher's evaluation and academic remarks..."
+                    className="w-full bg-slate-900 border border-slate-700 focus:border-amber-400 rounded-xl p-2.5 text-xs text-white focus:outline-none transition"
+                  />
+                ) : (
+                  <p className="text-xs text-slate-300 italic p-2 bg-slate-900/60 rounded-xl border border-slate-800">
+                    "{commentDraftTeacher || 'No comment authored yet.'}"
+                  </p>
+                )}
+                <span className="text-[10px] text-slate-400 mt-1 block">
+                  Designated Class Teacher / Author
+                </span>
+              </div>
+
+              {/* Principal's Comment Field */}
+              <div className="p-3.5 bg-slate-950/80 rounded-2xl border border-slate-800">
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <Award className="w-4 h-4 text-emerald-400" />
+                    Principal's Comment
+                  </label>
+                  {!canEditPrincipalComment && (
+                    <span className="text-[10px] text-slate-500 italic">
+                      Principal &amp; Admin only
+                    </span>
+                  )}
+                </div>
+                {canEditPrincipalComment ? (
+                  <textarea
+                    rows={3}
+                    value={commentDraftPrincipal}
+                    onChange={(e) => setCommentDraftPrincipal(e.target.value)}
+                    placeholder="Enter official School Principal's comment and executive remarks..."
+                    className="w-full bg-slate-900 border border-slate-700 focus:border-emerald-400 rounded-xl p-2.5 text-xs text-white focus:outline-none transition"
+                  />
+                ) : (
+                  <p className="text-xs text-slate-300 italic p-2 bg-slate-900/60 rounded-xl border border-slate-800">
+                    "{commentDraftPrincipal || 'No Principal comment authored yet.'}"
+                  </p>
+                )}
+                <span className="text-[10px] text-slate-400 mt-1 block">
+                  Authorizing Authority: <strong>School Principal &amp; School Administration</strong>
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setCommentModalOpen(false)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold cursor-pointer transition"
+              >
+                Cancel
+              </button>
+              {(canEditTeacherComment || canEditPrincipalComment) && (
+                <button
+                  type="button"
+                  onClick={handleSaveComments}
+                  disabled={savingComments}
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-950 transition disabled:opacity-50"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  {savingComments ? 'Saving...' : 'Save Official Comments'}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

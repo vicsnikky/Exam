@@ -241,19 +241,19 @@ export const SubjectManager: React.FC = () => {
                     </span>
                     {s.name.toLowerCase().includes('literature') ? (
                       <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-700">
-                        Elective (/40)
+                        Elective (40)
                       </span>
                     ) : s.name.toLowerCase().includes('english') ? (
                       <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                        Compulsory (/60)
+                        Compulsory (60)
                       </span>
                     ) : s.name.toLowerCase().includes('mathematics') ? (
                       <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                        Compulsory (/40)
+                        Compulsory (40)
                       </span>
                     ) : (
                       <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-800 text-slate-400 border border-slate-700">
-                        Elective (/40)
+                        Elective (40)
                       </span>
                     )}
                   </div>

@@ -37,6 +37,8 @@ import {
   getClassTeachers,
   fetchClassTeacherRemark,
   saveClassTeacherRemark,
+  fetchStudentComments,
+  saveStudentComments,
 } from '../lib/schoolStore.ts';
 import { supabase } from '../supabaseConfig.ts';
 import {
@@ -139,13 +141,19 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   const [selectedPrintTerm, setSelectedPrintTerm] = useState<'First Term' | 'Second Term' | 'Third Term'>('First Term');
   const [selectedExamType, setSelectedExamType] = useState<'terminal' | 'midterm'>('terminal');
 
-  // Class Teacher & Remark State
+  // Class Teacher & Principal Comment State
   const [assignedClassTeacher, setAssignedClassTeacher] = useState<{ teacherId: string | number; teacherName: string; className: string } | null>(null);
   const [allAssignments, setAllAssignments] = useState<Record<string, any>>({});
   const [classTeacherRemark, setClassTeacherRemark] = useState<string>('');
   const [editingTeacherRemark, setEditingTeacherRemark] = useState<boolean>(false);
   const [remarkDraft, setRemarkDraft] = useState<string>('');
   const [savingRemark, setSavingRemark] = useState<boolean>(false);
+
+  // Dedicated Principal Comment State
+  const [principalComment, setPrincipalComment] = useState<string>('');
+  const [editingPrincipalComment, setEditingPrincipalComment] = useState<boolean>(false);
+  const [principalDraft, setPrincipalDraft] = useState<string>('');
+  const [savingPrincipalComment, setSavingPrincipalComment] = useState<boolean>(false);
 
   // Check if current user is the assigned Class Teacher for this student
   const userAssignedClass =
@@ -162,8 +170,11 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     isSameClass(userAssignedClass, student.currentClass)
   );
 
-  // Rule: Only Class Teacher (for this class), Admin, and Super Admin can write/edit class teacher's comment!
+  // Permissions:
+  // Class Teacher Comment: editable by assigned Class Teacher, or Admin / Principal / Director / Super Admin
   const canEditClassTeacherRemark = hasAdminPrivileges || isClassTeacherForThisStudent;
+  // Principal Comment: editable by Principal, Director, Admin, and Super Admin
+  const canEditPrincipalComment = hasAdminPrivileges;
 
   const loadProfile = async () => {
     if (!initialStudent) {
@@ -826,7 +837,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     }
   };
 
-  // Class Teacher Remark handler
+  // Class Teacher Comment handler
   const handleSaveTeacherRemark = async () => {
     if (!student) return;
     setSavingRemark(true);
@@ -835,20 +846,50 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
       const teacherName = user?.firstName
         ? `${user.firstName} ${user.lastName || ''}`.trim()
         : (assignedClassTeacher?.teacherName || 'Class Teacher');
-      await saveClassTeacherRemark(
+      await saveStudentComments(
         sId,
-        remarkDraft,
-        selectedPrintTerm,
-        student.session || '2026/2027',
-        teacherName,
+        {
+          classTeacherComment: remarkDraft,
+          term: selectedPrintTerm,
+          session: student.session || '2026/2027',
+          teacherName,
+        },
         token
       );
       setClassTeacherRemark(remarkDraft);
       setEditingTeacherRemark(false);
     } catch (err: any) {
-      alert('Failed to save class teacher remark: ' + (err.message || 'Error'));
+      alert('Failed to save class teacher comment: ' + (err.message || 'Error'));
     } finally {
       setSavingRemark(false);
+    }
+  };
+
+  // Dedicated Principal Comment handler
+  const handleSavePrincipalComment = async () => {
+    if (!student) return;
+    setSavingPrincipalComment(true);
+    try {
+      const sId = student.studentId || String(student.id);
+      const principalName = user?.firstName
+        ? `${user.firstName} ${user.lastName || ''}`.trim()
+        : 'School Principal';
+      await saveStudentComments(
+        sId,
+        {
+          principalComment: principalDraft,
+          term: selectedPrintTerm,
+          session: student.session || '2026/2027',
+          principalName,
+        },
+        token
+      );
+      setPrincipalComment(principalDraft);
+      setEditingPrincipalComment(false);
+    } catch (err: any) {
+      alert('Failed to save principal comment: ' + (err.message || 'Error'));
+    } finally {
+      setSavingPrincipalComment(false);
     }
   };
 
@@ -862,16 +903,19 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
         }
       }).catch(() => {});
 
-      fetchClassTeacherRemark(sId, selectedPrintTerm, student.session || '2026/2027', token).then((rem) => {
-        if (rem && rem.remark) {
-          setClassTeacherRemark(rem.remark);
-          setRemarkDraft(rem.remark);
-        } else {
-          const def = isSenior
+      fetchStudentComments(sId, selectedPrintTerm, student.session || '2026/2027', token).then((comments) => {
+        if (comments) {
+          const tRem = comments.classTeacherComment || (isSenior
             ? "A commendable and disciplined performance. Displays keen intellectual curiosity and strong academic aptitude. Recommended for sustained dedication and leadership."
-            : "An energetic, well-behaved and promising scholar. Demonstrates consistent application across all continuous assessments.";
-          setClassTeacherRemark(def);
-          setRemarkDraft(def);
+            : "An energetic, well-behaved and promising scholar. Demonstrates consistent application across all continuous assessments.");
+          setClassTeacherRemark(tRem);
+          setRemarkDraft(tRem);
+
+          const pRem = comments.principalComment || (isSenior
+            ? "An exceptional scholar of high intellectual promise. Displays outstanding leadership and moral fortitude. Approved for graduation and high honors."
+            : "Satisfactory terminal outcome. Highly commended for consistent moral conduct and classroom attentiveness.");
+          setPrincipalComment(pRem);
+          setPrincipalDraft(pRem);
         }
       }).catch(() => {});
     }
@@ -1470,7 +1514,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                 Top Subject Performance
               </span>
               <span className="text-2xl font-bold text-emerald-400 font-mono">
-                {highestSubjectScore} <span className="text-xs text-slate-400">/ 100</span>
+                {highestSubjectScore} <span className="text-xs text-slate-400 font-semibold">(100)</span>
               </span>
               <span className="text-[11px] text-slate-400 block mt-1">
                 Peak Terminal Assessment
@@ -1622,7 +1666,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                                 </span>
                                 <div className="flex items-center gap-2">
                                   <span className="font-mono font-medium text-white">
-                                    {r.score}/{r.maxScore}
+                                    {r.score} <span className="text-[11px] text-slate-400">({Number(r.maxScore) === 60 ? '60' : Number(r.maxScore) === 100 ? '100' : r.maxScore})</span>
                                   </span>
                                   <span
                                     className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
@@ -1716,8 +1760,8 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                           <th className="py-3 px-4">Subject</th>
                           {isSenior && <th className="py-3 px-3 text-center">Units</th>}
                           <th className="py-3 px-3 text-right">CA (40)</th>
-                          <th className="py-3 px-3 text-right">Exam (/60)</th>
-                          <th className="py-3 px-3 text-right">Total (/100)</th>
+                          <th className="py-3 px-3 text-right">Exam (60)</th>
+                          <th className="py-3 px-3 text-right">Total (100)</th>
                           <th className="py-3 px-3 text-center">Grade</th>
                           {isSenior && (
                             <>
@@ -1867,7 +1911,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                     <tr>
                       <th className="py-3 px-4">Subject</th>
                       <th className="py-3 px-4 text-center">Week</th>
-                      <th className="py-3 px-4 text-right">Feasible Score (/100)</th>
+                      <th className="py-3 px-4 text-right">Feasible Score (100)</th>
                       <th className="py-3 px-4 text-center">Grade</th>
                       <th className="py-3 px-4">Registrar's Remark</th>
                     </tr>
@@ -1880,7 +1924,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                         </td>
                         <td className="py-3.5 px-4 text-center font-mono">Week {m.weekNumber}</td>
                         <td className="py-3.5 px-4 text-right font-mono font-bold text-emerald-400">
-                          {m.score} / 100
+                          {m.score} <span className="text-xs text-slate-400 font-normal">(100)</span>
                         </td>
                         <td className="py-3.5 px-4 text-center">
                           <span className="px-2 py-0.5 rounded font-bold bg-emerald-500/20 text-emerald-400 text-[10px]">
@@ -2070,19 +2114,19 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                   {isSenior ? (
                     <div className="col-span-2">
                       <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">
-                        Class Average (Over 100)
+                        Class Average (100)
                       </span>
                       <strong className="text-amber-300 print:text-amber-900 font-mono font-black text-base">
-                        {seniorAverageOver100}% <span className="text-xs font-normal text-slate-400 print:text-slate-600">/ 100</span>
+                        {seniorAverageOver100}% <span className="text-xs font-normal text-slate-400 print:text-slate-600">(100)</span>
                       </strong>
                     </div>
                   ) : (
                     <div className="col-span-2">
                       <span className="text-slate-400 print:text-slate-600 block text-[10px] uppercase font-semibold">
-                        Class Average (Over 100)
+                        Class Average (100)
                       </span>
                       <strong className="text-amber-300 print:text-amber-900 font-mono font-black text-base">
-                        {juniorAverageSummary.averagePercentage}% <span className="text-xs font-normal text-slate-400 print:text-slate-600">/ 100</span>
+                        {juniorAverageSummary.averagePercentage}% <span className="text-xs font-normal text-slate-400 print:text-slate-600">(100)</span>
                       </strong>
                     </div>
                   )}
@@ -2097,8 +2141,8 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                         <th className="py-2.5 px-3 border border-slate-700 print:border-black">Subject</th>
                         <th className="py-2.5 px-3 border border-slate-700 print:border-black text-center w-16">Unit</th>
                         <th className="py-2.5 px-3 border border-slate-700 print:border-black text-right">CA (40)</th>
-                        <th className="py-2.5 px-3 border border-slate-700 print:border-black text-right">Exam (/60)</th>
-                        <th className="py-2.5 px-3 border border-slate-700 print:border-black text-right font-black">Total (/100)</th>
+                        <th className="py-2.5 px-3 border border-slate-700 print:border-black text-right">Exam (60)</th>
+                        <th className="py-2.5 px-3 border border-slate-700 print:border-black text-right font-black">Total (100)</th>
                         <th className="py-2.5 px-3 border border-slate-700 print:border-black text-center">Grade</th>
                         {isSenior && (
                           <th className="py-2.5 px-2 border border-slate-700 print:border-black text-center w-16">GP (5.0)</th>
@@ -2154,12 +2198,12 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                   </table>
                 </div>
 
-                {/* 5. Down Part of the Result: CLASS TEACHER'S REMARK */}
-                <div className="my-6 p-5 bg-slate-950/80 print:bg-slate-100 rounded-2xl border-2 border-slate-800 print:border-black">
+                {/* 5A. CLASS TEACHER'S COMMENT */}
+                <div className="my-5 p-5 bg-slate-950/80 print:bg-slate-100 rounded-2xl border-2 border-slate-800 print:border-black">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-xs font-bold text-amber-400 print:text-black uppercase tracking-wider flex items-center gap-1.5">
                       <GraduationCap className="w-4 h-4 text-amber-400 print:text-black" />
-                      Class Teacher's Remark
+                      Class Teacher's Comment
                     </span>
                     {canEditClassTeacherRemark && !editingTeacherRemark && (
                       <button
@@ -2168,7 +2212,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                         className="text-[11px] text-amber-300 hover:text-amber-200 bg-amber-500/10 hover:bg-amber-500/20 px-2.5 py-1 rounded-lg border border-amber-500/30 flex items-center gap-1 transition cursor-pointer print:hidden"
                       >
                         <Edit2 className="w-3 h-3" />
-                        Edit Class Teacher's Remark
+                        Edit Class Teacher's Comment
                       </button>
                     )}
                   </div>
@@ -2179,7 +2223,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                         value={remarkDraft}
                         onChange={(e) => setRemarkDraft(e.target.value)}
                         rows={3}
-                        placeholder="Enter class teacher's official remark for this scholar..."
+                        placeholder="Enter official Class Teacher's comment for this scholar..."
                         className="w-full bg-slate-900 border border-amber-500/50 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-amber-400"
                       />
                       <div className="flex items-center justify-end gap-2">
@@ -2197,7 +2241,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                           className="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold rounded-lg text-xs flex items-center gap-1.5 cursor-pointer"
                         >
                           {savingRemark ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                          Save Remark
+                          Save Comment
                         </button>
                       </div>
                     </div>
@@ -2216,6 +2260,69 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                     </span>
                     <span>
                       <strong>Attendance:</strong> {attendance.timesPresent} / {attendance.timesOpened} Days ({attendance.rate}%)
+                    </span>
+                  </div>
+                </div>
+
+                {/* 5B. PRINCIPAL'S COMMENT */}
+                <div className="my-5 p-5 bg-slate-950/80 print:bg-slate-100 rounded-2xl border-2 border-slate-800 print:border-black">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-bold text-emerald-400 print:text-black uppercase tracking-wider flex items-center gap-1.5">
+                      <Award className="w-4 h-4 text-emerald-400 print:text-black" />
+                      Principal's Comment
+                    </span>
+                    {canEditPrincipalComment && !editingPrincipalComment && (
+                      <button
+                        type="button"
+                        onClick={() => setEditingPrincipalComment(true)}
+                        className="text-[11px] text-emerald-300 hover:text-emerald-200 bg-emerald-500/10 hover:bg-emerald-500/20 px-2.5 py-1 rounded-lg border border-emerald-500/30 flex items-center gap-1 transition cursor-pointer print:hidden"
+                      >
+                        <Edit2 className="w-3 h-3" />
+                        Edit Principal's Comment
+                      </button>
+                    )}
+                  </div>
+
+                  {editingPrincipalComment ? (
+                    <div className="space-y-3 print:hidden">
+                      <textarea
+                        value={principalDraft}
+                        onChange={(e) => setPrincipalDraft(e.target.value)}
+                        rows={3}
+                        placeholder="Enter official School Principal's comment and executive remarks..."
+                        className="w-full bg-slate-900 border border-emerald-500/50 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-emerald-400"
+                      />
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setEditingPrincipalComment(false)}
+                          className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleSavePrincipalComment}
+                          disabled={savingPrincipalComment}
+                          className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg text-xs flex items-center gap-1.5 cursor-pointer"
+                        >
+                          {savingPrincipalComment ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                          Save Comment
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-white print:text-black text-sm italic font-medium leading-relaxed">
+                      "{principalComment || 'Commendable terminal outcome. Recommended to sustain intellectual zeal, moral conduct, and active participation in the subsequent session.'}"
+                    </p>
+                  )}
+
+                  <div className="mt-4 pt-3 border-t border-slate-800 print:border-slate-300 flex flex-wrap items-center justify-between text-xs text-slate-400 print:text-slate-800 gap-2">
+                    <span>
+                      <strong>Executive Endorsement:</strong> Fenster International School Directorate
+                    </span>
+                    <span>
+                      <strong>Status:</strong> Approved for Next Academic Period
                     </span>
                   </div>
                 </div>

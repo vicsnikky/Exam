@@ -1844,45 +1844,232 @@ export async function assignClassTeacher(
   return current;
 }
 
+const STUDENT_COMMENTS_CACHE_KEY = 'fis_student_comments_v1';
+
+export interface StudentCommentsData {
+  studentId: string;
+  classTeacherComment: string;
+  principalComment: string;
+  term: string;
+  session: string;
+  teacherName?: string;
+  principalName?: string;
+  updatedAt?: string;
+}
+
+export async function fetchStudentComments(
+  studentId: string,
+  term: string = 'First Term',
+  session: string = '2026/2027',
+  token?: string | null
+): Promise<StudentCommentsData> {
+  const cleanId = String(studentId).trim().toUpperCase();
+  const cacheKey = `${cleanId}_${term}_${session}`;
+
+  let cached: StudentCommentsData | null = null;
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(STUDENT_COMMENTS_CACHE_KEY) : null;
+    if (raw) {
+      const all = JSON.parse(raw);
+      if (all[cacheKey]) cached = all[cacheKey];
+      else if (all[cleanId]) cached = all[cleanId];
+    }
+  } catch (_) {}
+
+  // Check legacy remark cache as fallback
+  if (!cached) {
+    try {
+      const rawLegacy = typeof window !== 'undefined' ? localStorage.getItem(CLASS_TEACHER_REMARKS_CACHE_KEY) : null;
+      if (rawLegacy) {
+        const allLeg = JSON.parse(rawLegacy);
+        const lRecord = allLeg[cacheKey] || allLeg[cleanId];
+        if (lRecord) {
+          cached = {
+            studentId: cleanId,
+            classTeacherComment: lRecord.remark || '',
+            principalComment: '',
+            term,
+            session,
+            teacherName: lRecord.teacherName || 'Class Teacher',
+            principalName: 'School Principal',
+            updatedAt: lRecord.updatedAt,
+          };
+        }
+      }
+    } catch (_) {}
+  }
+
+  try {
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch(
+      `/api/students/${encodeURIComponent(cleanId)}/comments?term=${encodeURIComponent(term)}&session=${encodeURIComponent(session)}`,
+      { headers }
+    );
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.comments) {
+        try {
+          const raw = localStorage.getItem(STUDENT_COMMENTS_CACHE_KEY);
+          const all = raw ? JSON.parse(raw) : {};
+          all[cacheKey] = data.comments;
+          all[cleanId] = data.comments;
+          localStorage.setItem(STUDENT_COMMENTS_CACHE_KEY, JSON.stringify(all));
+        } catch (_) {}
+        return data.comments;
+      }
+    }
+  } catch (err) {
+    console.warn('Deferred student comments fetch:', err);
+  }
+
+  return (
+    cached || {
+      studentId: cleanId,
+      classTeacherComment: 'An exemplary and disciplined scholar whose commitment to academic excellence and moral conduct is highly commendable.',
+      principalComment: 'Commendable performance this academic session. Encouraged to sustain diligence and moral integrity in the next term.',
+      term,
+      session,
+      teacherName: 'Class Teacher',
+      principalName: 'School Principal',
+      updatedAt: new Date().toISOString(),
+    }
+  );
+}
+
+export async function fetchAllStudentComments(token?: string | null): Promise<{
+  comments: Record<string, StudentCommentsData>;
+  remarks: Record<string, any>;
+}> {
+  try {
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch('/api/students-comments', { headers });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.comments) {
+        try {
+          const raw = typeof window !== 'undefined' ? localStorage.getItem(STUDENT_COMMENTS_CACHE_KEY) : null;
+          const current = raw ? JSON.parse(raw) : {};
+          const merged = { ...current, ...data.comments };
+          if (typeof window !== 'undefined') {
+            localStorage.setItem(STUDENT_COMMENTS_CACHE_KEY, JSON.stringify(merged));
+          }
+        } catch (_) {}
+      }
+      return data;
+    }
+  } catch (err) {
+    console.warn('Deferred all student comments fetch:', err);
+  }
+  return { comments: {}, remarks: {} };
+}
+
+export async function saveStudentComments(
+  studentId: string,
+  payload: {
+    classTeacherComment?: string;
+    principalComment?: string;
+    term?: string;
+    session?: string;
+    teacherName?: string;
+    principalName?: string;
+  },
+  token?: string | null
+): Promise<StudentCommentsData> {
+  const cleanId = String(studentId).trim().toUpperCase();
+  const term = payload.term || 'First Term';
+  const session = payload.session || '2026/2027';
+  const cacheKey = `${cleanId}_${term}_${session}`;
+
+  // Get current
+  let existing: StudentCommentsData = {
+    studentId: cleanId,
+    classTeacherComment: '',
+    principalComment: '',
+    term,
+    session,
+    teacherName: payload.teacherName || 'Class Teacher',
+    principalName: payload.principalName || 'School Principal',
+    updatedAt: new Date().toISOString(),
+  };
+
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(STUDENT_COMMENTS_CACHE_KEY) : null;
+    if (raw) {
+      const all = JSON.parse(raw);
+      if (all[cacheKey]) existing = { ...existing, ...all[cacheKey] };
+      else if (all[cleanId]) existing = { ...existing, ...all[cleanId] };
+    }
+  } catch (_) {}
+
+  if (payload.classTeacherComment !== undefined) {
+    existing.classTeacherComment = payload.classTeacherComment.trim();
+  }
+  if (payload.principalComment !== undefined) {
+    existing.principalComment = payload.principalComment.trim();
+  }
+  if (payload.teacherName) existing.teacherName = payload.teacherName;
+  if (payload.principalName) existing.principalName = payload.principalName;
+  existing.updatedAt = new Date().toISOString();
+
+  // Save to localStorage
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(STUDENT_COMMENTS_CACHE_KEY) : null;
+    const all = raw ? JSON.parse(raw) : {};
+    all[cacheKey] = existing;
+    all[cleanId] = existing;
+    localStorage.setItem(STUDENT_COMMENTS_CACHE_KEY, JSON.stringify(all));
+
+    // Also mirror to legacy remark cache
+    const rawLeg = localStorage.getItem(CLASS_TEACHER_REMARKS_CACHE_KEY);
+    const allLeg = rawLeg ? JSON.parse(rawLeg) : {};
+    allLeg[cacheKey] = {
+      studentId: cleanId,
+      remark: existing.classTeacherComment,
+      term,
+      session,
+      teacherName: existing.teacherName,
+      updatedAt: existing.updatedAt,
+    };
+    allLeg[cleanId] = allLeg[cacheKey];
+    localStorage.setItem(CLASS_TEACHER_REMARKS_CACHE_KEY, JSON.stringify(allLeg));
+  } catch (_) {}
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('fis:student-comments-updated', { detail: existing }));
+    window.dispatchEvent(new CustomEvent('fis:class-teacher-remark-updated', { detail: existing }));
+    window.dispatchEvent(new CustomEvent('fis:comments-updated', { detail: existing }));
+  }
+
+  // Network call
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    await fetch(`/api/students/${encodeURIComponent(cleanId)}/comments`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(existing),
+    });
+  } catch (err) {
+    console.warn('Backend student comments deferred:', err);
+  }
+
+  return existing;
+}
+
 export async function fetchClassTeacherRemark(
   studentId: string,
   term: string = 'First Term',
   session: string = '2026/2027',
   token?: string | null
 ): Promise<{ remark: string; teacherName: string; updatedAt?: string } | null> {
-  const cleanId = String(studentId).trim().toUpperCase();
-  const cacheKey = `${cleanId}_${term}_${session}`;
-
-  try {
-    const headers: Record<string, string> = {};
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-    const res = await fetch(`/api/students/${encodeURIComponent(cleanId)}/class-teacher-remark?term=${encodeURIComponent(term)}&session=${encodeURIComponent(session)}`, { headers });
-    if (res.ok) {
-      const data = await res.json();
-      if (data && data.record) {
-        try {
-          const raw = localStorage.getItem(CLASS_TEACHER_REMARKS_CACHE_KEY);
-          const all = raw ? JSON.parse(raw) : {};
-          all[cacheKey] = data.record;
-          localStorage.setItem(CLASS_TEACHER_REMARKS_CACHE_KEY, JSON.stringify(all));
-        } catch (_) {}
-        return data.record;
-      }
-    }
-  } catch (err) {
-    console.warn('Deferred class teacher remark fetch:', err);
-  }
-
-  try {
-    const raw = typeof window !== 'undefined' ? localStorage.getItem(CLASS_TEACHER_REMARKS_CACHE_KEY) : null;
-    if (raw) {
-      const all = JSON.parse(raw);
-      if (all[cacheKey]) return all[cacheKey];
-      if (all[cleanId]) return all[cleanId];
-    }
-  } catch (_) {}
-
-  return null;
+  const comments = await fetchStudentComments(studentId, term, session, token);
+  return {
+    remark: comments.classTeacherComment,
+    teacherName: comments.teacherName || 'Class Teacher',
+    updatedAt: comments.updatedAt,
+  };
 }
 
 export async function saveClassTeacherRemark(
@@ -1893,40 +2080,22 @@ export async function saveClassTeacherRemark(
   teacherName: string = 'Class Teacher',
   token?: string | null
 ): Promise<any> {
-  const cleanId = String(studentId).trim().toUpperCase();
-  const cacheKey = `${cleanId}_${term}_${session}`;
-  const record = {
-    studentId: cleanId,
-    remark: remark.trim(),
+  const result = await saveStudentComments(
+    studentId,
+    {
+      classTeacherComment: remark,
+      term,
+      session,
+      teacherName,
+    },
+    token
+  );
+  return {
+    studentId,
+    remark: result.classTeacherComment,
     term,
     session,
-    teacherName,
-    updatedAt: new Date().toISOString(),
+    teacherName: result.teacherName,
+    updatedAt: result.updatedAt,
   };
-
-  try {
-    const raw = typeof window !== 'undefined' ? localStorage.getItem(CLASS_TEACHER_REMARKS_CACHE_KEY) : null;
-    const all = raw ? JSON.parse(raw) : {};
-    all[cacheKey] = record;
-    all[cleanId] = record;
-    localStorage.setItem(CLASS_TEACHER_REMARKS_CACHE_KEY, JSON.stringify(all));
-  } catch (_) {}
-
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('fis:class-teacher-remark-updated', { detail: record }));
-  }
-
-  try {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-    await fetch(`/api/students/${encodeURIComponent(cleanId)}/class-teacher-remark`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(record),
-    });
-  } catch (err) {
-    console.warn('Backend class teacher remark deferred:', err);
-  }
-
-  return record;
 }

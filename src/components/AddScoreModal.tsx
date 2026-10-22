@@ -599,7 +599,7 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
       window.dispatchEvent(new CustomEvent('fis:broadsheet-scores-updated'));
 
       setSaveSuccess(
-        `✓ Successfully saved scores for ${subName}: CA ${numCa ?? 0} (40) + Exam ${numExam ?? 0} (60) = Total ${liveTotal}/100 (Grade ${liveGrade}). Automatically saved to broadsheet and student portal!`
+        `✓ Successfully saved scores for ${subName}: CA ${numCa ?? 0} (40) + Exam ${numExam ?? 0} (60) = Total ${liveTotal} (100) (Grade ${liveGrade}). Automatically saved to broadsheet and student portal!`
       );
 
       // Clear score inputs for rapid next entry
@@ -1138,8 +1138,8 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
                     onChange={(e) => setCaScore(e.target.value)}
                     className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-base text-white font-mono font-bold focus:outline-none focus:border-emerald-500 pr-16"
                   />
-                  <span className="absolute right-3.5 top-3 text-xs text-slate-500 font-mono">
-                    / 40
+                  <span className="absolute right-3.5 top-3 text-xs text-slate-400 font-mono font-bold">
+                    40
                   </span>
                 </div>
                 <span className="text-[10px] text-slate-400 block">
@@ -1166,8 +1166,8 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
                     onChange={(e) => setExamScore(e.target.value)}
                     className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-base text-white font-mono font-bold focus:outline-none focus:border-emerald-500 pr-16"
                   />
-                  <span className="absolute right-3.5 top-3 text-xs text-slate-500 font-mono">
-                    / 60
+                  <span className="absolute right-3.5 top-3 text-xs text-slate-400 font-mono font-bold">
+                    60
                   </span>
                 </div>
                 <span className="text-[10px] text-slate-400 block">
@@ -1181,10 +1181,10 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
               <div className="flex items-center gap-3">
                 <span className="text-xs text-slate-400 uppercase font-semibold">Live Total Calculation:</span>
                 <span className="text-lg font-black text-amber-300 font-mono">
-                  {numCa ?? 0} <span className="text-xs text-slate-400 font-normal">/40</span> + {numExam ?? 0}{' '}
-                  <span className="text-xs text-slate-400 font-normal">/60</span> ={' '}
+                  {numCa ?? 0} <span className="text-xs text-slate-400 font-normal">(40)</span> + {numExam ?? 0}{' '}
+                  <span className="text-xs text-slate-400 font-normal">(60)</span> ={' '}
                   <strong className="text-emerald-400 text-xl">{liveTotal ?? 0}</strong>{' '}
-                  <span className="text-xs text-slate-400 font-normal">/ 100</span>
+                  <span className="text-xs text-slate-400 font-normal">(100)</span>
                 </span>
               </div>
 

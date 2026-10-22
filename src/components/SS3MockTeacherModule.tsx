@@ -1554,8 +1554,8 @@ export const SS3MockTeacherModule: React.FC = () => {
                         onChange={(e) => handleRawScoreChange(idx, e.target.value)}
                         className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-bold font-mono focus:outline-none focus:border-emerald-500 pr-14"
                       />
-                      <span className="absolute right-3 top-2 text-xs text-slate-500 font-mono">
-                        / {item.maxRawScore}
+                      <span className="absolute right-3 top-2 text-xs text-slate-500 font-mono font-bold">
+                        {item.maxRawScore}
                       </span>
                     </div>
                   </div>
@@ -1567,7 +1567,7 @@ export const SS3MockTeacherModule: React.FC = () => {
                     </span>
                     <span className="text-base font-extrabold text-emerald-400 font-mono">
                       {item.scaledScore}{' '}
-                      <span className="text-[10px] text-slate-500 font-normal">/ 100</span>
+                      <span className="text-[10px] text-slate-500 font-normal">(100)</span>
                     </span>
                     <span className="text-[10px] text-slate-400 block">
                       {item.isEnglish ? '(÷ 60 × 100)' : '(÷ 40 × 100)'}
@@ -1858,7 +1858,7 @@ export const SS3MockTeacherModule: React.FC = () => {
                                 {engSub.scaledScore ?? engSub.score ?? 0}
                               </span>
                               <span className="text-[10px] text-slate-500 block">
-                                (raw {engSub.rawScore ?? '-'}/60)
+                                (raw {engSub.rawScore ?? '-'} (60))
                               </span>
                               <Edit2 className="w-3 h-3 text-amber-400 absolute right-0 top-0 opacity-0 group-hover/cell:opacity-100 transition" />
                             </div>
@@ -2013,7 +2013,7 @@ export const SS3MockTeacherModule: React.FC = () => {
                       <div>
                         <span className="text-[11px] text-slate-400 block">Scaled Score (over 100):</span>
                         <span className="text-xl font-black text-amber-300 font-mono">
-                          {scaled} / 100
+                          {scaled} <span className="text-xs text-slate-400 font-semibold">(100)</span>
                         </span>
                       </div>
                       <div className="text-right">

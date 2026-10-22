@@ -861,7 +861,7 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
                   <th className="py-3 px-3 text-center">Raw Score</th>
                   <th className="py-3 px-3 text-center">Formula Applied</th>
                   <th className="py-3 px-3 text-center font-bold text-white print:text-black">
-                    Feasible Score (/100)
+                    Feasible Score (100)
                   </th>
                   <th className="py-3 px-3 text-center">Grade</th>
                   <th className="py-3 px-3">Registrar's Remark</th>
@@ -875,11 +875,11 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
                         {sub.subjectName}
                         {sub.isEnglish ? (
                           <span className="px-2 py-0.5 rounded text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40 print:border-amber-600 print:text-amber-800 font-semibold">
-                            Compulsory (/60)
+                            Compulsory (60)
                           </span>
                         ) : (
                           <span className="px-2 py-0.5 rounded text-[10px] bg-slate-700/60 text-slate-300 border border-slate-600/50 print:border-slate-400 print:text-slate-700 font-medium">
-                            Elective (/40)
+                            Elective (40)
                           </span>
                         )}
                       </div>
@@ -892,7 +892,9 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
                       <span className="text-amber-300 print:text-black font-bold">
                         {sub.rawScore}
                       </span>{' '}
-                      / {sub.maxRawScore}
+                      <span className="text-[10px] text-slate-400 print:text-slate-600 font-normal">
+                        ({sub.maxRawScore})
+                      </span>
                     </td>
 
                     <td className="py-3.5 px-3 text-center font-mono text-[11px] text-slate-300 print:text-slate-700">
@@ -902,7 +904,7 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
                     <td className="py-3.5 px-3 text-center font-bold text-emerald-400 print:text-emerald-800 text-sm font-mono">
                       {sub.score}{' '}
                       <span className="text-[10px] text-slate-400 print:text-slate-600 font-normal">
-                        / 100
+                        (100)
                       </span>
                     </td>
 

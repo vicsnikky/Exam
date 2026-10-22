@@ -34,4 +34,8 @@
   .print\:hidden {
     display: none !important;
   }
+  .batch-report-card-sheet {
+    page-break-after: always !important;
+    break-after: page !important;
+  }
 }

@@ -26,6 +26,10 @@ import {
   ShieldCheck,
   Eye,
   EyeOff,
+  MapPin,
+  GraduationCap,
+  FileText,
+  MessageSquare,
 } from 'lucide-react';
 import {
   SCHOOL_CLASSES,
@@ -38,7 +42,14 @@ import {
 } from '../constants/classes.ts';
 import { Subject, Student } from '../types/index.ts';
 import { fetchAllSubjectsUnified } from '../lib/subjectStore.ts';
-import { fetchAllStudentsUnified, getLocalStudents } from '../lib/schoolStore.ts';
+import {
+  fetchAllStudentsUnified,
+  getLocalStudents,
+  getClassTeachers,
+  fetchStudentComments,
+  saveStudentComments,
+  fetchAllStudentComments,
+} from '../lib/schoolStore.ts';
 
 export { isSecondaryClass };
 
@@ -180,6 +191,214 @@ export const ClassBroadsheet: React.FC = () => {
   const [inputClassSchoolDays, setInputClassSchoolDays] = useState('115');
   const [savingClassDays, setSavingClassDays] = useState(false);
 
+  // Batch Report Cards Printing State (All students in class printed at once)
+  const [batchPrintOpen, setBatchPrintOpen] = useState(false);
+  const [classTeacherRemarksMap, setClassTeacherRemarksMap] = useState<Record<string, string>>({});
+  const [principalRemarksMap, setPrincipalRemarksMap] = useState<Record<string, string>>({});
+
+  // Dedicated Comment Editing Modal State (Class Teacher & Principal Comments)
+  const [commentModalOpen, setCommentModalOpen] = useState(false);
+  const [commentTargetStudent, setCommentTargetStudent] = useState<Student | null>(null);
+  const [commentDraftTeacher, setCommentDraftTeacher] = useState('');
+  const [commentDraftPrincipal, setCommentDraftPrincipal] = useState('');
+  const [savingComments, setSavingComments] = useState(false);
+
+  const isClassTeacher = Boolean(
+    user?.isClassTeacher ||
+    user?.assignedClass ||
+    (typeof window !== 'undefined' && (() => {
+      try {
+        const raw = localStorage.getItem('fis_class_teachers_v1');
+        if (!raw) return false;
+        const parsed = JSON.parse(raw);
+        const tchId = user?.teacherId || '';
+        const email = user?.email?.toLowerCase() || '';
+        const userId = user?.id ? String(user.id) : '';
+        return Boolean(parsed[tchId] || parsed[userId] || parsed[email]);
+      } catch (_) {
+        return false;
+      }
+    })())
+  );
+  // Both Class Teachers and Admins have full batch print rights
+  const canPrintClassResults = isExecutive || isAdmin || isClassTeacher;
+
+  // Permissions for editing comments on the results view:
+  // - Class Teacher Comment: editable by Class Teacher (for this class) or Admin / Executive
+  const canEditTeacherComment = isClassTeacher || isExecutive || isAdmin;
+  // - Principal Comment: editable by Principal, Director, Admin, and Super Admin
+  const canEditPrincipalComment = isExecutive || isAdmin;
+
+  const classTeachers = getClassTeachers();
+  const assignedTeacherEntry = Object.values(classTeachers).find((a: any) => isSameClass(a?.className, selectedClass));
+  const assignedClassTeacherName =
+    assignedTeacherEntry?.teacherName ||
+    (isClassTeacher && user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : 'Victor Alo (Class Teacher)');
+
+  const loadRemarks = async () => {
+    const tMap: Record<string, string> = {};
+    const pMap: Record<string, string> = {};
+
+    // 1. From student comments cache
+    try {
+      const rawComm = localStorage.getItem('fis_student_comments_v1');
+      if (rawComm) {
+        const parsed = JSON.parse(rawComm);
+        Object.entries(parsed).forEach(([key, val]: [string, any]) => {
+          if (val && typeof val === 'object') {
+            if (val.classTeacherComment) {
+              tMap[key] = val.classTeacherComment;
+              if (val.studentId) tMap[val.studentId] = val.classTeacherComment;
+            }
+            if (val.principalComment) {
+              pMap[key] = val.principalComment;
+              if (val.studentId) pMap[val.studentId] = val.principalComment;
+            }
+          }
+        });
+      }
+    } catch (_) {}
+
+    // 2. From legacy class teacher remarks
+    try {
+      const raw = localStorage.getItem('fis_class_teacher_remarks_v1');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        Object.entries(parsed).forEach(([key, val]: [string, any]) => {
+          if (val && typeof val === 'object' && val.remark) {
+            if (!tMap[key]) tMap[key] = val.remark;
+            if (val.studentId && !tMap[val.studentId]) tMap[val.studentId] = val.remark;
+          } else if (typeof val === 'string' && !tMap[key]) {
+            tMap[key] = val;
+          }
+        });
+      }
+    } catch (_) {}
+
+    setClassTeacherRemarksMap({ ...tMap });
+    setPrincipalRemarksMap({ ...pMap });
+
+    // 3. Asynchronously fetch latest server comments
+    try {
+      const serverData = await fetchAllStudentComments(token);
+      if (serverData && serverData.comments) {
+        Object.entries(serverData.comments).forEach(([key, val]: [string, any]) => {
+          if (val && typeof val === 'object') {
+            if (val.classTeacherComment) {
+              tMap[key] = val.classTeacherComment;
+              if (val.studentId) tMap[val.studentId] = val.classTeacherComment;
+            }
+            if (val.principalComment) {
+              pMap[key] = val.principalComment;
+              if (val.studentId) pMap[val.studentId] = val.principalComment;
+            }
+          }
+        });
+        setClassTeacherRemarksMap({ ...tMap });
+        setPrincipalRemarksMap({ ...pMap });
+      }
+    } catch (_) {}
+  };
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && sessionStorage.getItem('fis_auto_open_batch_print') === 'true') {
+      sessionStorage.removeItem('fis_auto_open_batch_print');
+      loadRemarks();
+      setShowPrintPreview(false);
+      setBatchPrintOpen(true);
+    }
+
+    const handleTriggerBatchPrint = () => {
+      loadRemarks();
+      setShowPrintPreview(false);
+      setBatchPrintOpen(true);
+    };
+    const handleCommentsUpdated = () => {
+      loadRemarks();
+    };
+    window.addEventListener('fis:trigger-batch-print', handleTriggerBatchPrint);
+    window.addEventListener('fis:comments-updated', handleCommentsUpdated);
+    window.addEventListener('fis:student-comments-updated', handleCommentsUpdated);
+    return () => {
+      window.removeEventListener('fis:trigger-batch-print', handleTriggerBatchPrint);
+      window.removeEventListener('fis:comments-updated', handleCommentsUpdated);
+      window.removeEventListener('fis:student-comments-updated', handleCommentsUpdated);
+    };
+  }, [token]);
+
+  const handleOpenCommentModal = (student: Student) => {
+    setCommentTargetStudent(student);
+    const sId = String(student.studentId || student.id).toUpperCase();
+    const sKey = `${sId}_${selectedTerm}_${selectedSession}`;
+    const tVal =
+      classTeacherRemarksMap[sKey] ||
+      classTeacherRemarksMap[sId] ||
+      classTeacherRemarksMap[String(student.id)] ||
+      '';
+    const pVal =
+      principalRemarksMap[sKey] ||
+      principalRemarksMap[sId] ||
+      principalRemarksMap[String(student.id)] ||
+      '';
+    setCommentDraftTeacher(tVal);
+    setCommentDraftPrincipal(pVal);
+    setCommentModalOpen(true);
+  };
+
+  const handleSaveStudentCommentsModal = async () => {
+    if (!commentTargetStudent) return;
+    setSavingComments(true);
+    try {
+      const sId = String(commentTargetStudent.studentId || commentTargetStudent.id).toUpperCase();
+      const sKey = `${sId}_${selectedTerm}_${selectedSession}`;
+
+      const payload: any = {
+        term: selectedTerm,
+        session: selectedSession,
+      };
+      if (canEditTeacherComment) {
+        payload.classTeacherComment = commentDraftTeacher;
+        payload.teacherName = assignedClassTeacherName;
+      }
+      if (canEditPrincipalComment) {
+        payload.principalComment = commentDraftPrincipal;
+        payload.principalName = 'School Principal';
+      }
+
+      await saveStudentComments(sId, payload, token);
+
+      if (canEditTeacherComment) {
+        setClassTeacherRemarksMap((prev) => ({
+          ...prev,
+          [sKey]: commentDraftTeacher,
+          [sId]: commentDraftTeacher,
+          [String(commentTargetStudent.id)]: commentDraftTeacher,
+        }));
+      }
+      if (canEditPrincipalComment) {
+        setPrincipalRemarksMap((prev) => ({
+          ...prev,
+          [sKey]: commentDraftPrincipal,
+          [sId]: commentDraftPrincipal,
+          [String(commentTargetStudent.id)]: commentDraftPrincipal,
+        }));
+      }
+
+      setStatusMsg({
+        type: 'success',
+        text: `Official comments updated successfully for ${commentTargetStudent.firstName} ${commentTargetStudent.surname}!`,
+      });
+      setCommentModalOpen(false);
+    } catch (err: any) {
+      setStatusMsg({
+        type: 'error',
+        text: 'Failed to save comments: ' + (err.message || 'Error'),
+      });
+    } finally {
+      setSavingComments(false);
+    }
+  };
+
   const isSecondary = isSecondaryClass(selectedClass);
   const isSenior = isSeniorSecondaryClass(selectedClass);
   const effectiveExamPeriod: 'first-half' | 'terminal' = isSecondary ? examPeriod : 'terminal';
@@ -188,6 +407,7 @@ export const ClassBroadsheet: React.FC = () => {
   const loadData = async () => {
     setLoading(true);
     setStatusMsg(null);
+    loadRemarks();
     try {
       // 1. Unified subjects
       const subs = await fetchAllSubjectsUnified(token);
@@ -890,7 +1110,7 @@ export const ClassBroadsheet: React.FC = () => {
 
       setStatusMsg({
         type: 'success',
-        text: `Score saved for ${activeCell.student.firstName} ${activeCell.student.surname} in ${activeCell.subject.name} (CA: ${testVal !== null ? testVal : '-'} /40, Exam: ${examVal !== null ? examVal : '-'} /60, Total: ${computedTotal}/100). ${isSenior ? 'Senior CGPA' : 'Class Average'} recalculated automatically!`,
+        text: `Score saved for ${activeCell.student.firstName} ${activeCell.student.surname} in ${activeCell.subject.name} (CA: ${testVal !== null ? testVal : '-'} (40), Exam: ${examVal !== null ? examVal : '-'} (60), Total: ${computedTotal} (100)). ${isSenior ? 'Senior CGPA' : 'Class Average'} recalculated automatically!`,
       });
 
       setEditModalOpen(false);
@@ -1528,8 +1748,25 @@ export const ClassBroadsheet: React.FC = () => {
             {showPrintPreview ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
             {showPrintPreview ? 'Exit Print Preview' : 'Print Preview'}
           </button>
+          {canPrintClassResults && (
+            <button
+              onClick={() => {
+                loadRemarks();
+                setShowPrintPreview(false);
+                setBatchPrintOpen(true);
+              }}
+              className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-2 shadow-lg shadow-emerald-950 border border-emerald-400/40"
+              title={`Print official report cards for all ${broadsheetRows.length} scholars in ${selectedClass} at once`}
+            >
+              <FileText className="w-4 h-4 text-amber-300" />
+              <span>Print All Class Report Cards ({broadsheetRows.length})</span>
+            </button>
+          )}
           <button
-            onClick={() => window.print()}
+            onClick={() => {
+              setBatchPrintOpen(false);
+              window.print();
+            }}
             className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-2 shadow-lg shadow-emerald-950"
             title="Open system print dialog to print or save landscape broadsheet as PDF"
           >
@@ -1780,8 +2017,21 @@ export const ClassBroadsheet: React.FC = () => {
 
                       {/* Student Name & ID & Guardian details */}
                       <td className="py-2.5 px-3 font-semibold text-white sticky left-12 bg-slate-850 group-hover:bg-slate-750 z-10 border-r border-slate-700">
-                        <div className="truncate max-w-[170px]" title={studentName}>
-                          {studentName}
+                        <div className="flex items-start justify-between gap-1.5">
+                          <div className="truncate max-w-[150px]" title={studentName}>
+                            {studentName}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenCommentModal(row.student);
+                            }}
+                            className="p-1 rounded bg-amber-500/10 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 hover:border-amber-400 transition cursor-pointer shrink-0"
+                            title="Edit official Class Teacher's Comment & Principal's Comment"
+                          >
+                            <MessageSquare className="w-3 h-3" />
+                          </button>
                         </div>
                         <div className="text-[10px] text-slate-400 font-mono">
                           {row.student.studentId}
@@ -1940,6 +2190,14 @@ export const ClassBroadsheet: React.FC = () => {
                         <div className="flex items-center justify-center gap-1.5">
                           <button
                             type="button"
+                            onClick={() => handleOpenCommentModal(row.student)}
+                            className="p-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 hover:text-amber-300 transition cursor-pointer border border-amber-500/30"
+                            title={`Edit official Class Teacher's Comment & Principal's Comment for ${studentName}`}
+                          >
+                            <MessageSquare className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => handleOpenAttendanceModal(row.student, row.attendance)}
                             className="p-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-300 transition cursor-pointer border border-emerald-500/30"
                             title="Add/Edit attendance (Days opened & present -> auto absent) and Save to Student Portal"
@@ -2084,7 +2342,7 @@ export const ClassBroadsheet: React.FC = () => {
                       placeholder="0 - 40"
                       className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm font-mono text-white focus:outline-none focus:border-amber-400"
                     />
-                    <span className="absolute right-3 top-2.5 text-xs text-slate-400 font-mono">/ 40</span>
+                    <span className="absolute right-3 top-2.5 text-xs text-slate-400 font-mono font-bold">40</span>
                   </div>
                   <span className="text-[10px] text-slate-400 mt-0.5 block">Max: 40 marks (CA / 6th wk test)</span>
                 </div>
@@ -2104,9 +2362,9 @@ export const ClassBroadsheet: React.FC = () => {
                       placeholder="0 - 60"
                       className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm font-mono text-white focus:outline-none focus:border-amber-400"
                     />
-                    <span className="absolute right-3 top-2.5 text-xs text-slate-400 font-mono">/ 60</span>
+                    <span className="absolute right-3 top-2.5 text-xs text-slate-400 font-mono font-bold">60</span>
                   </div>
-                  <span className="text-[10px] text-slate-400 mt-0.5 block">Max: 60 marks (Main exam)</span>
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">Examination (60 marks)</span>
                 </div>
               </div>
 
@@ -2115,7 +2373,7 @@ export const ClassBroadsheet: React.FC = () => {
                 <div>
                   <span className="text-[11px] text-slate-400 block">Computed Subject Total:</span>
                   <span className="text-xl font-black text-amber-300 font-mono">
-                    {liveTotal} / 100
+                    {liveTotal} <span className="text-xs text-slate-400 font-semibold">(100)</span>
                   </span>
                   <span className="text-[10px] text-slate-500 block">
                     (CA: {liveTest} + Exam: {liveExam})
@@ -2530,7 +2788,9 @@ export const ClassBroadsheet: React.FC = () => {
 
       <div
         className={`${
-          showPrintPreview
+          batchPrintOpen
+            ? 'hidden'
+            : showPrintPreview
             ? 'block border-4 border-slate-700 p-6 sm:p-8 bg-white text-black rounded-3xl my-6 shadow-2xl overflow-x-auto'
             : 'hidden print:block'
         } print:w-full print:p-0 print:m-0 print:bg-white print:text-black`}
@@ -2718,6 +2978,452 @@ export const ClassBroadsheet: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* ======================================================== */}
+      {/* BATCH PRINT ALL REPORT CARDS MODAL / OVERLAY            */}
+      {/* ======================================================== */}
+      {batchPrintOpen && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/95 backdrop-blur-md p-2 sm:p-6 print:static print:p-0 print:m-0 print:bg-white print:overflow-visible">
+          {/* Print Stylesheet for Batch Report Cards: Portrait, 1 page per scholar */}
+          <style dangerouslySetInnerHTML={{
+            __html: `
+              @page {
+                size: portrait;
+                margin: 6mm 8mm;
+              }
+              @media print {
+                body {
+                  background: white !important;
+                  color: black !important;
+                  -webkit-print-color-adjust: exact !important;
+                  print-color-adjust: exact !important;
+                }
+                .batch-print-modal-bar {
+                  display: none !important;
+                }
+                .batch-report-card-sheet {
+                  page-break-after: always !important;
+                  break-after: page !important;
+                  border: none !important;
+                  box-shadow: none !important;
+                  margin: 0 !important;
+                  padding: 4mm 0 !important;
+                  background: white !important;
+                  color: black !important;
+                  min-height: 98vh;
+                  box-sizing: border-box;
+                }
+                .batch-report-card-sheet:last-child {
+                  page-break-after: avoid !important;
+                  break-after: avoid !important;
+                }
+              }
+            `
+          }} />
+
+          {/* Sticky Controls Header (Hidden in Print) */}
+          <div className="batch-print-modal-bar max-w-5xl mx-auto mb-6 bg-slate-900 border border-slate-700 p-4 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4 shadow-2xl sticky top-2 z-50 print:hidden">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+                <Printer className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <span>Batch Official Report Cards — {selectedClass}</span>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                    {broadsheetRows.length} Scholars
+                  </span>
+                </h3>
+                <p className="text-[11px] text-slate-400">
+                  {selectedTerm} • {selectedSession} • {isSecondary ? (effectiveExamPeriod === 'first-half' ? 'First Half (6th Week) Exam' : 'Terminal Exam') : 'Terminal Exam'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-emerald-950 cursor-pointer"
+              >
+                <Printer className="w-4 h-4 text-amber-300" />
+                Print All ({broadsheetRows.length}) Report Cards
+              </button>
+              <button
+                type="button"
+                onClick={() => setBatchPrintOpen(false)}
+                className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1.5"
+              >
+                <X className="w-4 h-4" />
+                Close
+              </button>
+            </div>
+          </div>
+
+          {/* All Scholars Report Cards List */}
+          <div className="max-w-4xl mx-auto space-y-8 print:space-y-0 print:max-w-none">
+            {broadsheetRows.length === 0 ? (
+              <div className="p-12 text-center text-slate-400 bg-slate-900 rounded-3xl border border-slate-800">
+                No scholars currently enrolled in {selectedClass}.
+              </div>
+            ) : (
+              broadsheetRows.map((row, rIdx) => {
+                const sKey = `${String(row.student.studentId || row.student.id).toUpperCase()}_${selectedTerm}_${selectedSession}`;
+                const sIdKey = String(row.student.studentId || row.student.id).toUpperCase();
+                const stRemark =
+                  classTeacherRemarksMap[sKey] ||
+                  classTeacherRemarksMap[sIdKey] ||
+                  classTeacherRemarksMap[String(row.student.id)] ||
+                  'An exemplary and disciplined scholar whose commitment to academic excellence and moral conduct is highly commendable.';
+                const stPrincipalRemark =
+                  principalRemarksMap[sKey] ||
+                  principalRemarksMap[sIdKey] ||
+                  principalRemarksMap[String(row.student.id)] ||
+                  'Commendable terminal outcome. Recommended to sustain intellectual zeal, moral conduct, and active participation in the subsequent session.';
+
+                return (
+                  <div
+                    key={`batch_card_${row.student.id}_${rIdx}`}
+                    className="batch-report-card-sheet bg-white text-black p-6 sm:p-8 rounded-3xl border-2 border-slate-300 shadow-xl print:p-0 print:border-none print:shadow-none print:rounded-none relative overflow-hidden"
+                  >
+                    {/* Header */}
+                    <div className="flex items-center justify-between pb-4 border-b-2 border-black gap-4">
+                      <img
+                        src={FIS_LOGOS.crest}
+                        alt="Fenster Crest"
+                        className="h-16 sm:h-20 w-auto object-contain shrink-0 filter drop-shadow-md"
+                      />
+                      <div className="flex flex-col items-center text-center flex-1 px-2">
+                        <h2 className="text-xl sm:text-2xl font-black text-black tracking-tight uppercase leading-tight">
+                          Fenster International School
+                        </h2>
+                        <span className="text-[11px] sm:text-xs text-slate-800 font-extrabold uppercase tracking-wider mt-0.5">
+                          Excellence in Academics &amp; Moral Discipline • Official Examination Registry
+                        </span>
+                        <span className="text-[10px] text-slate-700 mt-0.5">
+                          Accredited Basic &amp; Senior Secondary Comprehensive Education
+                        </span>
+                        <span className="text-[10px] sm:text-[11px] font-semibold text-slate-900 mt-1 flex items-center justify-center gap-1">
+                          <MapPin className="w-3 h-3 text-emerald-800 shrink-0 print:hidden" />
+                          {FIS_LOGOS.address}
+                        </span>
+                      </div>
+                      <img
+                        src={FIS_LOGOS.full}
+                        alt="Fenster Brand"
+                        className="h-12 sm:h-16 w-auto object-contain shrink-0 filter drop-shadow-md"
+                      />
+                    </div>
+
+                    {/* Student Name & Term Heading */}
+                    <div className="text-center my-4 pb-3 border-b border-slate-300">
+                      <h1 className="text-xl sm:text-2xl font-black text-black tracking-tight uppercase">
+                        {row.student.firstName} {row.student.middleName ? row.student.middleName + ' ' : ''}{row.student.surname}
+                      </h1>
+                      <div className="text-xs sm:text-sm font-bold text-emerald-900 mt-0.5 uppercase tracking-wide">
+                        {selectedTerm} {selectedSession} {selectedTerm}{' '}
+                        {isSecondary ? (effectiveExamPeriod === 'first-half' ? 'First Half Exam' : 'Terminal Exam') : 'Terminal Exam'}
+                      </div>
+                      <div className="text-[11px] text-slate-600 font-mono mt-0.5">
+                        Admission Number: {row.student.studentId || row.student.id}
+                      </div>
+                    </div>
+
+                    {/* Details Grid */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 my-4 p-3.5 bg-slate-100 rounded-2xl border border-slate-300 text-xs">
+                      <div>
+                        <span className="text-slate-600 block text-[9px] uppercase font-semibold">Scholar Name</span>
+                        <strong className="text-black text-xs">{row.student.firstName} {row.student.surname}</strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-600 block text-[9px] uppercase font-semibold">Class</span>
+                        <strong className="text-black text-xs font-bold">{selectedClass}</strong>
+                      </div>
+                      <div className="col-span-2">
+                        <span className="text-slate-600 block text-[9px] uppercase font-semibold">Guidance Detail (Parent / Guardian)</span>
+                        <strong className="text-black text-xs">
+                          {row.student.parentName || 'Parent / Guardian on File'}{' '}
+                          {row.student.parentPhone ? `• Contact: ${row.student.parentPhone}` : ''}
+                        </strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-600 block text-[9px] uppercase font-semibold">Term Recorded</span>
+                        <strong className="text-black text-xs">
+                          {selectedTerm} ({isSecondary ? (effectiveExamPeriod === 'first-half' ? 'First Half' : 'Terminal') : 'Terminal'})
+                        </strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-600 block text-[9px] uppercase font-semibold">Cumulative GPA (CGPA)</span>
+                        <strong className="text-emerald-900 font-mono font-black text-xs">
+                          {isSenior ? `${(row.cgpa || 0).toFixed(2)} / 5.00` : `${(row.averageScore / 20).toFixed(2)} / 5.00`}
+                        </strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-600 block text-[9px] uppercase font-semibold">Class Average (100)</span>
+                        <strong className="text-amber-900 font-mono font-black text-xs">
+                          {row.averageScore}% (100)
+                        </strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-600 block text-[9px] uppercase font-semibold">Class Rank / Position</span>
+                        <strong className="text-black font-mono font-black text-xs">
+                          #{row.rank || '-'} of {broadsheetRows.length}
+                        </strong>
+                      </div>
+                    </div>
+
+                    {/* Academic Scores Table */}
+                    <div className="my-4 overflow-x-auto">
+                      <table className="w-full text-left text-[11px] border-collapse border border-black">
+                        <thead>
+                          <tr className="bg-slate-200 text-black font-bold uppercase text-[10px]">
+                            <th className="py-2 px-2.5 border border-black text-center w-8">#</th>
+                            <th className="py-2 px-3 border border-black">Subject</th>
+                            {isSenior && <th className="py-2 px-2 border border-black text-center w-12">Unit</th>}
+                            <th className="py-2 px-3 border border-black text-right">CA (40)</th>
+                            <th className="py-2 px-3 border border-black text-right">Exam (60)</th>
+                            <th className="py-2 px-3 border border-black text-right font-black">Total (100)</th>
+                            <th className="py-2 px-2.5 border border-black text-center">Grade</th>
+                            {isSenior && <th className="py-2 px-2 border border-black text-center w-14">GP (5.0)</th>}
+                            <th className="py-2 px-3 border border-black">Subject Teacher Remark</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-black text-black">
+                          {availableSubjects.map((sub, sIdx) => {
+                            const cell = row.subjectCells[sub.id];
+                            const hasScore = cell && (cell.testScore !== null || cell.examScore !== null || cell.totalScore !== null);
+                            const totalVal = cell?.totalScore !== null && cell?.totalScore !== undefined ? cell.totalScore : (hasScore ? ((cell.testScore || 0) + (cell.examScore || 0)) : null);
+                            const gradeVal = cell?.grade || (totalVal !== null ? calculateSubjectGrade(totalVal) : '—');
+                            const gpVal = totalVal !== null ? calculateGradePoint5(totalVal).gradePoint.toFixed(1) : '—';
+                            const subRemark = totalVal !== null
+                              ? (totalVal >= 75 ? 'Excellent Distinction' : totalVal >= 60 ? 'Credit Pass' : totalVal >= 50 ? 'Satisfactory' : 'Needs Improvement')
+                              : 'Pending';
+
+                            return (
+                              <tr key={`batch_st_${row.student.id}_sub_${sub.id}_${sIdx}`}>
+                                <td className="py-1.5 px-2.5 text-center font-mono border border-black">{sIdx + 1}</td>
+                                <td className="py-1.5 px-3 font-semibold border border-black">{sub.name}</td>
+                                {isSenior && <td className="py-1.5 px-2 text-center font-mono font-bold border border-black">2</td>}
+                                <td className="py-1.5 px-3 text-right font-mono border border-black">{cell?.testScore !== null && cell?.testScore !== undefined ? cell.testScore : '—'}</td>
+                                <td className="py-1.5 px-3 text-right font-mono border border-black">{cell?.examScore !== null && cell?.examScore !== undefined ? cell.examScore : '—'}</td>
+                                <td className="py-1.5 px-3 text-right font-mono font-black border border-black bg-slate-100">{totalVal !== null ? totalVal : '—'}</td>
+                                <td className="py-1.5 px-2.5 text-center font-bold border border-black">{gradeVal}</td>
+                                {isSenior && <td className="py-1.5 px-2 text-center font-mono font-bold border border-black">{gpVal}</td>}
+                                <td className="py-1.5 px-3 italic border border-black">{subRemark}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* 1. Class Teacher's Comment Block */}
+                    <div className="my-3 p-3.5 bg-slate-100 rounded-2xl border-2 border-black text-left">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] font-bold text-black uppercase tracking-wider flex items-center gap-1.5">
+                          <GraduationCap className="w-3.5 h-3.5 text-black" />
+                          Class Teacher's Comment
+                        </span>
+                        {(canEditTeacherComment || canEditPrincipalComment) && (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenCommentModal(row.student)}
+                            className="text-[10px] text-amber-900 bg-amber-500/20 hover:bg-amber-500/30 px-2 py-0.5 rounded border border-amber-600/40 font-semibold cursor-pointer print:hidden flex items-center gap-1 transition"
+                            title="Edit official scholar comments"
+                          >
+                            <Edit2 className="w-2.5 h-2.5" />
+                            Edit Comment
+                          </button>
+                        )}
+                      </div>
+                      <p className="text-black text-xs italic font-medium leading-relaxed">
+                        "{stRemark}"
+                      </p>
+                      <div className="mt-2.5 pt-1.5 border-t border-slate-300 flex flex-wrap items-center justify-between text-[10px] text-slate-800 gap-2">
+                        <span><strong>Assigned Class Teacher:</strong> {assignedClassTeacherName}</span>
+                        <span><strong>Class:</strong> {selectedClass}</span>
+                        <span><strong>Attendance:</strong> {row.attendance.timesPresent} / {row.attendance.timesOpened} Days ({row.attendance.rate}%)</span>
+                      </div>
+                    </div>
+
+                    {/* 2. Principal's Comment Block */}
+                    <div className="my-3 p-3.5 bg-slate-100 rounded-2xl border-2 border-black text-left">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] font-bold text-black uppercase tracking-wider flex items-center gap-1.5">
+                          <Award className="w-3.5 h-3.5 text-black" />
+                          Principal's Comment
+                        </span>
+                        {canEditPrincipalComment && (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenCommentModal(row.student)}
+                            className="text-[10px] text-emerald-900 bg-emerald-500/20 hover:bg-emerald-500/30 px-2 py-0.5 rounded border border-emerald-600/40 font-semibold cursor-pointer print:hidden flex items-center gap-1 transition"
+                            title="Edit official Principal's comment"
+                          >
+                            <Edit2 className="w-2.5 h-2.5" />
+                            Edit Comment
+                          </button>
+                        )}
+                      </div>
+                      <p className="text-black text-xs italic font-medium leading-relaxed">
+                        "{stPrincipalRemark}"
+                      </p>
+                      <div className="mt-2.5 pt-1.5 border-t border-slate-300 flex flex-wrap items-center justify-between text-[10px] text-slate-800 gap-2">
+                        <span><strong>Executive Endorsement:</strong> Fenster International School Directorate</span>
+                        <span><strong>Status:</strong> Approved for Next Academic Period</span>
+                      </div>
+                    </div>
+
+                    {/* Signatures Footer */}
+                    <div className="mt-5 pt-3 border-t-2 border-black flex flex-col sm:flex-row justify-between items-center text-xs text-slate-800 gap-4">
+                      <div className="flex items-center gap-2.5">
+                        <ShieldCheck className="w-7 h-7 text-black shrink-0" />
+                        <div>
+                          <strong className="text-black block text-xs">Fenster International School Official Registry</strong>
+                          <span className="text-[10px] text-slate-700">
+                            Validated against Institutional Master Ledger • Issued on {new Date().toLocaleDateString('en-GB')}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-end gap-10 sm:gap-14 text-center">
+                        <div>
+                          <div className="w-32 border-b border-black mb-1" />
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-black block">Registrar</span>
+                        </div>
+                        <div className="flex flex-col items-center">
+                          <img
+                            src="https://i.ibb.co/MzHp6Yt/Whats-App-Image-2026-10-02-at-11-29-34-AM.jpg"
+                            alt="School Principal Signature"
+                            className="h-10 w-auto object-contain mb-0.5 filter contrast-125 mix-blend-multiply"
+                          />
+                          <div className="w-36 border-b border-black mb-1" />
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-black block">School Principal</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Dedicated Comment Modal for Class Teacher & Principal */}
+      {commentModalOpen && commentTargetStudent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl p-6 max-w-xl w-full shadow-2xl relative text-left">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-amber-500/10 text-amber-400 rounded-xl border border-amber-500/20">
+                  <MessageSquare className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">
+                    Official Scholar Comments &amp; Endorsement
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    {commentTargetStudent.firstName} {commentTargetStudent.surname} • {commentTargetStudent.studentId} ({selectedClass})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCommentModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 my-4">
+              {/* Class Teacher's Comment Field */}
+              <div className="p-3.5 bg-slate-950/80 rounded-2xl border border-slate-800">
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <GraduationCap className="w-4 h-4 text-amber-400" />
+                    Class Teacher's Comment
+                  </label>
+                  {!canEditTeacherComment && (
+                    <span className="text-[10px] text-slate-500 italic">
+                      Class Teacher only
+                    </span>
+                  )}
+                </div>
+                {canEditTeacherComment ? (
+                  <textarea
+                    rows={3}
+                    value={commentDraftTeacher}
+                    onChange={(e) => setCommentDraftTeacher(e.target.value)}
+                    placeholder="Enter official Class Teacher's evaluation and academic remarks..."
+                    className="w-full bg-slate-900 border border-slate-700 focus:border-amber-400 rounded-xl p-2.5 text-xs text-white focus:outline-none transition"
+                  />
+                ) : (
+                  <p className="text-xs text-slate-300 italic p-2 bg-slate-900/60 rounded-xl border border-slate-800">
+                    "{commentDraftTeacher || 'No comment authored yet.'}"
+                  </p>
+                )}
+                <span className="text-[10px] text-slate-400 mt-1 block">
+                  Class Teacher: <strong>{assignedClassTeacherName}</strong>
+                </span>
+              </div>
+
+              {/* Principal's Comment Field */}
+              <div className="p-3.5 bg-slate-950/80 rounded-2xl border border-slate-800">
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <Award className="w-4 h-4 text-emerald-400" />
+                    Principal's Comment
+                  </label>
+                  {!canEditPrincipalComment && (
+                    <span className="text-[10px] text-slate-500 italic">
+                      Principal &amp; Admin only
+                    </span>
+                  )}
+                </div>
+                {canEditPrincipalComment ? (
+                  <textarea
+                    rows={3}
+                    value={commentDraftPrincipal}
+                    onChange={(e) => setCommentDraftPrincipal(e.target.value)}
+                    placeholder="Enter official School Principal's comment and executive remarks..."
+                    className="w-full bg-slate-900 border border-slate-700 focus:border-emerald-400 rounded-xl p-2.5 text-xs text-white focus:outline-none transition"
+                  />
+                ) : (
+                  <p className="text-xs text-slate-300 italic p-2 bg-slate-900/60 rounded-xl border border-slate-800">
+                    "{commentDraftPrincipal || 'No Principal comment authored yet.'}"
+                  </p>
+                )}
+                <span className="text-[10px] text-slate-400 mt-1 block">
+                  Authorizing Authority: <strong>School Principal &amp; School Administration</strong>
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setCommentModalOpen(false)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold cursor-pointer transition"
+              >
+                Cancel
+              </button>
+              {(canEditTeacherComment || canEditPrincipalComment) && (
+                <button
+                  type="button"
+                  onClick={handleSaveStudentCommentsModal}
+                  disabled={savingComments}
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-950 transition disabled:opacity-50"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  {savingComments ? 'Saving...' : 'Save Comments'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
