@@ -355,23 +355,24 @@ export const StudentSearch: React.FC<StudentSearchProps> = ({
                     <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-indigo-400 transition" />
                   </button>
 
+                  {!isStudent && !isBursar && (
+                    <button
+                      onClick={() => setEditingStudent(st)}
+                      className="p-1.5 rounded-lg text-amber-400 hover:text-white hover:bg-amber-600/30 border border-amber-500/20 hover:border-amber-500 transition cursor-pointer"
+                      title="Edit Student Profile (Class Teacher & Admin)"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+
                   {isSuperAdmin && (
-                    <div className="flex items-center gap-1 ml-1">
-                      <button
-                        onClick={() => setEditingStudent(st)}
-                        className="p-1.5 rounded-lg text-amber-400 hover:text-white hover:bg-amber-600/30 border border-amber-500/20 hover:border-amber-500 transition cursor-pointer"
-                        title="Edit Student Details"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={(e) => promptDeleteStudent(e, st)}
-                        className="p-1.5 rounded-lg text-rose-400 hover:text-white hover:bg-rose-600/30 border border-rose-500/20 hover:border-rose-500 transition cursor-pointer"
-                        title="Permanently Delete Student"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
+                    <button
+                      onClick={(e) => promptDeleteStudent(e, st)}
+                      className="p-1.5 rounded-lg text-rose-400 hover:text-white hover:bg-rose-600/30 border border-rose-500/20 hover:border-rose-500 transition cursor-pointer"
+                      title="Permanently Delete Student"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
                   )}
                 </div>
               </div>

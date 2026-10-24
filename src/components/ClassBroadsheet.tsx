@@ -40,6 +40,9 @@ import {
   calculateCgpa,
   calculateJuniorAverage,
   calculateGradePoint5,
+  getExamStageOrder,
+  getStageScopeLabel,
+  computeCumulativeCgpaForStudent,
 } from '../constants/classes.ts';
 import { Subject, Student } from '../types/index.ts';
 import { fetchAllSubjectsUnified } from '../lib/subjectStore.ts';
@@ -51,6 +54,8 @@ import {
   saveStudentComments,
   fetchAllStudentComments,
 } from '../lib/schoolStore.ts';
+import { EditStudentModal } from './EditStudentModal.tsx';
+import { supabase } from '../supabaseConfig.ts';
 
 export { isSecondaryClass };
 
@@ -135,6 +140,7 @@ export const ClassBroadsheet: React.FC = () => {
     totalQualityPoints?: number;
     standing?: string;
     gradeBadge?: string;
+    cgpaScopeLabel?: string;
     // Attendance
     attendance: {
       timesOpened: number;
@@ -147,6 +153,7 @@ export const ClassBroadsheet: React.FC = () => {
   }
 
   const [broadsheetRows, setBroadsheetRows] = useState<BroadsheetRow[]>([]);
+  const [editingStudentProfile, setEditingStudentProfile] = useState<Student | null>(null);
 
   // Modal for editing or entering score for a student & subject
   const [editModalOpen, setEditModalOpen] = useState(false);
@@ -489,6 +496,62 @@ export const ClassBroadsheet: React.FC = () => {
         console.warn('Backend scores fetch note:', e);
       }
 
+      // 3c. Query session-wide scores for this class across all terms
+      // to calculate cumulative CGPA across 1st-half and terminal exams
+      let allSessionServerScores: any[] = [];
+      try {
+        const resSess = await fetch(
+          `/api/scores?class=${encodeURIComponent(selectedClass)}&session=${encodeURIComponent(selectedSession)}`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        if (resSess.ok) {
+          const textSess = await resSess.text();
+          let dSess: any = {};
+          try { dSess = JSON.parse(textSess); } catch (_) {}
+          const sessScores = dSess.results || dSess.scores || [];
+          if (Array.isArray(sessScores)) {
+            allSessionServerScores = sessScores;
+          }
+        }
+      } catch (e) {
+        console.warn('Backend session scores fetch note:', e);
+      }
+
+      // 3d. Direct Supabase Cloud DB fallback & sync
+      try {
+        const { data: supaData } = await supabase
+          .from('assessments')
+          .select('*, students(id, student_id, first_name, surname, current_class), subjects(id, name, code)')
+          .eq('session', selectedSession);
+        if (Array.isArray(supaData) && supaData.length > 0) {
+          supaData.forEach((sc: any) => {
+            const mapped = {
+              id: sc.id,
+              studentDbId: sc.student_id,
+              studentId: sc.students?.student_id || String(sc.student_id),
+              studentNumber: sc.students?.student_id,
+              studentName: sc.students ? `${sc.students.first_name} ${sc.students.surname}` : '',
+              subjectId: sc.subject_id,
+              subjectName: sc.subjects?.name,
+              subjectCode: sc.subjects?.code,
+              assessmentType: sc.assessment_type,
+              assessmentTitle: sc.assessment_title,
+              score: sc.score,
+              maxScore: sc.max_score,
+              percentage: sc.percentage,
+              grade: sc.grade,
+              teacherComment: sc.teacher_comment,
+              term: sc.term,
+              session: sc.session,
+            };
+            serverScores.push(mapped);
+            allSessionServerScores.push(mapped);
+          });
+        }
+      } catch (err) {
+        console.warn('Supabase cloud broadsheet sync note:', err);
+      }
+
       // 4. Merge with local storage cache (fis_broadsheet_scores_v2)
       let localScores: any[] = [];
       try {
@@ -533,6 +596,12 @@ export const ClassBroadsheet: React.FC = () => {
         return s.trim();
       };
 
+      // Current exam stage order for cumulative calculations:
+      // Stage 1 = Term 1 1st Half, Stage 2 = Term 1 Terminal (cumulative of 1st half + terminal)
+      // Stage 3 = Term 2 1st Half, Stage 4 = Term 2 Terminal (cumulative of Terms 1 & 2)
+      // Stage 5 = Term 3 1st Half, Stage 6 = Term 3 Terminal (session cumulative: Terms 1, 2 & 3)
+      const currentStage = getExamStageOrder(selectedTerm, effectiveExamPeriod);
+
       // Build broadsheet rows
       const rows: BroadsheetRow[] = targetStudents.map((st) => {
         const cleanStId = String(st.studentId || '').toUpperCase().trim();
@@ -556,7 +625,7 @@ export const ClassBroadsheet: React.FC = () => {
         const cellMap: Record<number, SubjectScoreCell> = {};
         let totalSum = 0;
         let countedSubjects = 0;
-        const subjectScoresList: Array<{ totalScore: number; units: number }> = [];
+        const currentStageScoresList: Array<{ subjectId: number | string; totalScore: number; units: number }> = [];
 
         subs.forEach((sub) => {
           const cleanSubName = (sub.name || '').trim().toLowerCase();
@@ -771,7 +840,7 @@ export const ClassBroadsheet: React.FC = () => {
           if (cellTotal !== null) {
             totalSum += cellTotal;
             countedSubjects++;
-            subjectScoresList.push({ totalScore: cellTotal, units: 2 });
+            currentStageScoresList.push({ subjectId: sub.id, totalScore: cellTotal, units: 2 });
           }
 
           const gradeStr = cellTotal !== null ? calculateSubjectGrade(cellTotal) : '-';
@@ -796,16 +865,32 @@ export const ClassBroadsheet: React.FC = () => {
         let gradeBadge = 'N/A';
         let totalUnits = 0;
         let totalQualityPoints = 0;
+        let cgpaScopeLabel: string | undefined;
 
         if (isSenior) {
-          const cgpaSummary = calculateCgpa(subjectScoresList);
-          cgpa = cgpaSummary.cgpa;
-          standing = cgpaSummary.standing;
-          gradeBadge = cgpaSummary.gradeBadge;
-          totalUnits = cgpaSummary.totalUnits;
-          totalQualityPoints = cgpaSummary.totalQualityPoints;
+          // Calculate cumulative CGPA for this scholar according to exam stage:
+          // - Terminal Exam: includes both 1st Half and Terminal exam results
+          // - 2nd Term: cumulative of all available results up to 2nd Term (Terms 1 & 2)
+          // - 3rd Term: cumulative of all available results across the entire session
+          const cumulativeCgpaRes = computeCumulativeCgpaForStudent({
+            studentDbId: cleanDbId,
+            studentIdNumber: cleanStId,
+            currentStage,
+            currentStageScores: currentStageScoresList,
+            allLocalScores: localScores,
+            allServerScores: allSessionServerScores.length > 0 ? allSessionServerScores : serverScores,
+            targetSession: selectedSession,
+            deletedIds,
+          });
+
+          cgpa = cumulativeCgpaRes.cgpa;
+          standing = cumulativeCgpaRes.standing;
+          gradeBadge = cumulativeCgpaRes.gradeBadge;
+          totalUnits = cumulativeCgpaRes.totalUnits;
+          totalQualityPoints = cumulativeCgpaRes.totalQualityPoints;
+          cgpaScopeLabel = cumulativeCgpaRes.scopeLabel;
         } else {
-          const juniorSummary = calculateJuniorAverage(subjectScoresList);
+          const juniorSummary = calculateJuniorAverage(currentStageScoresList);
           standing = juniorSummary.standing;
         }
 
@@ -820,6 +905,7 @@ export const ClassBroadsheet: React.FC = () => {
           gradeBadge,
           totalUnits,
           totalQualityPoints,
+          cgpaScopeLabel,
           attendance: studentAttendance,
         };
       });
@@ -936,12 +1022,15 @@ export const ClassBroadsheet: React.FC = () => {
             }),
           });
         } else {
-          await fetch('/api/scores', {
+          const caRes = await fetch('/api/scores', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
             body: JSON.stringify({
               studentId: activeCell.student.id,
               studentNumber: activeCell.student.studentId,
+              firstName: activeCell.student.firstName,
+              surname: activeCell.student.surname,
+              currentClass: activeCell.student.currentClass || selectedClass,
               subjectId: activeCell.subject.id,
               assessmentType: 'CA',
               assessmentTitle: `${periodLabel} Continuous Assessment Test`,
@@ -952,7 +1041,32 @@ export const ClassBroadsheet: React.FC = () => {
               teacherComment: `[Period: ${effectiveExamPeriod}] Recorded via Broadsheet for ${activeCell.subject.name}`,
             }),
           });
+          if (caRes.ok) {
+            try {
+              const caJson = await caRes.json();
+              if (caJson?.assessment?.id) {
+                activeCell.testId = caJson.assessment.id;
+              }
+            } catch (_) {}
+          }
         }
+
+        // Direct Supabase cloud persistence safeguard
+        try {
+          await supabase.from('assessments').insert({
+            student_id: activeCell.student.id,
+            subject_id: activeCell.subject.id,
+            assessment_type: 'CA',
+            assessment_title: `${periodLabel} Continuous Assessment Test`,
+            score: String(testVal),
+            max_score: '40',
+            percentage: String(Math.round((testVal / 40) * 100)),
+            grade: calculateSubjectGrade(computedTotal || testVal),
+            session: selectedSession,
+            term: selectedTerm,
+            teacher_comment: `[Period: ${effectiveExamPeriod}] Recorded via Broadsheet for ${activeCell.subject.name}`,
+          });
+        } catch (_) {}
       }
 
       // 2. Post/Update Main Exam component (over 60) to backend
@@ -968,12 +1082,15 @@ export const ClassBroadsheet: React.FC = () => {
             }),
           });
         } else {
-          await fetch('/api/scores', {
+          const examRes = await fetch('/api/scores', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
             body: JSON.stringify({
               studentId: activeCell.student.id,
               studentNumber: activeCell.student.studentId,
+              firstName: activeCell.student.firstName,
+              surname: activeCell.student.surname,
+              currentClass: activeCell.student.currentClass || selectedClass,
               subjectId: activeCell.subject.id,
               assessmentType: 'Examination',
               assessmentTitle: `${periodLabel} Main Examination`,
@@ -984,7 +1101,32 @@ export const ClassBroadsheet: React.FC = () => {
               teacherComment: `[Period: ${effectiveExamPeriod}] Recorded via Broadsheet for ${activeCell.subject.name}`,
             }),
           });
+          if (examRes.ok) {
+            try {
+              const examJson = await examRes.json();
+              if (examJson?.assessment?.id) {
+                activeCell.examId = examJson.assessment.id;
+              }
+            } catch (_) {}
+          }
         }
+
+        // Direct Supabase cloud persistence safeguard
+        try {
+          await supabase.from('assessments').insert({
+            student_id: activeCell.student.id,
+            subject_id: activeCell.subject.id,
+            assessment_type: 'Examination',
+            assessment_title: `${periodLabel} Main Examination`,
+            score: String(examVal),
+            max_score: '60',
+            percentage: String(Math.round((examVal / 60) * 100)),
+            grade: calculateSubjectGrade(computedTotal || examVal),
+            session: selectedSession,
+            term: selectedTerm,
+            teacher_comment: `[Period: ${effectiveExamPeriod}] Recorded via Broadsheet for ${activeCell.subject.name}`,
+          });
+        } catch (_) {}
       }
 
       // 3. Persist locally to cache so scores remain preserved across sessions and input times
@@ -1041,13 +1183,13 @@ export const ClassBroadsheet: React.FC = () => {
           // Recompute sum, average and CGPA for this student
           let sum = 0;
           let count = 0;
-          const subjectScoresList: Array<{ totalScore: number; units: number }> = [];
+          const currentStageScoresList: Array<{ subjectId: number | string; totalScore: number; units: number }> = [];
 
           Object.values(updatedCells).forEach((c) => {
             if (c.totalScore !== null && c.totalScore !== undefined) {
               sum += c.totalScore;
               count++;
-              subjectScoresList.push({ totalScore: c.totalScore, units: 2 });
+              currentStageScoresList.push({ subjectId: c.subjectId, totalScore: c.totalScore, units: 2 });
             }
           });
 
@@ -1058,16 +1200,33 @@ export const ClassBroadsheet: React.FC = () => {
           let gradeBadge = 'N/A';
           let totalUnits = 0;
           let totalQualityPoints = 0;
+          let cgpaScopeLabel: string | undefined;
 
           if (isSenior) {
-            const cgpaSummary = calculateCgpa(subjectScoresList);
-            cgpa = cgpaSummary.cgpa;
-            standing = cgpaSummary.standing;
-            gradeBadge = cgpaSummary.gradeBadge;
-            totalUnits = cgpaSummary.totalUnits;
-            totalQualityPoints = cgpaSummary.totalQualityPoints;
+            const currentStage = getExamStageOrder(selectedTerm, effectiveExamPeriod);
+            let localCache: any[] = [];
+            try {
+              const raw = localStorage.getItem('fis_broadsheet_scores_v2');
+              if (raw) localCache = JSON.parse(raw);
+            } catch (_) {}
+
+            const cumulativeCgpaRes = computeCumulativeCgpaForStudent({
+              studentDbId: activeCell.student.id,
+              studentIdNumber: activeCell.student.studentId,
+              currentStage,
+              currentStageScores: currentStageScoresList,
+              allLocalScores: localCache,
+              targetSession: selectedSession,
+            });
+
+            cgpa = cumulativeCgpaRes.cgpa;
+            standing = cumulativeCgpaRes.standing;
+            gradeBadge = cumulativeCgpaRes.gradeBadge;
+            totalUnits = cumulativeCgpaRes.totalUnits;
+            totalQualityPoints = cumulativeCgpaRes.totalQualityPoints;
+            cgpaScopeLabel = cumulativeCgpaRes.scopeLabel;
           } else {
-            const juniorSummary = calculateJuniorAverage(subjectScoresList);
+            const juniorSummary = calculateJuniorAverage(currentStageScoresList);
             standing = juniorSummary.standing;
           }
 
@@ -1082,6 +1241,7 @@ export const ClassBroadsheet: React.FC = () => {
             gradeBadge,
             totalUnits,
             totalQualityPoints,
+            cgpaScopeLabel,
           };
         });
 
@@ -1213,13 +1373,13 @@ export const ClassBroadsheet: React.FC = () => {
 
           let sum = 0;
           let count = 0;
-          const subjectScoresList: Array<{ totalScore: number; units: number }> = [];
+          const currentStageScoresList: Array<{ subjectId: number | string; totalScore: number; units: number }> = [];
 
           Object.values(updatedCells).forEach((c) => {
             if (c.totalScore !== null && c.totalScore !== undefined) {
               sum += c.totalScore;
               count++;
-              subjectScoresList.push({ totalScore: c.totalScore, units: 2 });
+              currentStageScoresList.push({ subjectId: c.subjectId, totalScore: c.totalScore, units: 2 });
             }
           });
 
@@ -1230,16 +1390,33 @@ export const ClassBroadsheet: React.FC = () => {
           let gradeBadge = 'N/A';
           let totalUnits = 0;
           let totalQualityPoints = 0;
+          let cgpaScopeLabel: string | undefined;
 
           if (isSenior) {
-            const cgpaSummary = calculateCgpa(subjectScoresList);
-            cgpa = cgpaSummary.cgpa;
-            standing = cgpaSummary.standing;
-            gradeBadge = cgpaSummary.gradeBadge;
-            totalUnits = cgpaSummary.totalUnits;
-            totalQualityPoints = cgpaSummary.totalQualityPoints;
+            const currentStage = getExamStageOrder(selectedTerm, effectiveExamPeriod);
+            let localCache: any[] = [];
+            try {
+              const raw = localStorage.getItem('fis_broadsheet_scores_v2');
+              if (raw) localCache = JSON.parse(raw);
+            } catch (_) {}
+
+            const cumulativeCgpaRes = computeCumulativeCgpaForStudent({
+              studentDbId: activeCell.student.id,
+              studentIdNumber: activeCell.student.studentId,
+              currentStage,
+              currentStageScores: currentStageScoresList,
+              allLocalScores: localCache,
+              targetSession: selectedSession,
+            });
+
+            cgpa = cumulativeCgpaRes.cgpa;
+            standing = cumulativeCgpaRes.standing;
+            gradeBadge = cumulativeCgpaRes.gradeBadge;
+            totalUnits = cumulativeCgpaRes.totalUnits;
+            totalQualityPoints = cumulativeCgpaRes.totalQualityPoints;
+            cgpaScopeLabel = cumulativeCgpaRes.scopeLabel;
           } else {
-            const juniorSummary = calculateJuniorAverage(subjectScoresList);
+            const juniorSummary = calculateJuniorAverage(currentStageScoresList);
             standing = juniorSummary.standing;
           }
 
@@ -1254,6 +1431,7 @@ export const ClassBroadsheet: React.FC = () => {
             gradeBadge,
             totalUnits,
             totalQualityPoints,
+            cgpaScopeLabel,
           };
         });
 
@@ -1815,6 +1993,11 @@ export const ClassBroadsheet: React.FC = () => {
             <strong className="text-emerald-900 font-mono font-black text-xs print:text-[9px]">
               {isSenior ? `${(row.cgpa || 0).toFixed(2)} / 5.00` : `${(row.averageScore / 20).toFixed(2)} / 5.00`}
             </strong>
+            {isSenior && row.cgpaScopeLabel && (
+              <span className="text-[8.5px] print:text-[6.5px] text-slate-500 block font-normal leading-tight">
+                ({row.cgpaScopeLabel})
+              </span>
+            )}
           </div>
           <div>
             <span className="text-slate-600 block text-[9px] print:text-[7.5px] uppercase font-semibold">Class Average (100)</span>
@@ -2358,17 +2541,30 @@ export const ClassBroadsheet: React.FC = () => {
                           <div className="truncate max-w-[150px]" title={studentName}>
                             {studentName}
                           </div>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleOpenCommentModal(row.student);
-                            }}
-                            className="p-1 rounded bg-amber-500/10 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 hover:border-amber-400 transition cursor-pointer shrink-0"
-                            title="Edit official Class Teacher's Comment & Principal's Comment"
-                          >
-                            <MessageSquare className="w-3 h-3" />
-                          </button>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingStudentProfile(row.student);
+                              }}
+                              className="p-1 rounded bg-indigo-500/10 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 hover:border-indigo-400 transition cursor-pointer shrink-0"
+                              title={`Edit profile details for ${studentName} (Class Teacher / Admin)`}
+                            >
+                              <Edit2 className="w-3 h-3" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenCommentModal(row.student);
+                              }}
+                              className="p-1 rounded bg-amber-500/10 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 hover:border-amber-400 transition cursor-pointer shrink-0"
+                              title="Edit official Class Teacher's Comment & Principal's Comment"
+                            >
+                              <MessageSquare className="w-3 h-3" />
+                            </button>
+                          </div>
                         </div>
                         <div className="text-[10px] text-slate-400 font-mono">
                           {row.student.studentId}
@@ -2490,7 +2686,12 @@ export const ClassBroadsheet: React.FC = () => {
                             {row.totalQualityPoints ? row.totalQualityPoints.toFixed(1) : '-'}
                           </td>
                           <td className="py-2.5 px-3 text-center font-mono font-black text-emerald-400 text-sm bg-slate-900/40 border-r border-slate-700">
-                            {row.cgpa !== undefined ? `${row.cgpa.toFixed(2)}` : '-'}
+                            <div>{row.cgpa !== undefined ? `${row.cgpa.toFixed(2)}` : '-'}</div>
+                            {row.cgpaScopeLabel && (
+                              <div className="text-[9px] font-sans font-normal text-slate-400 truncate max-w-[90px] mx-auto">
+                                {row.cgpaScopeLabel}
+                              </div>
+                            )}
                           </td>
                           <td className="py-2.5 px-3 text-center text-xs font-semibold text-slate-200">
                             {row.enteredSubjectsCount > 0 ? (
@@ -2539,6 +2740,14 @@ export const ClassBroadsheet: React.FC = () => {
                               <span className="hidden xl:inline">Print Card</span>
                             </button>
                           )}
+                          <button
+                            type="button"
+                            onClick={() => setEditingStudentProfile(row.student)}
+                            className="p-1.5 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 hover:text-indigo-300 transition cursor-pointer border border-indigo-500/30"
+                            title={`Edit profile details for ${studentName} (Class Teacher / Admin)`}
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
                           <button
                             type="button"
                             onClick={() => handleOpenCommentModal(row.student)}
@@ -3649,6 +3858,22 @@ export const ClassBroadsheet: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Class Teacher / Admin Student Profile Editor Modal */}
+      {editingStudentProfile && (
+        <EditStudentModal
+          student={editingStudentProfile}
+          onClose={() => setEditingStudentProfile(null)}
+          onStudentUpdated={(updatedStudent) => {
+            setEditingStudentProfile(null);
+            setStatusMsg({
+              type: 'success',
+              text: `Student profile updated for ${updatedStudent.firstName} ${updatedStudent.surname} (${updatedStudent.studentId})!`,
+            });
+            loadData();
+          }}
+        />
       )}
     </div>
   );

@@ -301,3 +301,234 @@ export function calculateJuniorAverage(scores: Array<{ totalScore: number }>): J
   };
 }
 
+// Chronological exam stage ordering in an academic session
+// 1 = First Term (1st Half / 6th-week Exam)
+// 2 = First Term (Terminal Exam)
+// 3 = Second Term (1st Half / 6th-week Exam)
+// 4 = Second Term (Terminal Exam)
+// 5 = Third Term (1st Half / 6th-week Exam)
+// 6 = Third Term (Terminal Exam)
+export function getExamStageOrder(
+  term?: string,
+  examPeriod?: string,
+  title?: string,
+  comment?: string
+): number {
+  const normTerm = (term || '').toLowerCase();
+  const is1st = normTerm.includes('1') || normTerm.includes('first');
+  const is2nd = normTerm.includes('2') || normTerm.includes('second');
+  const is3rd = normTerm.includes('3') || normTerm.includes('third');
+
+  let period = (examPeriod || '').toLowerCase();
+  if (!period && (title || comment)) {
+    const combined = `${title || ''} ${comment || ''}`.toLowerCase();
+    if (
+      combined.includes('first half') ||
+      combined.includes('first-half') ||
+      combined.includes('1st half') ||
+      combined.includes('6th') ||
+      combined.includes('mid')
+    ) {
+      period = 'first-half';
+    } else {
+      period = 'terminal';
+    }
+  }
+
+  const isFirstHalf =
+    period === 'first-half' ||
+    period.includes('first half') ||
+    period.includes('1st') ||
+    period.includes('mid');
+
+  if (is1st) return isFirstHalf ? 1 : 2;
+  if (is2nd) return isFirstHalf ? 3 : 4;
+  if (is3rd) return isFirstHalf ? 5 : 6;
+  return 2;
+}
+
+// User-friendly descriptive label for cumulative scope
+export function getStageScopeLabel(stage: number): string {
+  switch (stage) {
+    case 1:
+      return '1st Half Exam';
+    case 2:
+      return '1st Half + Terminal';
+    case 3:
+      return 'Term 1 & Term 2 (1st Half)';
+    case 4:
+      return 'Cumulative: Term 1 & 2';
+    case 5:
+      return 'Terms 1, 2 & Term 3 (1st Half)';
+    case 6:
+      return 'Session Cumulative: Terms 1, 2 & 3';
+    default:
+      return 'Cumulative';
+  }
+}
+
+export interface CumulativeCgpaResult {
+  cgpa: number;
+  totalUnits: number;
+  totalQualityPoints: number;
+  standing: string;
+  gradeBadge: string;
+  scopeLabel: string;
+  qualifyingSubjectCount: number;
+  cumulativeAveragePercentage: number;
+}
+
+// Compute Cumulative CGPA for a student:
+// - On Terminal Exam report card: cumulative of both 1st Half and Terminal
+// - For 2nd Term: cumulative of all available results up to 2nd Term (Term 1 + Term 2)
+// - For 3rd Term: cumulative of all available results across the entire session (Terms 1, 2 & 3)
+export function computeCumulativeCgpaForStudent(params: {
+  studentDbId: string | number;
+  studentIdNumber: string;
+  currentStage: number; // 1 to 6
+  currentStageScores: Array<{ subjectId: number | string; totalScore: number; units?: number }>;
+  allLocalScores?: any[];
+  allServerScores?: any[];
+  targetSession?: string;
+  deletedIds?: Set<string>;
+}): CumulativeCgpaResult {
+  const {
+    studentDbId,
+    studentIdNumber,
+    currentStage,
+    currentStageScores,
+    allLocalScores = [],
+    allServerScores = [],
+    targetSession = '2026/2027',
+    deletedIds = new Set<string>(),
+  } = params;
+
+  const cleanDbId = String(studentDbId || '').trim();
+  const cleanStId = String(studentIdNumber || '').toUpperCase().trim();
+
+  // Deduplication map: key = `${stageOrder}_${subjectId}` -> { totalScore, units }
+  const stageSubjectScores = new Map<string, { totalScore: number; units: number }>();
+
+  // 1. Current stage live scores take highest precedence
+  (currentStageScores || []).forEach((item) => {
+    const tot = Number(item.totalScore);
+    if (!isNaN(tot) && tot > 0) {
+      const sId = String(item.subjectId);
+      stageSubjectScores.set(`${currentStage}_${sId}`, {
+        totalScore: tot,
+        units: item.units !== undefined && item.units > 0 ? item.units : 2,
+      });
+    }
+  });
+
+  // 2. Local broadsheet scores (fis_broadsheet_scores_v2)
+  (allLocalScores || []).forEach((l: any) => {
+    if (!l) return;
+    const lStId = String(l.studentId || '').toUpperCase().trim();
+    const lStNum = String(l.studentNumber || '').toUpperCase().trim();
+    const matchesStudent =
+      (lStId && (lStId === cleanDbId || lStId === cleanStId)) ||
+      (lStNum && lStNum === cleanStId);
+    if (!matchesStudent) return;
+
+    // Check deleted
+    if (l.id && deletedIds.has(String(l.id))) return;
+    if (l.testId && deletedIds.has(String(l.testId))) return;
+    if (l.examId && deletedIds.has(String(l.examId))) return;
+    if (deletedIds.has(`key_${cleanDbId}_${l.subjectId}`)) return;
+    if (deletedIds.has(`key_${cleanStId}_${l.subjectId}`)) return;
+
+    // Check session
+    if (l.session && targetSession && l.session.trim() !== targetSession.trim()) return;
+
+    const lStage = getExamStageOrder(l.term, l.examPeriod);
+    if (lStage <= currentStage) {
+      const sId = String(l.subjectId);
+      const key = `${lStage}_${sId}`;
+      if (lStage < currentStage || !stageSubjectScores.has(key)) {
+        const tot = Number(l.totalScore || ((l.testScore || 0) + (l.examScore || 0)));
+        if (!isNaN(tot) && tot > 0) {
+          stageSubjectScores.set(key, { totalScore: tot, units: 2 });
+        }
+      }
+    }
+  });
+
+  // 3. Server assessments (/api/scores)
+  (allServerScores || []).forEach((s: any) => {
+    if (!s) return;
+    const sDbId = String(s.studentDbId || s.studentId || '').trim();
+    const sNum = String(s.studentNumber || s.studentId || '').toUpperCase().trim();
+    const matchesStudent =
+      (sDbId && (sDbId === cleanDbId || sDbId === cleanStId)) ||
+      (sNum && (sNum === cleanStId || sNum === cleanDbId));
+    if (!matchesStudent) return;
+
+    if (s.id && deletedIds.has(String(s.id))) return;
+    if (deletedIds.has(`key_${cleanDbId}_${s.subjectId}`)) return;
+    if (deletedIds.has(`key_${cleanStId}_${s.subjectId}`)) return;
+
+    if (s.session && targetSession && s.session.trim() !== targetSession.trim()) return;
+
+    const sStage = getExamStageOrder(s.term, s.examPeriod, s.assessmentTitle, s.teacherComment);
+    if (sStage <= currentStage) {
+      const sId = String(s.subjectId);
+      const key = `${sStage}_${sId}`;
+      if (!stageSubjectScores.has(key)) {
+        let tot = 0;
+        if (s.teacherComment && s.teacherComment.trim().startsWith('{')) {
+          try {
+            const p = JSON.parse(s.teacherComment);
+            if (p.totalScore !== undefined && p.totalScore !== null) tot = Number(p.totalScore);
+            else if (p.caScore !== undefined || p.examScore !== undefined) {
+              tot = (Number(p.caScore) || 0) + (Number(p.examScore) || 0);
+            }
+          } catch (_) {}
+        }
+        if (!tot && s.score !== undefined && s.score !== null) {
+          const numS = Number(s.score);
+          const maxS = Number(s.maxScore) || 100;
+          if (maxS === 100) tot = numS;
+          else tot = Math.round((numS / maxS) * 100);
+        }
+        if (!isNaN(tot) && tot > 0) {
+          stageSubjectScores.set(key, { totalScore: tot, units: 2 });
+        }
+      }
+    }
+  });
+
+  const cumulativeList = Array.from(stageSubjectScores.values());
+  const scopeLabel = getStageScopeLabel(currentStage);
+
+  if (cumulativeList.length === 0) {
+    return {
+      cgpa: 0,
+      totalUnits: 0,
+      totalQualityPoints: 0,
+      standing: 'No Scores Recorded',
+      gradeBadge: 'N/A',
+      scopeLabel,
+      qualifyingSubjectCount: 0,
+      cumulativeAveragePercentage: 0,
+    };
+  }
+
+  const cgpaSummary = calculateCgpa(cumulativeList);
+  const totalMarks = cumulativeList.reduce((acc, curr) => acc + curr.totalScore, 0);
+  const cumulativeAveragePercentage = Math.round((totalMarks / cumulativeList.length) * 10) / 10;
+
+  return {
+    cgpa: cgpaSummary.cgpa,
+    totalUnits: cgpaSummary.totalUnits,
+    totalQualityPoints: cgpaSummary.totalQualityPoints,
+    standing: cgpaSummary.standing,
+    gradeBadge: cgpaSummary.gradeBadge,
+    scopeLabel,
+    qualifyingSubjectCount: cumulativeList.length,
+    cumulativeAveragePercentage,
+  };
+}
+
+
+

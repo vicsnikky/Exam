@@ -421,11 +421,11 @@ export async function fetchAllStudentsUnified(token?: string | null): Promise<St
       !deletedSet.has(String(s.studentId))
   );
 
-  // Guarantee strictly unique integer IDs across all students to prevent React duplicate key collisions
+  // Ensure every student has an id, preserving real database IDs
   const seenStudentIds = new Set<number>();
-  let nextStudentUniqueId = 5000;
+  let nextStudentUniqueId = 90000;
   for (const s of cleanMerged) {
-    if (!s.id || seenStudentIds.has(s.id)) {
+    if (!s.id) {
       while (seenStudentIds.has(nextStudentUniqueId)) {
         nextStudentUniqueId++;
       }

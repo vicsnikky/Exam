@@ -121,7 +121,7 @@ export const EditStudentModal: React.FC<EditStudentModalProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-xs font-bold uppercase tracking-wider text-amber-400 font-mono">
-                  Super Admin Record Editor
+                  Student Profile Editor
                 </span>
                 <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-slate-800 text-slate-300 border border-slate-700 flex items-center gap-1">
                   <Lock className="w-2.5 h-2.5 text-amber-400" />

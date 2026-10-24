@@ -77,6 +77,73 @@ app.use(async (req, _res, next) => {
 });
 
 // ----------------------------------------------------
+// CREDENTIALS RECOVERY VAULT (SUPER ADMIN RECOVERY)
+// ----------------------------------------------------
+const RECOVERY_VAULT_FILE = path.resolve(__dirname, '.credentials_recovery_vault.json');
+
+export interface RecoveryCredentialEntry {
+  identifier: string;
+  name?: string;
+  role?: string;
+  email?: string;
+  currentClass?: string;
+  password: string;
+  updatedAt: string;
+}
+
+export function getRecoveryVault(): Record<string, RecoveryCredentialEntry> {
+  try {
+    if (fs.existsSync(RECOVERY_VAULT_FILE)) {
+      const raw = fs.readFileSync(RECOVERY_VAULT_FILE, 'utf-8');
+      return JSON.parse(raw);
+    }
+  } catch (err) {
+    console.warn('Error reading recovery vault:', err);
+  }
+  return {};
+}
+
+export function recordRecoveryPassword(
+  identifier: string,
+  password: string,
+  meta?: { name?: string; role?: string; email?: string; currentClass?: string }
+) {
+  try {
+    if (!identifier || !password) return;
+    const vault = getRecoveryVault();
+    const cleanKey = identifier.toLowerCase().trim();
+    const cleanId = identifier.trim();
+    const entry: RecoveryCredentialEntry = {
+      identifier: cleanId,
+      name: meta?.name || vault[cleanKey]?.name || '',
+      role: meta?.role || vault[cleanKey]?.role || '',
+      email: meta?.email || vault[cleanKey]?.email || '',
+      currentClass: meta?.currentClass || vault[cleanKey]?.currentClass || '',
+      password: password.trim(),
+      updatedAt: new Date().toISOString(),
+    };
+    vault[cleanKey] = entry;
+    if (cleanId.toUpperCase() !== cleanKey) {
+      vault[cleanId.toUpperCase()] = entry;
+    }
+    fs.writeFileSync(RECOVERY_VAULT_FILE, JSON.stringify(vault, null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('Error recording recovery password:', err);
+  }
+}
+
+// Seed Super Admin & Known Accounts into Recovery Vault
+try {
+  recordRecoveryPassword('TCH-2026-0001', 'Alo.13071996', { name: 'Victor Alo', role: 'super_admin', email: 'victoralo1862@gmail.com' });
+  recordRecoveryPassword('victoralo1862@gmail.com', 'Alo.13071996', { name: 'Victor Alo', role: 'super_admin', email: 'victoralo1862@gmail.com' });
+  recordRecoveryPassword('director@school.edu', 'director123', { name: 'School Director', role: 'director', email: 'director@school.edu' });
+  recordRecoveryPassword('principal@school.edu', 'principal123', { name: 'School Principal', role: 'principal', email: 'principal@school.edu' });
+  recordRecoveryPassword('bursar@school.edu', 'bursar123', { name: 'School Bursar', role: 'bursar', email: 'bursar@school.edu' });
+  recordRecoveryPassword('admin@school.edu', 'admin123', { name: 'School Administrator', role: 'admin', email: 'admin@school.edu' });
+  recordRecoveryPassword('teacher@school.edu', 'teacher123', { name: 'Faculty Member', role: 'teacher', email: 'teacher@school.edu' });
+} catch (_) {}
+
+// ----------------------------------------------------
 // 1. AUTHENTICATION & REGISTRATION ENDPOINTS
 // ----------------------------------------------------
 
@@ -135,6 +202,18 @@ app.post('/api/auth/register-teacher', async (req, res) => {
       targetEntity: 'teachers',
       details: `Teacher ${teacherId} registered (${email})`,
       schoolId,
+    });
+
+    // Record credential in super admin recovery vault
+    recordRecoveryPassword(newTeacher.teacherId, password, {
+      name: `${firstName} ${lastName}`,
+      role: 'teacher',
+      email: newUser.email,
+    });
+    recordRecoveryPassword(newUser.email, password, {
+      name: `${firstName} ${lastName}`,
+      role: 'teacher',
+      email: newUser.email,
     });
 
     const token = `local-teacher-auth:${newUser.email}`;
@@ -203,6 +282,13 @@ app.post('/api/auth/register-student', async (req, res) => {
       targetEntity: 'students',
       details: `Student registered self: ${uniqueStudentId} (${newStudent.currentClass})`,
       schoolId,
+    });
+
+    // Record credential in super admin recovery vault
+    recordRecoveryPassword(newStudent.studentId, password, {
+      name: `${firstName} ${surname}`,
+      role: 'student',
+      currentClass: newStudent.currentClass,
     });
 
     const token = `local-student-auth:${newStudent.studentId}`;
@@ -595,6 +681,14 @@ app.post('/api/students', authenticate, async (req: AuthRequest, res) => {
       targetEntity: 'students',
       details: `Student registered: ${newStudent.firstName} ${newStudent.surname} (${newStudent.studentId}) in class ${newStudent.currentClass}`,
       schoolId: req.appUser?.schoolId || 1,
+    });
+
+    // Record in super admin recovery vault
+    recordRecoveryPassword(newStudent.studentId, studentPlainPassword, {
+      name: `${newStudent.firstName} ${newStudent.surname}`,
+      role: 'student',
+      email: newStudent.email || undefined,
+      currentClass: newStudent.currentClass,
     });
 
     return res.status(201).json({
@@ -1003,6 +1097,16 @@ app.put('/api/students/:id', authenticate, async (req: AuthRequest, res) => {
       details: `Student details updated: ${updatedStudent.firstName} ${updatedStudent.surname} (${updatedStudent.studentId}) by ${req.appUser?.firstName} ${req.appUser?.lastName}`,
       schoolId: req.appUser?.schoolId || 1,
     });
+
+    // Keep recovery vault updated
+    if (password && password.trim().length > 0) {
+      recordRecoveryPassword(updatedStudent.studentId, password.trim(), {
+        name: `${updatedStudent.firstName} ${updatedStudent.surname}`,
+        role: 'student',
+        email: updatedStudent.email || undefined,
+        currentClass: updatedStudent.currentClass,
+      });
+    }
 
     return res.json({
       success: true,
@@ -1942,6 +2046,10 @@ app.post('/api/scores', authenticate, async (req: AuthRequest, res) => {
     const targetTerm = (term || 'First Term').trim();
     const targetSession = (session || resolvedStudent.session || '2026/2027').trim();
 
+    const titleLower = (assessmentTitle || '').toLowerCase();
+    const commentLower = (teacherComment || '').toLowerCase();
+    const isFirstHalf = titleLower.includes('first half') || titleLower.includes('1st half') || titleLower.includes('mid') || commentLower.includes('first-half');
+
     // Upsert into assessments table to avoid duplicates and allow updating
     const existingAssessments = await db
       .select()
@@ -1954,11 +2062,21 @@ app.post('/api/scores', authenticate, async (req: AuthRequest, res) => {
           eq(assessments.term, targetTerm),
           eq(assessments.session, targetSession)
         )
-      )
-      .limit(1);
+      );
+
+    let matchedExisting: any = null;
+    for (const ea of existingAssessments) {
+      const eaTitle = (ea.assessmentTitle || '').toLowerCase();
+      const eaComm = (ea.teacherComment || '').toLowerCase();
+      const eaIsFirstHalf = eaTitle.includes('first half') || eaTitle.includes('1st half') || eaTitle.includes('mid') || eaComm.includes('first-half');
+      if (isFirstHalf === eaIsFirstHalf) {
+        matchedExisting = ea;
+        break;
+      }
+    }
 
     let recordedAssessment: any;
-    if (existingAssessments.length > 0) {
+    if (matchedExisting) {
       const [updated] = await db
         .update(assessments)
         .set({
@@ -1970,7 +2088,7 @@ app.post('/api/scores', authenticate, async (req: AuthRequest, res) => {
           teacherComment: teacherComment ? teacherComment.trim() : null,
           teacherId: resolvedTeacherId,
         })
-        .where(eq(assessments.id, existingAssessments[0].id))
+        .where(eq(assessments.id, matchedExisting.id))
         .returning();
       recordedAssessment = updated;
     } else {
@@ -2887,9 +3005,11 @@ app.put('/api/scores/:id', authenticate, async (req: AuthRequest, res) => {
       return res.status(403).json({ error: 'Permission denied. Academic faculty only. Students and bursars cannot modify scores.' });
     }
 
-    const scoreId = Number(req.params.id);
-    if (!scoreId || isNaN(scoreId)) {
-      return res.status(400).json({ error: 'Valid score ID is required' });
+    const rawId = req.params.id;
+    const scoreId = Number(rawId);
+    let existing: any[] = [];
+    if (!isNaN(scoreId) && scoreId > 0) {
+      existing = await db.select().from(assessments).where(eq(assessments.id, scoreId)).limit(1);
     }
 
     const {
@@ -2903,8 +3023,41 @@ app.put('/api/scores/:id', authenticate, async (req: AuthRequest, res) => {
       teacherComment,
     } = req.body;
 
-    const existing = await db.select().from(assessments).where(eq(assessments.id, scoreId)).limit(1);
     if (existing.length === 0) {
+      // If score not found by numeric ID but student info provided, upsert directly
+      if (req.body.studentId || req.body.studentNumber) {
+        const studentParam = req.body.studentId || req.body.studentNumber;
+        let stMatch: any = null;
+        if (!isNaN(Number(studentParam))) {
+          const found = await db.select().from(students).where(eq(students.id, Number(studentParam))).limit(1);
+          if (found.length > 0) stMatch = found[0];
+        }
+        if (!stMatch) {
+          const found = await db.select().from(students).where(eq(students.studentId, String(studentParam).toUpperCase().trim())).limit(1);
+          if (found.length > 0) stMatch = found[0];
+        }
+
+        if (stMatch) {
+          const numS = Number(score) || 0;
+          const numM = Number(maxScore) || 100;
+          const { grade: g, percentage: p } = calculateGrade(numS, numM);
+          const [inserted] = await db.insert(assessments).values({
+            studentId: stMatch.id,
+            subjectId: Number(subjectId) || 1,
+            assessmentType: assessmentType ? assessmentType.trim() : 'Examination',
+            assessmentTitle: assessmentTitle ? assessmentTitle.trim() : 'Terminal Assessment',
+            score: numS.toString(),
+            maxScore: numM.toString(),
+            percentage: p.toString(),
+            grade: g,
+            session: session ? session.trim() : '2026/2027',
+            term: term ? term.trim() : 'First Term',
+            teacherComment: teacherComment ? teacherComment.trim() : null,
+            schoolId: 1,
+          }).returning();
+          return res.json({ message: 'Score record successfully upserted', assessment: inserted });
+        }
+      }
       return res.status(404).json({ error: 'Assessment score record not found' });
     }
 
@@ -4123,6 +4276,20 @@ app.post('/api/admin/teachers', authenticate, async (req: AuthRequest, res) => {
       schoolId: 1,
     });
 
+    // Record credential in super admin recovery vault
+    recordRecoveryPassword(newTeacher.teacherId, password, {
+      name: `${newUser.firstName} ${newUser.lastName}`,
+      role: assignedRole,
+      email: newUser.email,
+      currentClass: assignedClassName || undefined,
+    });
+    recordRecoveryPassword(newUser.email, password, {
+      name: `${newUser.firstName} ${newUser.lastName}`,
+      role: assignedRole,
+      email: newUser.email,
+      currentClass: assignedClassName || undefined,
+    });
+
     return res.status(201).json({
       message: `Account created successfully with role '${assignedRole}'`,
       teacher: {
@@ -4370,6 +4537,23 @@ app.put('/api/admin/teachers/:id', authenticate, async (req: AuthRequest, res) =
     const freshTeacher = (await db.select().from(teachers).where(eq(teachers.id, targetTeacher.id)).limit(1))[0];
 
     const teacherAssignment = inMemoryClassTeacherAssignments[String(freshTeacher.teacherId)] || inMemoryClassTeacherAssignments[String(freshTeacher.id)];
+
+    if (password && password.trim().length > 0) {
+      recordRecoveryPassword(freshTeacher.teacherId, password.trim(), {
+        name: `${updatedUser?.firstName || firstName || ''} ${updatedUser?.lastName || lastName || ''}`.trim(),
+        role: updatedUser?.role || targetTeacher.role || 'teacher',
+        email: updatedUser?.email || email || '',
+        currentClass: teacherAssignment ? teacherAssignment.className : undefined,
+      });
+      if (updatedUser?.email || email) {
+        recordRecoveryPassword(updatedUser?.email || email, password.trim(), {
+          name: `${updatedUser?.firstName || firstName || ''} ${updatedUser?.lastName || lastName || ''}`.trim(),
+          role: updatedUser?.role || targetTeacher.role || 'teacher',
+          email: updatedUser?.email || email || '',
+          currentClass: teacherAssignment ? teacherAssignment.className : undefined,
+        });
+      }
+    }
 
     return res.json({
       success: true,
@@ -4772,6 +4956,219 @@ app.patch('/api/complaints/:referenceCode', authenticate, async (req: AuthReques
     return res.json({ success: true, referenceCode });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
+  }
+});
+
+// ----------------------------------------------------
+// 10. SUPER ADMIN CREDENTIAL RECOVERY VAULT ENDPOINTS
+// ----------------------------------------------------
+
+// GET Everyone's IDs and Recovery Passwords (Super Admin Exclusive)
+app.get('/api/admin/recovery-vault', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const callerRole = req.appUser?.role;
+    const callerEmail = req.appUser?.email?.toLowerCase().trim();
+    const isSuperAdmin = callerRole === 'super_admin' || callerEmail === 'victoralo1862@gmail.com';
+
+    if (!isSuperAdmin) {
+      return res.status(403).json({ error: 'Access denied: Super Administrator portfolio access required' });
+    }
+
+    const vault = getRecoveryVault();
+
+    // 1. Fetch all students
+    let allStudents: any[] = [];
+    try {
+      allStudents = await db.select().from(students).orderBy(students.surname, students.firstName);
+    } catch (_) {}
+
+    // 2. Fetch all teachers and linked users
+    let allTeachers: any[] = [];
+    try {
+      const dbTeachers = await db.select().from(teachers);
+      const dbUsers = await db.select().from(users);
+      const userMap = new Map(dbUsers.map((u) => [u.id, u]));
+
+      allTeachers = dbTeachers.map((t) => {
+        const u = t.userId ? userMap.get(t.userId) : null;
+        const assignment = inMemoryClassTeacherAssignments[String(t.teacherId)] || inMemoryClassTeacherAssignments[String(t.id)];
+        return {
+          id: t.id,
+          userId: t.userId,
+          teacherId: t.teacherId,
+          firstName: u?.firstName || '',
+          lastName: u?.lastName || '',
+          email: u?.email || '',
+          role: u?.role || 'teacher',
+          phone: t.phone || '',
+          assignedClass: assignment ? assignment.className : null,
+          isClassTeacher: Boolean(assignment),
+          createdAt: u?.createdAt || t.createdAt,
+        };
+      });
+    } catch (_) {}
+
+    // 3. Fetch all system users (including Principal, Director, Bursar, Admins, etc.)
+    let allUsers: any[] = [];
+    try {
+      allUsers = await db.select().from(users).orderBy(users.role, users.lastName);
+    } catch (_) {}
+
+    // Enrich students with recovery passwords
+    const enrichedStudents = allStudents.map((s) => {
+      const sKey = (s.studentId || '').toLowerCase().trim();
+      const vaultEntry = vault[sKey] || vault[String(s.studentId).toUpperCase()] || vault[String(s.id)];
+      return {
+        id: s.id,
+        studentId: s.studentId,
+        firstName: s.firstName,
+        middleName: s.middleName,
+        surname: s.surname,
+        currentClass: s.currentClass,
+        gender: s.gender,
+        email: s.email,
+        parentName: s.parentName,
+        parentPhone: s.parentPhone,
+        school: s.school,
+        session: s.session,
+        password: vaultEntry?.password || 'student123',
+        passwordUpdatedAt: vaultEntry?.updatedAt || null,
+      };
+    });
+
+    // Enrich teachers & staff with recovery passwords
+    const enrichedTeachers = allTeachers.map((t) => {
+      const tKey = (t.teacherId || '').toLowerCase().trim();
+      const eKey = (t.email || '').toLowerCase().trim();
+      const vaultEntry = vault[tKey] || vault[eKey] || vault[String(t.id)];
+      return {
+        ...t,
+        password: vaultEntry?.password || (t.email === 'victoralo1862@gmail.com' ? 'Alo.13071996' : 'teacher123'),
+        passwordUpdatedAt: vaultEntry?.updatedAt || null,
+      };
+    });
+
+    return res.json({
+      success: true,
+      lastBackup: new Date().toISOString(),
+      students: enrichedStudents,
+      teachers: enrichedTeachers,
+      users: allUsers,
+      totalScholars: enrichedStudents.length,
+      totalFacultyAndStaff: enrichedTeachers.length,
+    });
+  } catch (error: any) {
+    console.error('Recovery vault fetch error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to retrieve recovery vault' });
+  }
+});
+
+// POST Super Admin Quick Password Reset for any user or student
+app.post('/api/admin/reset-user-password', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const callerRole = req.appUser?.role;
+    const callerEmail = req.appUser?.email?.toLowerCase().trim();
+    const isSuperAdmin = callerRole === 'super_admin' || callerEmail === 'victoralo1862@gmail.com';
+
+    if (!isSuperAdmin) {
+      return res.status(403).json({ error: 'Access denied: Super Administrator portfolio access required' });
+    }
+
+    const { targetType, identifier, newPassword } = req.body;
+    if (!identifier || !newPassword || String(newPassword).trim().length === 0) {
+      return res.status(400).json({ error: 'User identifier and new password are required' });
+    }
+
+    const cleanPwd = String(newPassword).trim();
+    const salt = await bcrypt.genSalt(10);
+    const passwordHash = await bcrypt.hash(cleanPwd, salt);
+
+    let updatedTargetName = identifier;
+    let updatedRole = targetType || 'user';
+    let updatedEmail = '';
+
+    if (targetType === 'student') {
+      let stMatch = null;
+      if (!isNaN(Number(identifier))) {
+        const found = await db.select().from(students).where(eq(students.id, Number(identifier))).limit(1);
+        if (found.length > 0) stMatch = found[0];
+      }
+      if (!stMatch) {
+        const found = await db.select().from(students).where(eq(students.studentId, String(identifier).toUpperCase().trim())).limit(1);
+        if (found.length > 0) stMatch = found[0];
+      }
+      if (stMatch) {
+        await db.update(students).set({ passwordHash }).where(eq(students.id, stMatch.id));
+        updatedTargetName = `${stMatch.firstName} ${stMatch.surname}`;
+        updatedRole = 'student';
+        updatedEmail = stMatch.email || '';
+        recordRecoveryPassword(stMatch.studentId, cleanPwd, {
+          name: updatedTargetName,
+          role: 'student',
+          email: stMatch.email || undefined,
+          currentClass: stMatch.currentClass,
+        });
+      }
+    } else {
+      // Teacher or General User
+      let userMatch = null;
+      const foundByEmail = await db.select().from(users).where(eq(users.email, String(identifier).toLowerCase().trim())).limit(1);
+      if (foundByEmail.length > 0) {
+        userMatch = foundByEmail[0];
+      } else if (!isNaN(Number(identifier))) {
+        const foundById = await db.select().from(users).where(eq(users.id, Number(identifier))).limit(1);
+        if (foundById.length > 0) userMatch = foundById[0];
+      }
+
+      if (userMatch) {
+        await db.update(users).set({ passwordHash }).where(eq(users.id, userMatch.id));
+        updatedTargetName = `${userMatch.firstName} ${userMatch.lastName}`;
+        updatedRole = userMatch.role;
+        updatedEmail = userMatch.email;
+        recordRecoveryPassword(userMatch.email, cleanPwd, {
+          name: updatedTargetName,
+          role: userMatch.role,
+          email: userMatch.email,
+        });
+      }
+
+      // If teacherId provided, also update by teacherId
+      const foundTeacher = await db.select().from(teachers).where(eq(teachers.teacherId, String(identifier).toUpperCase().trim())).limit(1);
+      if (foundTeacher.length > 0 && foundTeacher[0].userId) {
+        await db.update(users).set({ passwordHash }).where(eq(users.id, foundTeacher[0].userId));
+        recordRecoveryPassword(foundTeacher[0].teacherId, cleanPwd, {
+          name: updatedTargetName,
+          role: updatedRole,
+          email: updatedEmail,
+        });
+      }
+    }
+
+    // Always update vault
+    recordRecoveryPassword(identifier, cleanPwd, {
+      name: updatedTargetName,
+      role: updatedRole,
+      email: updatedEmail,
+    });
+
+    // Audit log
+    await db.insert(auditLogs).values({
+      actorName: `${req.appUser?.firstName} ${req.appUser?.lastName}`,
+      actorRole: 'super_admin',
+      action: 'PASSWORD_RESET_BY_SUPER_ADMIN',
+      targetEntity: targetType === 'student' ? 'students' : 'users',
+      details: `Super Admin reset password for ${updatedTargetName} (${identifier})`,
+      schoolId: 1,
+    });
+
+    return res.json({
+      success: true,
+      message: `Password for ${updatedTargetName} (${identifier}) successfully reset and recorded in Super Admin recovery vault.`,
+      newPassword: cleanPwd,
+    });
+  } catch (err: any) {
+    console.error('Super Admin password reset error:', err);
+    return res.status(500).json({ error: err.message || 'Failed to reset password' });
   }
 });
 

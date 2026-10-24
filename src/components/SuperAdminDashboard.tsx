@@ -35,6 +35,7 @@ import {
   Eye,
   EyeOff,
   Copy,
+  X,
 } from 'lucide-react';
 import {
   getLocalTeachers,
@@ -135,10 +136,24 @@ export const SuperAdminDashboard: React.FC = () => {
 
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  // Staff Password Recovery Vault states
+  // Everyone Credential Recovery Vault states (Scholars & Staff)
   const [revealedPasswords, setRevealedPasswords] = useState<Record<string, boolean>>({});
   const [copiedPasswordId, setCopiedPasswordId] = useState<string | null>(null);
-  const [vaultStaffSearch, setVaultStaffSearch] = useState('');
+  const [copiedIdentifierId, setCopiedIdentifierId] = useState<string | null>(null);
+  const [vaultSearch, setVaultSearch] = useState('');
+  const [vaultSubTab, setVaultSubTab] = useState<'everyone' | 'students' | 'staff'>('everyone');
+  const [vaultClassFilter, setVaultClassFilter] = useState<string>('all');
+  const [recoveryVaultData, setRecoveryVaultData] = useState<{
+    everyone: any[];
+    students: any[];
+    staff: any[];
+    stats?: any;
+  }>({ everyone: [], students: [], staff: [] });
+
+  // Quick Password Reset Modal
+  const [resetModalUser, setResetModalUser] = useState<any | null>(null);
+  const [newPasswordInput, setNewPasswordInput] = useState<string>('');
+  const [resettingPassword, setResettingPassword] = useState<boolean>(false);
 
   const toggleRevealPassword = (id: string) => {
     setRevealedPasswords((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -151,6 +166,64 @@ export const SuperAdminDashboard: React.FC = () => {
     setTimeout(() => {
       setCopiedPasswordId(null);
     }, 2000);
+  };
+
+  const handleCopyIdentifier = (id: string) => {
+    if (!id) return;
+    navigator.clipboard.writeText(id);
+    setCopiedIdentifierId(id);
+    setTimeout(() => {
+      setCopiedIdentifierId(null);
+    }, 2000);
+  };
+
+  const handleQuickResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetModalUser || !newPasswordInput.trim()) return;
+    setResettingPassword(true);
+    try {
+      const res = await fetch('/api/admin/reset-user-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          identifier: resetModalUser.identifier,
+          newPassword: newPasswordInput.trim(),
+          role: resetModalUser.role,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to reset password');
+
+      // Update in local recoveryVaultData
+      setRecoveryVaultData((prev) => {
+        const updateList = (list: any[]) =>
+          list.map((item) =>
+            item.identifier === resetModalUser.identifier
+              ? { ...item, recoveryPassword: newPasswordInput.trim() }
+              : item
+          );
+        return {
+          ...prev,
+          everyone: updateList(prev.everyone),
+          students: updateList(prev.students),
+          staff: updateList(prev.staff),
+        };
+      });
+
+      setNotification({
+        type: 'success',
+        message: `Password updated to "${newPasswordInput.trim()}" for ${resetModalUser.name} (${resetModalUser.identifier})!`,
+      });
+      setResetModalUser(null);
+      setNewPasswordInput('');
+    } catch (err: any) {
+      setNotification({ type: 'error', message: err.message || 'Error resetting password' });
+    } finally {
+      setResettingPassword(false);
+    }
   };
 
   // Edit Modals state
@@ -305,6 +378,23 @@ export const SuperAdminDashboard: React.FC = () => {
         totalAssessments: serverOverview?.totalAssessments || prev.totalAssessments || 0,
         totalSubjects: serverOverview?.totalSubjects || 9,
       }));
+
+      // Fetch all credentials for Super Admin recovery vault
+      if (token && isVictorSuperAdmin) {
+        try {
+          const vRes = await safeFetchJson<any>('/api/admin/recovery-vault', {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (vRes.ok && vRes.data?.everyone) {
+            setRecoveryVaultData({
+              everyone: vRes.data.everyone,
+              students: vRes.data.students || [],
+              staff: vRes.data.staff || [],
+              stats: vRes.data.stats,
+            });
+          }
+        } catch (_) {}
+      }
     } catch (e) {
       console.warn('Backend admin sync fallback:', e);
     }
@@ -894,7 +984,7 @@ export const SuperAdminDashboard: React.FC = () => {
                 }`}
               >
                 <Key className="w-3.5 h-3.5 text-amber-400" />
-                Staff Passwords & Recovery Vault ({teachersList.length})
+                Everyone ID & Password Vault ({recoveryVaultData.everyone.length || (studentsList.length + teachersList.length)})
               </button>
             )}
             <button
@@ -1195,36 +1285,53 @@ export const SuperAdminDashboard: React.FC = () => {
 
           {/* INSTITUTIONAL VAULT & RECOVERY CENTER (SUPER ADMIN ONLY) */}
           {activeAdminTab === 'vault' && (
-            <div className="flex-1 flex flex-col space-y-4 overflow-y-auto max-h-[460px] pr-1">
+            <div className="flex-1 flex flex-col space-y-4 overflow-y-auto max-h-[520px] pr-1">
               {!isVictorSuperAdmin ? (
                 <div className="p-8 text-center bg-slate-900 border border-slate-800 rounded-2xl max-w-lg mx-auto space-y-3 my-6">
                   <ShieldAlert className="w-10 h-10 text-amber-400 mx-auto" />
                   <h3 className="text-white font-bold text-sm">Super Admin Credential Vault (Confidential)</h3>
                   <p className="text-slate-400 text-xs leading-relaxed">
-                    Staff password recovery and master encryption credentials are exclusively confidential to the Super Administrator portfolio. The Director, Principal, and faculty desks do not have access to staff credentials.
+                    Student ID recovery, staff passwords, and master credentials are confidential exclusively to the Super Administrator portfolio.
                   </p>
                 </div>
               ) : (
                 <>
-                  <div className="p-4 bg-gradient-to-r from-amber-950/60 via-slate-900 to-slate-900 border border-amber-500/40 rounded-xl space-y-3">
+                  {/* Vault Header Banner */}
+                  <div className="p-4 bg-gradient-to-r from-amber-950/60 via-slate-900 to-indigo-950/50 border border-amber-500/40 rounded-xl space-y-3 shadow-lg">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       <div>
-                        <h4 className="text-xs font-bold text-amber-300 flex items-center gap-1.5 uppercase tracking-wide">
+                        <div className="flex items-center gap-2">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500 text-slate-950 uppercase">
+                            Super Admin Exclusive
+                          </span>
+                          <span className="text-[10px] font-bold text-emerald-400">
+                            Live Database Connected
+                          </span>
+                        </div>
+                        <h4 className="text-sm font-bold text-white flex items-center gap-1.5 mt-1">
                           <Key className="w-4 h-4 text-amber-400" />
-                          Staff Password Recovery Vault (Super Admin Exclusive)
+                          Master Credential Recovery Vault (Everyone)
                         </h4>
                         <p className="text-[11px] text-slate-300 mt-0.5 max-w-2xl">
-                          All faculty, bursar, principal, director, and administrative staff passwords are secure here for emergency recovery. Staff can change their passwords on their dashboard; active passwords mirror here. (Note: Only visible to Super Admin, not on Director or faculty dashboards).
+                          Search, view, reveal, copy, and reset ID numbers and passwords for every student, class teacher, bursar, principal, and director in case of account recovery.
                         </p>
                       </div>
                       <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                        <button
+                          onClick={fetchAdminData}
+                          className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold rounded-lg transition flex items-center gap-1.5 cursor-pointer"
+                          title="Refresh Vault Records"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Refresh</span>
+                        </button>
                         <button
                           onClick={handleSyncVault}
                           disabled={syncingVault}
                           className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold rounded-lg shadow transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                         >
-                          <RefreshCw className={`w-3.5 h-3.5 ${syncingVault ? 'animate-spin' : ''}`} />
-                          {syncingVault ? 'Restoring...' : 'Sync & Restore Database'}
+                          <Database className={`w-3.5 h-3.5 ${syncingVault ? 'animate-spin' : ''}`} />
+                          {syncingVault ? 'Syncing...' : 'Sync DB'}
                         </button>
                         <button
                           onClick={() => handleExportVault('csv')}
@@ -1245,193 +1352,284 @@ export const SuperAdminDashboard: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Staff Search Filter */}
-                    <div className="pt-2">
+                    {/* Sub Navigation: Everyone / Students / Staff */}
+                    <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-800/80">
+                      <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
+                        <button
+                          type="button"
+                          onClick={() => setVaultSubTab('everyone')}
+                          className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                            vaultSubTab === 'everyone'
+                              ? 'bg-amber-500 text-slate-950 shadow'
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          Everyone ({recoveryVaultData.everyone.length || (studentsList.length + teachersList.length)})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setVaultSubTab('students')}
+                          className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                            vaultSubTab === 'students'
+                              ? 'bg-amber-500 text-slate-950 shadow'
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          Scholars / Students ({recoveryVaultData.students.length || studentsList.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setVaultSubTab('staff')}
+                          className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                            vaultSubTab === 'staff'
+                              ? 'bg-amber-500 text-slate-950 shadow'
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          Faculty & Staff ({recoveryVaultData.staff.length || teachersList.length})
+                        </button>
+                      </div>
+
+                      {/* Class Filter (when viewing students or everyone) */}
+                      {vaultSubTab !== 'staff' && (
+                        <select
+                          value={vaultClassFilter}
+                          onChange={(e) => setVaultClassFilter(e.target.value)}
+                          className="bg-slate-950 border border-slate-750 text-slate-300 text-xs rounded-xl px-3 py-1.5 focus:outline-none focus:border-amber-400 cursor-pointer"
+                        >
+                          <option value="all">All Classes (Entire School)</option>
+                          {CLASS_OPTIONS.map((c) => (
+                            <option key={`vcf_${c}`} value={c}>
+                              Class: {c}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+
+                    {/* Universal Search Filter */}
+                    <div>
                       <input
                         type="text"
-                        placeholder="Search staff by name, role, email, or teacher ID..."
-                        value={vaultStaffSearch}
-                        onChange={(e) => setVaultStaffSearch(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-750 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400"
+                        placeholder="Search everyone by name, student/staff ID (FEN-... / TCH-...), class, role, or email..."
+                        value={vaultSearch}
+                        onChange={(e) => setVaultSearch(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-755 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400 shadow-inner"
                       />
                     </div>
                   </div>
 
-                  {/* Staff Passwords Vault List */}
-                  <div className="space-y-2">
-                    <span className="text-xs font-bold text-white uppercase tracking-wider block">
-                      Staff Credential Recovery Ledger
-                    </span>
+                  {/* Render Combined Credentials List */}
+                  {(() => {
+                    // Assemble base records
+                    let list: any[] = [];
+                    if (recoveryVaultData.everyone && recoveryVaultData.everyone.length > 0) {
+                      list = [...recoveryVaultData.everyone];
+                    } else {
+                      // Fallback: build from loaded students and teachers
+                      const synthStaff = teachersList.map((t) => ({
+                        id: t.id,
+                        identifier: t.teacherId || `TCH-${t.id}`,
+                        name: `${t.firstName} ${t.lastName}`,
+                        role: t.role || 'teacher',
+                        category: 'staff',
+                        email: t.email,
+                        phone: t.phone,
+                        assignedClass: t.assignedClass,
+                        recoveryPassword:
+                          (vaultData?.teachers?.find((x: any) => x.teacherId === t.teacherId || x.email === t.email)?.password) ||
+                          (t.email === 'victoralo1862@gmail.com' ? 'Alo.13071996' : 'fenster2026'),
+                      }));
 
-                    {(() => {
-                      const staffMap = new Map<string, any>();
-                      for (const t of teachersList) {
-                        const key = (t.teacherId || t.email || '').toLowerCase().trim();
-                        if (key) staffMap.set(key, { ...t });
-                      }
-                      for (const t of (vaultData.teachers || [])) {
-                        const key = (t.teacherId || t.email || '').toLowerCase().trim();
-                        if (key) {
-                          const existing = staffMap.get(key);
-                          staffMap.set(key, {
-                            ...t,
-                            ...existing,
-                            password: existing?.password || t.password || '',
-                          });
-                        }
-                      }
-                      let staff = Array.from(staffMap.values());
-                      if (vaultStaffSearch.trim()) {
-                        const q = vaultStaffSearch.toLowerCase().trim();
-                        staff = staff.filter(
-                          (s: any) =>
-                            (s.firstName && s.firstName.toLowerCase().includes(q)) ||
-                            (s.lastName && s.lastName.toLowerCase().includes(q)) ||
-                            (s.email && s.email.toLowerCase().includes(q)) ||
-                            (s.teacherId && s.teacherId.toLowerCase().includes(q)) ||
-                            (s.role && s.role.toLowerCase().includes(q))
-                        );
-                      }
+                      const synthStudents = studentsList.map((s) => ({
+                        id: s.id,
+                        identifier: s.studentId,
+                        name: `${s.firstName} ${s.surname}`,
+                        role: 'student',
+                        category: 'student',
+                        email: s.email || null,
+                        currentClass: s.currentClass,
+                        parentPhone: s.parentPhone,
+                        parentName: s.parentName,
+                        recoveryPassword:
+                          (vaultData?.students?.find((x: any) => x.studentId === s.studentId)?.password) || 'student123',
+                      }));
 
-                      if (staff.length === 0) {
-                        return (
-                          <div className="p-6 text-center text-slate-400 text-xs bg-slate-900/60 rounded-xl border border-slate-800">
-                            No staff records matching search filter.
-                          </div>
-                        );
-                      }
+                      list = [...synthStaff, ...synthStudents];
+                    }
 
+                    // Filter by subtab
+                    if (vaultSubTab === 'students') {
+                      list = list.filter((item) => item.category === 'student' || item.role === 'student');
+                    } else if (vaultSubTab === 'staff') {
+                      list = list.filter((item) => item.category === 'staff' || item.role !== 'student');
+                    }
+
+                    // Filter by class
+                    if (vaultClassFilter !== 'all') {
+                      list = list.filter((item) => isSameClass(item.currentClass, vaultClassFilter));
+                    }
+
+                    // Filter by search query
+                    if (vaultSearch.trim()) {
+                      const q = vaultSearch.toLowerCase().trim();
+                      list = list.filter((item) => {
+                        const nameMatch = item.name && item.name.toLowerCase().includes(q);
+                        const idMatch = item.identifier && item.identifier.toLowerCase().includes(q);
+                        const emailMatch = item.email && item.email.toLowerCase().includes(q);
+                        const roleMatch = item.role && item.role.toLowerCase().includes(q);
+                        const classMatch = item.currentClass && item.currentClass.toLowerCase().includes(q);
+                        return nameMatch || idMatch || emailMatch || roleMatch || classMatch;
+                      });
+                    }
+
+                    if (list.length === 0) {
                       return (
-                        <div className="space-y-2">
-                          {staff.map((s: any) => {
-                            const staffKey = s.teacherId || String(s.id);
-                            const isRevealed = Boolean(revealedPasswords[staffKey]);
-                            const pwd = s.password || '';
-                            const isCopied = copiedPasswordId === staffKey;
+                        <div className="p-8 text-center text-slate-400 text-xs bg-slate-900/60 rounded-xl border border-slate-800 space-y-2">
+                          <p className="font-semibold text-white">No credential records match your filter criteria.</p>
+                          <p className="text-slate-500 text-[11px]">Try clearing or adjusting the search keyword or class filter.</p>
+                        </div>
+                      );
+                    }
 
-                            return (
-                              <div
-                                key={staffKey}
-                                className="p-3.5 bg-slate-900/90 border border-slate-750 hover:border-slate-650 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs transition"
-                              >
-                                <div className="flex items-center gap-3 min-w-0">
-                                  <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-400 font-bold text-xs flex items-center justify-center border border-amber-500/30 shrink-0">
-                                    {s.firstName?.[0] || 'S'}{s.lastName?.[0] || ''}
-                                  </div>
-                                  <div className="min-w-0">
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                      <span className="font-bold text-white text-xs truncate">
-                                        {s.firstName} {s.lastName}
+                    return (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-[11px] text-slate-400 px-1 font-semibold">
+                          <span>Displaying {list.length} Accounts with IDs & Passwords</span>
+                          <span>Click Eye to reveal • Copy ID / Password in 1-click</span>
+                        </div>
+
+                        {list.map((item: any, idx: number) => {
+                          const itemKey = item.identifier || String(item.id || idx);
+                          const isRevealed = Boolean(revealedPasswords[itemKey]);
+                          const pwd = item.recoveryPassword || 'student123';
+                          const isPwdCopied = copiedPasswordId === itemKey;
+                          const isIdCopied = copiedIdentifierId === itemKey;
+                          const isStudentItem = item.category === 'student' || item.role === 'student';
+
+                          return (
+                            <div
+                              key={`vault_item_${itemKey}_${idx}`}
+                              className="p-3 bg-slate-900/90 border border-slate-750 hover:border-slate-650 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs transition shadow-sm"
+                            >
+                              {/* Left Info: Name, Role Badge, ID Badge with Copy button */}
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div
+                                  className={`w-9 h-9 rounded-xl font-bold text-xs flex items-center justify-center shrink-0 border ${
+                                    isStudentItem
+                                      ? 'bg-emerald-600/20 text-emerald-300 border-emerald-500/30'
+                                      : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                  }`}
+                                >
+                                  {item.name?.[0] || (isStudentItem ? 'S' : 'T')}
+                                </div>
+
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-bold text-white text-xs truncate">
+                                      {item.name}
+                                    </span>
+
+                                    {/* Copyable ID Badge */}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCopyIdentifier(item.identifier)}
+                                      className="font-mono text-[10px] font-bold px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-indigo-300 hover:text-white border border-slate-700 transition cursor-pointer flex items-center gap-1"
+                                      title="Click to copy unique ID"
+                                    >
+                                      <span>{item.identifier}</span>
+                                      <Copy className="w-2.5 h-2.5 opacity-70" />
+                                      {isIdCopied && (
+                                        <span className="text-emerald-400 font-sans text-[9px] font-bold">Copied!</span>
+                                      )}
+                                    </button>
+
+                                    {/* Role / Class Tag */}
+                                    {isStudentItem ? (
+                                      <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                                        Scholar: {item.currentClass || 'General'}
                                       </span>
-                                      <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-indigo-300 border border-slate-700">
-                                        {s.teacherId || 'STAFF'}
-                                      </span>
+                                    ) : (
                                       <span
-                                        className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ${
-                                          s.role === 'super_admin'
+                                        className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase ${
+                                          item.role === 'super_admin'
                                             ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                                            : s.role === 'director'
+                                            : item.role === 'director'
                                             ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
-                                            : s.role === 'principal'
+                                            : item.role === 'principal'
                                             ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                                            : s.role === 'bursar'
+                                            : item.role === 'bursar'
                                             ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                                            : s.role === 'admin'
+                                            : item.role === 'admin'
                                             ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
                                             : 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
                                         }`}
                                       >
-                                        {s.role === 'super_admin'
+                                        {item.role === 'super_admin'
                                           ? '🌟 Super Admin'
-                                          : s.role === 'director'
-                                          ? '👑 Director (Owner)'
-                                          : s.role === 'principal'
+                                          : item.role === 'director'
+                                          ? '👑 Director'
+                                          : item.role === 'principal'
                                           ? '🎓 Principal'
-                                          : s.role === 'bursar'
+                                          : item.role === 'bursar'
                                           ? '💳 Bursar'
-                                          : s.role === 'admin'
+                                          : item.role === 'admin'
                                           ? '🛡️ Admin'
-                                          : '📚 Faculty Teacher'}
+                                          : `📚 Faculty${item.assignedClass ? ` (${item.assignedClass})` : ''}`}
                                       </span>
-                                    </div>
-                                    <span className="text-slate-400 text-[11px] font-mono block mt-0.5 truncate">
-                                      {s.email} {s.phone ? `• ${s.phone}` : ''}
-                                    </span>
-                                  </div>
-                                </div>
-
-                                {/* Password Recovery & Controls */}
-                                <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto bg-slate-950 p-1.5 rounded-xl border border-slate-800">
-                                  <div className="px-2.5 py-1 rounded bg-slate-900 border border-slate-800 font-mono text-[11px] text-amber-300 min-w-[120px] text-center select-all">
-                                    {isRevealed ? (pwd || 'No Password') : '••••••••••••'}
+                                    )}
                                   </div>
 
-                                  <button
-                                    onClick={() => toggleRevealPassword(staffKey)}
-                                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
-                                    title={isRevealed ? 'Hide Password' : 'Show Password'}
-                                  >
-                                    {isRevealed ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                                  </button>
-
-                                  <button
-                                    onClick={() => handleCopyPassword(staffKey, pwd)}
-                                    disabled={!pwd}
-                                    className="px-2 py-1 rounded-lg text-[11px] font-semibold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 transition cursor-pointer disabled:opacity-40 flex items-center gap-1"
-                                    title="Copy Password"
-                                  >
-                                    <Copy className="w-3 h-3" />
-                                    <span>{isCopied ? 'Copied!' : 'Copy'}</span>
-                                  </button>
-
-                                  <button
-                                    onClick={() => setEditingTeacher(s)}
-                                    className="px-2 py-1 rounded-lg text-[11px] font-semibold text-amber-300 hover:text-amber-200 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 transition cursor-pointer flex items-center gap-1"
-                                    title="Admin Reset / Change Password"
-                                  >
-                                    <Pencil className="w-3 h-3 text-amber-400" />
-                                    <span>Reset</span>
-                                  </button>
+                                  <span className="text-slate-400 text-[11px] block mt-0.5 truncate">
+                                    {item.email || (item.parentPhone ? `Guardian: ${item.parentPhone}` : 'No email')}
+                                  </span>
                                 </div>
                               </div>
-                            );
-                          })}
-                        </div>
-                      );
-                    })()}
-                  </div>
 
-                  {/* Student PIN Registry Section */}
-                  <div className="space-y-2 pt-3 border-t border-slate-800">
-                    <span className="text-xs font-bold text-slate-300 uppercase tracking-wider block">
-                      Enrolled Student PIN Registry ({vaultData.students.length})
-                    </span>
-                    {vaultData.students.length === 0 ? (
-                      <div className="p-4 text-center text-slate-500 text-xs font-mono">
-                        No student records currently in vault. Newly enrolled students will automatically mirror here.
-                      </div>
-                    ) : (
-                      <div className="space-y-1.5 max-h-[180px] overflow-y-auto pr-1">
-                        {vaultData.students.map((s: any, sIdx: number) => (
-                          <div
-                            key={`vault_st_${s.id}_${s.studentId}_${sIdx}`}
-                            className="p-2.5 bg-slate-900/60 border border-slate-800 rounded-xl flex items-center justify-between text-xs"
-                          >
-                            <div>
-                              <span className="font-semibold text-white block">{s.firstName} {s.surname}</span>
-                              <span className="text-slate-400 text-[11px] font-mono">{s.studentId} • {s.currentClass}</span>
+                              {/* Right: Password Recovery Controls */}
+                              <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto bg-slate-950 p-1.5 rounded-xl border border-slate-800">
+                                <div className="px-2.5 py-1 rounded bg-slate-900 border border-slate-800 font-mono text-[11px] text-amber-300 min-w-[110px] text-center select-all">
+                                  {isRevealed ? pwd : '••••••••••••'}
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={() => toggleRevealPassword(itemKey)}
+                                  className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+                                  title={isRevealed ? 'Hide Password' : 'Show Password'}
+                                >
+                                  {isRevealed ? <EyeOff className="w-3.5 h-3.5 text-amber-400" /> : <Eye className="w-3.5 h-3.5" />}
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyPassword(itemKey, pwd)}
+                                  className="px-2.5 py-1 rounded-lg text-[11px] font-semibold text-slate-200 hover:text-white bg-slate-800 hover:bg-slate-700 transition cursor-pointer flex items-center gap-1"
+                                  title="Copy Password"
+                                >
+                                  <Copy className="w-3 h-3 text-slate-400" />
+                                  <span>{isPwdCopied ? 'Copied!' : 'Copy'}</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setResetModalUser(item);
+                                    setNewPasswordInput(pwd || '');
+                                  }}
+                                  className="px-2.5 py-1 rounded-lg text-[11px] font-semibold text-amber-300 hover:text-amber-200 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 transition cursor-pointer flex items-center gap-1"
+                                  title="Reset / assign new password"
+                                >
+                                  <Pencil className="w-3 h-3 text-amber-400" />
+                                  <span>Reset</span>
+                                </button>
+                              </div>
                             </div>
-                            <div className="text-right">
-                              <span className="text-emerald-400 font-mono text-[11px] block font-bold">
-                                PIN: {s.password || 'student123'}
-                              </span>
-                              <span className="text-[10px] text-slate-500">{s.parentPhone || 'No phone'}</span>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
-                    )}
-                  </div>
+                    );
+                  })()}
                 </>
               )}
             </div>
@@ -1660,6 +1858,105 @@ export const SuperAdminDashboard: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Quick Password Reset Modal */}
+      {resetModalUser && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-amber-500/50 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2 text-amber-400 font-bold text-sm">
+                <Key className="w-4 h-4 text-amber-400" />
+                <span>Super Admin Password Recovery Reset</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setResetModalUser(null)}
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-xl space-y-1 text-xs">
+              <div className="text-white font-bold">{resetModalUser.name}</div>
+              <div className="text-amber-300 font-mono text-[11px]">ID: {resetModalUser.identifier}</div>
+              <div className="text-slate-400 text-[11px] uppercase font-semibold">
+                Role: {resetModalUser.role} {resetModalUser.currentClass ? `(${resetModalUser.currentClass})` : ''}
+              </div>
+            </div>
+
+            <form onSubmit={handleQuickResetPassword} className="space-y-4">
+              <div>
+                <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                  Set New Password / Recovery Code:
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newPasswordInput}
+                  onChange={(e) => setNewPasswordInput(e.target.value)}
+                  placeholder="Enter new password (e.g. Alo.13071996, fenster2026)..."
+                  className="w-full bg-slate-950 border border-slate-700 focus:border-amber-400 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none font-mono"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setResetModalUser(null)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={resettingPassword || !newPasswordInput.trim()}
+                  className="px-5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl text-xs transition cursor-pointer shadow-lg disabled:opacity-50"
+                >
+                  {resettingPassword ? 'Updating...' : 'Save New Password'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Student Modal */}
+      {editingStudent && (
+        <EditStudentModal
+          student={editingStudent}
+          onClose={() => setEditingStudent(null)}
+          onStudentUpdated={() => {
+            setEditingStudent(null);
+            fetchAdminData();
+          }}
+        />
+      )}
+
+      {/* Edit Teacher Modal */}
+      {editingTeacher && (
+        <EditTeacherModal
+          teacher={editingTeacher}
+          onClose={() => setEditingTeacher(null)}
+          onTeacherUpdated={() => {
+            setEditingTeacher(null);
+            fetchAdminData();
+          }}
+        />
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteModal.isOpen && (
+        <DeleteConfirmModal
+          isOpen={deleteModal.isOpen}
+          title={deleteModal.title}
+          name={deleteModal.name}
+          identifier={deleteModal.identifier}
+          type={deleteModal.type}
+          onConfirm={handleConfirmDelete}
+          onCancel={() => setDeleteModal((prev) => ({ ...prev, isOpen: false }))}
+        />
+      )}
     </div>
   );
 };

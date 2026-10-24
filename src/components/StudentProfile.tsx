@@ -52,6 +52,7 @@ import {
 } from '../lib/bursarStore.ts';
 import { FeeWithheldNotice } from './FeeWithheldNotice.tsx';
 import { ErrorBoundary } from './ErrorBoundary.tsx';
+import { EditStudentModal } from './EditStudentModal.tsx';
 import {
   isSecondaryClass,
   isSeniorSecondaryClass,
@@ -60,6 +61,9 @@ import {
   calculateCgpa,
   calculateJuniorAverage,
   isSameClass,
+  getExamStageOrder,
+  getStageScopeLabel,
+  computeCumulativeCgpaForStudent,
 } from '../constants/classes.ts';
 
 interface StudentProfileProps {
@@ -130,6 +134,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
   // Financial & Bursary Statement Modal
   const [showFeeModal, setShowFeeModal] = useState(false);
+  const [editProfileModalOpen, setEditProfileModalOpen] = useState(false);
 
   // Guardian Details Edit Modal
   const [guardianModalOpen, setGuardianModalOpen] = useState(false);
@@ -365,6 +370,38 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
             }
           } catch (_) {}
         }
+
+        // Direct Supabase query for assessments as a cross-device cloud safeguard
+        try {
+          const { data: supaAssessments } = await supabase
+            .from('assessments')
+            .select('*, subjects(id, name, code)')
+            .or(`student_id.eq.${resolvedStudent.id}`);
+          if (Array.isArray(supaAssessments) && supaAssessments.length > 0) {
+            const existingIds = new Set(realAssessments.map(a => String(a.id)));
+            supaAssessments.forEach((sc: any) => {
+              if (!existingIds.has(String(sc.id))) {
+                realAssessments.push({
+                  id: sc.id,
+                  studentId: resolvedStudent!.studentId,
+                  subjectId: sc.subject_id,
+                  subjectName: sc.subjects?.name || 'Subject',
+                  subjectCode: sc.subjects?.code || 'SUB',
+                  assessmentTitle: sc.assessment_title || 'Continuous Assessment',
+                  assessmentType: sc.assessment_type || 'Examination',
+                  score: Number(sc.score) || 0,
+                  maxScore: Number(sc.max_score || 100),
+                  percentage: Number(sc.percentage || sc.score || 0),
+                  grade: sc.grade || 'A',
+                  session: sc.session || resolvedStudent!.session,
+                  term: sc.term || 'First Term',
+                  teacherComment: sc.teacher_comment || '',
+                  createdAt: sc.created_at,
+                });
+              }
+            });
+          }
+        } catch (_) {}
 
         const deletedRaw = localStorage.getItem('fis_deleted_score_ids_v1');
         const deletedIds = new Set<string>(deletedRaw ? JSON.parse(deletedRaw) : []);
@@ -1228,6 +1265,45 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     return r;
   });
 
+  // Exam stage order for current report card view:
+  // Stage 1 = Term 1 1st Half, Stage 2 = Term 1 Terminal (cumulative of 1st half + terminal)
+  // Stage 3 = Term 2 1st Half, Stage 4 = Term 2 Terminal (cumulative of Terms 1 & 2)
+  // Stage 5 = Term 3 1st Half, Stage 6 = Term 3 Terminal (session cumulative: Terms 1, 2 & 3)
+  const reportCardStage = getExamStageOrder(
+    selectedPrintTerm,
+    selectedExamType === 'midterm' ? 'first-half' : 'terminal'
+  );
+
+  let localBroadsheetScores: any[] = [];
+  try {
+    const rawBroad = localStorage.getItem('fis_broadsheet_scores_v2');
+    if (rawBroad) localBroadsheetScores = JSON.parse(rawBroad);
+  } catch (_) {}
+
+  const deletedScoreIds = new Set<string>();
+  try {
+    const rawDel = localStorage.getItem('fis_deleted_score_ids_v1');
+    if (rawDel) {
+      const parsed = JSON.parse(rawDel);
+      parsed.forEach((x: any) => deletedScoreIds.add(String(x)));
+    }
+  } catch (_) {}
+
+  const cumulativeCgpaRes = computeCumulativeCgpaForStudent({
+    studentDbId: student.id,
+    studentIdNumber: student.studentId,
+    currentStage: reportCardStage,
+    currentStageScores: groupedSubjectRows.map((r) => ({
+      subjectId: r.subjectId,
+      totalScore: r.totalScore,
+      units: 2,
+    })),
+    allLocalScores: localBroadsheetScores,
+    allServerScores: assessments,
+    targetSession: student.session || '2026/2027',
+    deletedIds: deletedScoreIds,
+  });
+
   const cgpaSummary = calculateCgpa(groupedSubjectRows.map((r) => ({ totalScore: r.totalScore, units: 2 })));
   const juniorAverageSummary = calculateJuniorAverage(groupedSubjectRows.map((r) => ({ totalScore: r.totalScore })));
   const seniorAverageOver100 = groupedSubjectRows.length > 0
@@ -1291,6 +1367,16 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
               <Printer className="w-3.5 h-3.5 text-emerald-400" />
               Print Official Report Card
             </button>
+            {canManageScores && (
+              <button
+                onClick={() => setEditProfileModalOpen(true)}
+                className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-amber-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition border border-amber-500/30 cursor-pointer shadow-md"
+                title="Edit scholar profile details (Class Teacher / Admin)"
+              >
+                <Edit2 className="w-3.5 h-3.5 text-amber-400" />
+                Edit Profile
+              </button>
+            )}
             {canAddScore && (
               <button
                 onClick={() => onAddScoreForStudent?.(student)}
@@ -1488,19 +1574,19 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                 </span>
                 {isSenior && (
                   <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded font-mono font-bold">
-                    2 Units/Sub
+                    {cumulativeCgpaRes.scopeLabel}
                   </span>
                 )}
               </span>
               <div className="flex items-baseline gap-2">
                 <span className="text-2xl font-black text-white font-mono">
-                  {isSenior ? `${cgpaSummary.cgpa.toFixed(2)}` : `${juniorAverageSummary.averagePercentage}%`}
+                  {isSenior ? `${cumulativeCgpaRes.cgpa.toFixed(2)}` : `${juniorAverageSummary.averagePercentage}%`}
                 </span>
                 {isSenior && <span className="text-xs font-semibold text-slate-400">/ 5.00</span>}
               </div>
               <span className="text-[11px] text-emerald-400 font-semibold block mt-1 truncate">
                 {isSenior
-                  ? `${cgpaSummary.standing} • ${cgpaSummary.totalUnits} Units`
+                  ? `${cumulativeCgpaRes.standing} • ${cumulativeCgpaRes.totalUnits} Units`
                   : `${juniorAverageSummary.standing} • ${juniorAverageSummary.totalMarks}/${juniorAverageSummary.obtainableMarks}`}
               </span>
             </div>
@@ -2137,8 +2223,15 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                       Cumulative GPA (CGPA)
                     </span>
                     <strong className="text-emerald-400 print:text-emerald-900 font-mono font-black text-sm print:text-[9.5px]">
-                      {isSenior ? `${cgpaSummary.cgpa.toFixed(2)} / 5.00` : `${(juniorAverageSummary.averagePercentage / 20).toFixed(2)} / 5.00`}
+                      {isSenior
+                        ? `${cumulativeCgpaRes.cgpa.toFixed(2)} / 5.00`
+                        : `${(juniorAverageSummary.averagePercentage / 20).toFixed(2)} / 5.00`}
                     </strong>
+                    {isSenior && cumulativeCgpaRes.scopeLabel && (
+                      <span className="text-[9px] print:text-[7px] text-slate-400 print:text-slate-600 block font-normal leading-tight">
+                        ({cumulativeCgpaRes.scopeLabel})
+                      </span>
+                    )}
                   </div>
 
                   {/* For SS1 to SS3: After cumulative GPA, average over 100 */}
@@ -2825,6 +2918,19 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Class Teacher / Academic Faculty Student Profile Editor */}
+      {editProfileModalOpen && student && (
+        <EditStudentModal
+          student={student}
+          onClose={() => setEditProfileModalOpen(false)}
+          onStudentUpdated={(updatedStudent) => {
+            setStudent(updatedStudent);
+            setEditProfileModalOpen(false);
+            loadProfile();
+          }}
+        />
       )}
     </ErrorBoundary>
   );
