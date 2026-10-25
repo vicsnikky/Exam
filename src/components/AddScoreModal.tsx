@@ -25,6 +25,7 @@ import { Subject, Student } from '../types/index.ts';
 import { fetchAllSubjectsUnified } from '../lib/subjectStore.ts';
 import { fetchAllStudentsUnified } from '../lib/schoolStore.ts';
 import { isSecondaryClass, calculateSubjectGrade } from '../constants/classes.ts';
+import { supabase } from '../supabaseConfig.ts';
 
 interface AddScoreModalProps {
   preselectedStudent?: Student | null;
@@ -519,6 +520,35 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
           term,
           teacherComment: comment,
         }, 'CA');
+
+        // Direct Supabase cloud persistence safeguard
+        try {
+          let targetStDbId = matchedStudent.id;
+          if (isNaN(Number(targetStDbId)) || Number(targetStDbId) > 2147483647) {
+            const { data: stFound } = await supabase
+              .from('students')
+              .select('id')
+              .eq('student_id', matchedStudent.studentId)
+              .limit(1);
+            if (stFound && stFound[0]?.id) targetStDbId = stFound[0].id;
+          }
+
+          if (targetStDbId && !isNaN(Number(targetStDbId))) {
+            await supabase.from('assessments').insert({
+              student_id: Number(targetStDbId),
+              subject_id: Number(selectedSubjectId),
+              assessment_type: 'CA',
+              assessment_title: caTitle,
+              score: String(numCa),
+              max_score: '40',
+              percentage: String(Math.round((numCa / 40) * 100)),
+              grade: calculateSubjectGrade(liveTotal || numCa),
+              session,
+              term,
+              teacher_comment: comment,
+            });
+          }
+        } catch (_) {}
       }
 
       // 2. If Exam score was entered, save Main Exam record (maxScore: 60)
@@ -551,6 +581,35 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
           term,
           teacherComment: comment,
         }, 'Main Examination');
+
+        // Direct Supabase cloud persistence safeguard
+        try {
+          let targetStDbId = matchedStudent.id;
+          if (isNaN(Number(targetStDbId)) || Number(targetStDbId) > 2147483647) {
+            const { data: stFound } = await supabase
+              .from('students')
+              .select('id')
+              .eq('student_id', matchedStudent.studentId)
+              .limit(1);
+            if (stFound && stFound[0]?.id) targetStDbId = stFound[0].id;
+          }
+
+          if (targetStDbId && !isNaN(Number(targetStDbId))) {
+            await supabase.from('assessments').insert({
+              student_id: Number(targetStDbId),
+              subject_id: Number(selectedSubjectId),
+              assessment_type: 'Examination',
+              assessment_title: examTitle,
+              score: String(numExam),
+              max_score: '60',
+              percentage: String(Math.round((numExam / 60) * 100)),
+              grade: calculateSubjectGrade(liveTotal || numExam),
+              session,
+              term,
+              teacher_comment: comment,
+            });
+          }
+        } catch (_) {}
       }
 
       // 3. Immediately sync to local broadsheet cache so it appears on Broadsheet in real time
@@ -671,6 +730,13 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
           Authorization: `Bearer ${authToken}`,
         },
         body: JSON.stringify({
+          studentId: matchedStudent?.id,
+          studentNumber: matchedStudent?.studentId,
+          subjectId: editingScoreItem.subjectId,
+          assessmentType: editingScoreItem.assessmentType,
+          assessmentTitle: editingScoreItem.assessmentTitle,
+          session: editingScoreItem.session || session,
+          term: editingScoreItem.term || term,
           score: targetScore,
           maxScore: editingScoreItem.maxScore,
           teacherComment: updatedPayload,
@@ -688,6 +754,47 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
           `Failed to update score (Status ${res.status})`;
         throw new Error(errorMsg);
       }
+
+      // Direct Supabase cloud persistence safeguard for edited score
+      try {
+        let targetStDbId = matchedStudent?.id;
+        if (isNaN(Number(targetStDbId)) || Number(targetStDbId) > 2147483647) {
+          const { data: stFound } = await supabase
+            .from('students')
+            .select('id')
+            .eq('student_id', matchedStudent?.studentId)
+            .limit(1);
+          if (stFound && stFound[0]?.id) targetStDbId = stFound[0].id;
+        }
+
+        const numericScoreId = Number(editingScoreItem.id);
+        if (!isNaN(numericScoreId) && numericScoreId > 0 && numericScoreId <= 2147483647) {
+          await supabase
+            .from('assessments')
+            .update({
+              score: String(targetScore),
+              max_score: String(editingScoreItem.maxScore),
+              percentage: String(Math.round((targetScore / (Number(editingScoreItem.maxScore) || 100)) * 100)),
+              grade: calculateSubjectGrade((parsedCaNum || 0) + (parsedExamNum || 0)),
+              teacher_comment: updatedPayload,
+            })
+            .eq('id', numericScoreId);
+        } else if (targetStDbId && !isNaN(Number(targetStDbId))) {
+          await supabase.from('assessments').insert({
+            student_id: Number(targetStDbId),
+            subject_id: Number(editingScoreItem.subjectId),
+            assessment_type: editingScoreItem.assessmentType || (isCaItem ? 'CA' : 'Examination'),
+            assessment_title: editingScoreItem.assessmentTitle || (isCaItem ? 'Continuous Assessment Test' : 'Main Examination'),
+            score: String(targetScore),
+            max_score: String(editingScoreItem.maxScore),
+            percentage: String(Math.round((targetScore / (Number(editingScoreItem.maxScore) || 100)) * 100)),
+            grade: calculateSubjectGrade((parsedCaNum || 0) + (parsedExamNum || 0)),
+            session: editingScoreItem.session || session,
+            term: editingScoreItem.term || term,
+            teacher_comment: updatedPayload,
+          });
+        }
+      } catch (_) {}
 
       // Update broadsheet cache as well
       try {

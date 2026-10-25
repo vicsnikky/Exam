@@ -376,10 +376,12 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           const { data: supaAssessments } = await supabase
             .from('assessments')
             .select('*, subjects(id, name, code)')
-            .or(`student_id.eq.${resolvedStudent.id}`);
+            .eq('student_id', resolvedStudent.id)
+            .neq('assessment_type', 'SS3_MOCK');
           if (Array.isArray(supaAssessments) && supaAssessments.length > 0) {
             const existingIds = new Set(realAssessments.map(a => String(a.id)));
             supaAssessments.forEach((sc: any) => {
+              if (sc.assessment_type === 'SS3_MOCK') return;
               if (!existingIds.has(String(sc.id))) {
                 realAssessments.push({
                   id: sc.id,
@@ -756,6 +758,13 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
+          studentId: student?.id,
+          studentNumber: student?.studentId,
+          subjectId: editingAssessment.subjectId,
+          assessmentType: editingAssessment.assessmentType,
+          assessmentTitle: editingAssessment.assessmentTitle,
+          session: editingAssessment.session || student?.session || '2026/2027',
+          term: editingAssessment.term || selectedPrintTerm,
           score: targetScore,
           maxScore: editingAssessment.maxScore,
           teacherComment: updatedPayload,
@@ -768,6 +777,37 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
         try { errData = JSON.parse(text); } catch (_) {}
         throw new Error(errData.error || errData.message || 'Failed to update score');
       }
+
+      // Direct Supabase cloud persistence safeguard for edited score
+      try {
+        const numericScoreId = Number(editingAssessment.id);
+        if (!isNaN(numericScoreId) && numericScoreId > 0 && numericScoreId <= 2147483647) {
+          await supabase
+            .from('assessments')
+            .update({
+              score: String(targetScore),
+              max_score: String(editingAssessment.maxScore),
+              percentage: String(Math.round((targetScore / (Number(editingAssessment.maxScore) || 100)) * 100)),
+              grade: calculateSubjectGrade((parsedCaNum || 0) + (parsedExamNum || 0)),
+              teacher_comment: updatedPayload,
+            })
+            .eq('id', numericScoreId);
+        } else if (student?.id) {
+          await supabase.from('assessments').insert({
+            student_id: Number(student.id),
+            subject_id: Number(editingAssessment.subjectId),
+            assessment_type: editingAssessment.assessmentType || (isCaItem ? 'CA' : 'Examination'),
+            assessment_title: editingAssessment.assessmentTitle || (isCaItem ? 'Continuous Assessment Test' : 'Main Examination'),
+            score: String(targetScore),
+            max_score: String(editingAssessment.maxScore),
+            percentage: String(Math.round((targetScore / (Number(editingAssessment.maxScore) || 100)) * 100)),
+            grade: calculateSubjectGrade((parsedCaNum || 0) + (parsedExamNum || 0)),
+            session: editingAssessment.session || student?.session || '2026/2027',
+            term: editingAssessment.term || selectedPrintTerm,
+            teacher_comment: updatedPayload,
+          });
+        }
+      } catch (_) {}
 
       window.dispatchEvent(new CustomEvent('fis:scores-updated'));
       window.dispatchEvent(new CustomEvent('fis:broadsheet-scores-updated'));
@@ -1180,9 +1220,24 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     primaryRecord?: AssessmentRecord;
   }
 
+  const normalizeProfileTerm = (t?: string) => {
+    if (!t) return '';
+    const s = t.toLowerCase();
+    if (s.includes('first') || s.includes('1st') || s === '1') return 'first';
+    if (s.includes('second') || s.includes('2nd') || s === '2') return 'second';
+    if (s.includes('third') || s.includes('3rd') || s === '3') return 'third';
+    return s.trim();
+  };
+
   const groupedSubjectMap = new Map<string, GroupedSubjectRow>();
 
   assessments.forEach((a) => {
+    if (a.assessmentType === 'SS3_MOCK') return;
+    if (selectedPrintTerm) {
+      if (a.term && normalizeProfileTerm(a.term) !== normalizeProfileTerm(selectedPrintTerm)) {
+        return;
+      }
+    }
     const subKey = `${a.subjectId || a.subjectName}_${a.term || 'First Term'}_${a.session || '2026/2027'}`;
     let row = groupedSubjectMap.get(subKey);
     if (!row) {

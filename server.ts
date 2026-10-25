@@ -813,13 +813,13 @@ app.get('/api/students/:id', authenticate, async (req: AuthRequest, res) => {
         term: assessments.term,
         teacherComment: assessments.teacherComment,
         createdAt: assessments.createdAt,
-        subjectId: subjects.id,
-        subjectName: subjects.name,
-        subjectCode: subjects.code,
-        teacherName: sql<string>`${users.firstName} || ' ' || ${users.lastName}`,
+        subjectId: sql<number>`COALESCE(${subjects.id}, ${assessments.subjectId})`,
+        subjectName: sql<string>`COALESCE(${subjects.name}, 'Subject')`,
+        subjectCode: sql<string>`COALESCE(${subjects.code}, 'SUB')`,
+        teacherName: sql<string>`COALESCE(${users.firstName} || ' ' || ${users.lastName}, 'Faculty Teacher')`,
       })
       .from(assessments)
-      .innerJoin(subjects, eq(assessments.subjectId, subjects.id))
+      .leftJoin(subjects, eq(assessments.subjectId, subjects.id))
       .leftJoin(teachers, eq(assessments.teacherId, teachers.id))
       .leftJoin(users, eq(teachers.userId, users.id))
       .where(eq(assessments.studentId, student.id))
@@ -1920,7 +1920,7 @@ app.post('/api/scores', authenticate, async (req: AuthRequest, res) => {
       return res.status(403).json({ error: 'Permission denied. Academic faculty only. Bursars and students cannot enter scores.' });
     }
 
-    const {
+    let {
       studentId, // numeric ID or unique student string
       subjectId,
       assessmentType,
@@ -1932,7 +1932,17 @@ app.post('/api/scores', authenticate, async (req: AuthRequest, res) => {
       teacherComment,
     } = req.body;
 
-    if (!studentId || !subjectId || !assessmentType || !assessmentTitle || score === undefined) {
+    if (!studentId && req.body.studentNumber) {
+      studentId = req.body.studentNumber;
+    }
+    if (!assessmentType) {
+      assessmentType = 'CA';
+    }
+    if (!assessmentTitle) {
+      assessmentTitle = assessmentType === 'CA' ? 'Continuous Assessment Test' : 'Main Examination';
+    }
+
+    if (!studentId || !subjectId || score === undefined) {
       return res.status(400).json({ error: 'Missing required score fields' });
     }
 
@@ -2209,15 +2219,19 @@ app.get('/api/scores', authenticate, async (req: AuthRequest, res) => {
 
     if (term && term !== 'all') {
       const termLower = term.toLowerCase();
-      if (termLower.includes('first') || termLower.includes('1')) {
-        conditions.push(or(ilike(assessments.term, '%first%'), ilike(assessments.term, '%1%'))!);
-      } else if (termLower.includes('second') || termLower.includes('2')) {
-        conditions.push(or(ilike(assessments.term, '%second%'), ilike(assessments.term, '%2%'))!);
-      } else if (termLower.includes('third') || termLower.includes('3')) {
-        conditions.push(or(ilike(assessments.term, '%third%'), ilike(assessments.term, '%3%'))!);
+      if (termLower.includes('first') || termLower.includes('1st') || termLower === '1') {
+        conditions.push(or(ilike(assessments.term, '%first%'), ilike(assessments.term, '%1st%'), eq(assessments.term, 'First Term'))!);
+      } else if (termLower.includes('second') || termLower.includes('2nd') || termLower === '2') {
+        conditions.push(or(ilike(assessments.term, '%second%'), ilike(assessments.term, '%2nd%'), eq(assessments.term, 'Second Term'))!);
+      } else if (termLower.includes('third') || termLower.includes('3rd') || termLower === '3') {
+        conditions.push(or(ilike(assessments.term, '%third%'), ilike(assessments.term, '%3rd%'), eq(assessments.term, 'Third Term'))!);
       } else {
-        conditions.push(ilike(assessments.term, `%${term}%`));
+        conditions.push(or(eq(assessments.term, term), ilike(assessments.term, `%${term}%`))!);
       }
+    }
+
+    if (req.query.excludeMock === 'true' || req.query.excludeMock === '1') {
+      conditions.push(sql`${assessments.assessmentType} != 'SS3_MOCK'`);
     }
 
     if (session && session !== 'all') {
@@ -3006,10 +3020,22 @@ app.put('/api/scores/:id', authenticate, async (req: AuthRequest, res) => {
     }
 
     const rawId = req.params.id;
-    const scoreId = Number(rawId);
+    let scoreId = Number(rawId);
     let existing: any[] = [];
     if (!isNaN(scoreId) && scoreId > 0) {
       existing = await db.select().from(assessments).where(eq(assessments.id, scoreId)).limit(1);
+    }
+
+    // If local ID format (e.g. loc_ca_19_1_terminal or loc_exam_25_2_first_term), extract studentId and subjectId
+    if (rawId && (rawId.startsWith('loc_ca_') || rawId.startsWith('loc_exam_') || rawId.startsWith('loc_broad_'))) {
+      const parts = rawId.split('_');
+      if (parts.length >= 4) {
+        if (!req.body.studentId && !req.body.studentNumber) req.body.studentId = parts[2];
+        if (!req.body.subjectId) req.body.subjectId = parts[3];
+        if (!req.body.assessmentType) {
+          req.body.assessmentType = parts[1] === 'ca' ? 'CA' : 'Examination';
+        }
+      }
     }
 
     const {
@@ -3041,17 +3067,52 @@ app.put('/api/scores/:id', authenticate, async (req: AuthRequest, res) => {
           const numS = Number(score) || 0;
           const numM = Number(maxScore) || 100;
           const { grade: g, percentage: p } = calculateGrade(numS, numM);
+          const targetSubId = Number(subjectId) || 1;
+          const targetType = assessmentType ? assessmentType.trim() : 'Examination';
+          const targetTerm = term ? term.trim() : 'First Term';
+          const targetSession = session ? session.trim() : '2026/2027';
+
+          // Check if an existing assessment already matches
+          const matchExisting = await db
+            .select()
+            .from(assessments)
+            .where(
+              and(
+                eq(assessments.studentId, stMatch.id),
+                eq(assessments.subjectId, targetSubId),
+                eq(assessments.assessmentType, targetType),
+                eq(assessments.term, targetTerm),
+                eq(assessments.session, targetSession)
+              )
+            )
+            .limit(1);
+
+          if (matchExisting.length > 0) {
+            const [updated] = await db
+              .update(assessments)
+              .set({
+                score: numS.toString(),
+                maxScore: numM.toString(),
+                percentage: p.toString(),
+                grade: g,
+                teacherComment: teacherComment ? teacherComment.trim() : matchExisting[0].teacherComment,
+              })
+              .where(eq(assessments.id, matchExisting[0].id))
+              .returning();
+            return res.json({ message: 'Score record successfully updated', assessment: updated });
+          }
+
           const [inserted] = await db.insert(assessments).values({
             studentId: stMatch.id,
-            subjectId: Number(subjectId) || 1,
-            assessmentType: assessmentType ? assessmentType.trim() : 'Examination',
-            assessmentTitle: assessmentTitle ? assessmentTitle.trim() : 'Terminal Assessment',
+            subjectId: targetSubId,
+            assessmentType: targetType,
+            assessmentTitle: assessmentTitle ? assessmentTitle.trim() : (targetType === 'CA' ? 'Continuous Assessment Test' : 'Main Examination'),
             score: numS.toString(),
             maxScore: numM.toString(),
             percentage: p.toString(),
             grade: g,
-            session: session ? session.trim() : '2026/2027',
-            term: term ? term.trim() : 'First Term',
+            session: targetSession,
+            term: targetTerm,
             teacherComment: teacherComment ? teacherComment.trim() : null,
             schoolId: 1,
           }).returning();
@@ -3295,16 +3356,19 @@ app.get('/api/broadsheet/class', authenticate, async (req: AuthRequest, res) => 
     const conditions: any[] = [];
     if (term && term !== 'all') {
       const termLower = term.toLowerCase();
-      if (termLower.includes('first') || termLower.includes('1')) {
-        conditions.push(or(ilike(assessments.term, '%first%'), ilike(assessments.term, '%1%'))!);
-      } else if (termLower.includes('second') || termLower.includes('2')) {
-        conditions.push(or(ilike(assessments.term, '%second%'), ilike(assessments.term, '%2%'))!);
-      } else if (termLower.includes('third') || termLower.includes('3')) {
-        conditions.push(or(ilike(assessments.term, '%third%'), ilike(assessments.term, '%3%'))!);
+      if (termLower.includes('first') || termLower.includes('1st') || termLower === '1') {
+        conditions.push(or(ilike(assessments.term, '%first%'), ilike(assessments.term, '%1st%'), eq(assessments.term, 'First Term'))!);
+      } else if (termLower.includes('second') || termLower.includes('2nd') || termLower === '2') {
+        conditions.push(or(ilike(assessments.term, '%second%'), ilike(assessments.term, '%2nd%'), eq(assessments.term, 'Second Term'))!);
+      } else if (termLower.includes('third') || termLower.includes('3rd') || termLower === '3') {
+        conditions.push(or(ilike(assessments.term, '%third%'), ilike(assessments.term, '%3rd%'), eq(assessments.term, 'Third Term'))!);
       } else {
         conditions.push(or(eq(assessments.term, term), ilike(assessments.term, `%${term}%`))!);
       }
     }
+    // Broadsheet is for regular academic terms; exclude SS3 Mock examinations
+    conditions.push(sql`${assessments.assessmentType} != 'SS3_MOCK'`);
+
     if (session && session !== 'all') {
       conditions.push(or(eq(assessments.session, session), ilike(assessments.session, `%${session}%`)));
     }

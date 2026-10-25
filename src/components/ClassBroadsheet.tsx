@@ -74,6 +74,16 @@ export function calculateSubjectGrade(totalScore: number): string {
 
 export const ClassBroadsheet: React.FC = () => {
   const { user, token } = useAuth();
+  const authToken =
+    token ||
+    (typeof window !== 'undefined'
+      ? localStorage.getItem('token') ||
+        localStorage.getItem('auth_token') ||
+        sessionStorage.getItem('token') ||
+        sessionStorage.getItem('sqams_token') ||
+        ''
+      : '') ||
+    'local-teacher-auth:teacher@school.edu';
 
   const isVictorSuperAdmin = user?.role === 'super_admin' || user?.email?.toLowerCase() === 'victoralo1862@gmail.com';
   const isDirector = user?.role === 'director';
@@ -434,7 +444,7 @@ export const ClassBroadsheet: React.FC = () => {
       try {
         const res = await fetch(
           `/api/broadsheet/class?class=${encodeURIComponent(selectedClass)}&term=${encodeURIComponent(selectedTerm)}&session=${encodeURIComponent(selectedSession)}&examPeriod=${encodeURIComponent(effectiveExamPeriod)}`,
-          { headers: { Authorization: `Bearer ${token}` } }
+          { headers: { Authorization: `Bearer ${authToken}` } }
         );
         if (res.ok) {
           const text = await res.text();
@@ -477,11 +487,11 @@ export const ClassBroadsheet: React.FC = () => {
       const targetStudents = filtered;
       setClassStudents(targetStudents);
 
-      // 3b. Also query general scores endpoint
+      // 3b. Also query general scores endpoint (excluding SS3 Mock scores)
       try {
         const res = await fetch(
-          `/api/scores?class=${encodeURIComponent(selectedClass)}&term=${encodeURIComponent(selectedTerm)}&session=${encodeURIComponent(selectedSession)}`,
-          { headers: { Authorization: `Bearer ${token}` } }
+          `/api/scores?class=${encodeURIComponent(selectedClass)}&term=${encodeURIComponent(selectedTerm)}&session=${encodeURIComponent(selectedSession)}&excludeMock=true`,
+          { headers: { Authorization: `Bearer ${authToken}` } }
         );
         if (res.ok) {
           const text = await res.text();
@@ -501,8 +511,8 @@ export const ClassBroadsheet: React.FC = () => {
       let allSessionServerScores: any[] = [];
       try {
         const resSess = await fetch(
-          `/api/scores?class=${encodeURIComponent(selectedClass)}&session=${encodeURIComponent(selectedSession)}`,
-          { headers: { Authorization: `Bearer ${token}` } }
+          `/api/scores?class=${encodeURIComponent(selectedClass)}&session=${encodeURIComponent(selectedSession)}&excludeMock=true`,
+          { headers: { Authorization: `Bearer ${authToken}` } }
         );
         if (resSess.ok) {
           const textSess = await resSess.text();
@@ -517,14 +527,16 @@ export const ClassBroadsheet: React.FC = () => {
         console.warn('Backend session scores fetch note:', e);
       }
 
-      // 3d. Direct Supabase Cloud DB fallback & sync
+      // 3d. Direct Supabase Cloud DB fallback & sync (excluding SS3 Mock scores)
       try {
         const { data: supaData } = await supabase
           .from('assessments')
           .select('*, students(id, student_id, first_name, surname, current_class), subjects(id, name, code)')
-          .eq('session', selectedSession);
+          .eq('session', selectedSession)
+          .neq('assessment_type', 'SS3_MOCK');
         if (Array.isArray(supaData) && supaData.length > 0) {
           supaData.forEach((sc: any) => {
+            if (sc.assessment_type === 'SS3_MOCK') return;
             const mapped = {
               id: sc.id,
               studentDbId: sc.student_id,
@@ -634,6 +646,8 @@ export const ClassBroadsheet: React.FC = () => {
           // Find assessments for this student and subject
           const stScores = serverScores.filter((sc) => {
             if (isScoreDeleted(sc.id, st.id, sub.id)) return false;
+            if (sc.assessmentType === 'SS3_MOCK') return false;
+            if (sc.term && normalizeTerm(sc.term) !== normalizeTerm(selectedTerm)) return false;
 
             const scDbId = String(sc.studentDbId || '').trim();
             const scStId = String(sc.studentId || '').toUpperCase().trim();
@@ -998,48 +1012,46 @@ export const ClassBroadsheet: React.FC = () => {
       if (testVal === null && activeCell.testId) {
         await fetch(`/api/scores/${activeCell.testId}`, {
           method: 'DELETE',
-          headers: { Authorization: `Bearer ${token}` },
+          headers: { Authorization: `Bearer ${authToken}` },
         }).catch(() => {});
       }
       // Delete previous Exam if now cleared
       if (examVal === null && activeCell.examId) {
         await fetch(`/api/scores/${activeCell.examId}`, {
           method: 'DELETE',
-          headers: { Authorization: `Bearer ${token}` },
+          headers: { Authorization: `Bearer ${authToken}` },
         }).catch(() => {});
       }
 
       // 1. Post/Update Test/CA component (over 40) to backend
       if (testVal !== null) {
-        if (activeCell.testId) {
+        const caPayload = {
+          studentId: activeCell.student.id,
+          studentNumber: activeCell.student.studentId,
+          firstName: activeCell.student.firstName,
+          surname: activeCell.student.surname,
+          currentClass: activeCell.student.currentClass || selectedClass,
+          subjectId: activeCell.subject.id,
+          assessmentType: 'CA',
+          assessmentTitle: `${periodLabel} Continuous Assessment Test`,
+          score: testVal,
+          maxScore: 40,
+          session: selectedSession,
+          term: selectedTerm,
+          teacherComment: `[Period: ${effectiveExamPeriod}] Recorded via Broadsheet for ${activeCell.subject.name}`,
+        };
+
+        if (activeCell.testId && !isNaN(Number(activeCell.testId))) {
           await fetch(`/api/scores/${activeCell.testId}`, {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body: JSON.stringify({
-              score: testVal,
-              maxScore: 40,
-              teacherComment: `[Period: ${effectiveExamPeriod}] Recorded via Broadsheet for ${activeCell.subject.name}`,
-            }),
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+            body: JSON.stringify(caPayload),
           });
         } else {
           const caRes = await fetch('/api/scores', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body: JSON.stringify({
-              studentId: activeCell.student.id,
-              studentNumber: activeCell.student.studentId,
-              firstName: activeCell.student.firstName,
-              surname: activeCell.student.surname,
-              currentClass: activeCell.student.currentClass || selectedClass,
-              subjectId: activeCell.subject.id,
-              assessmentType: 'CA',
-              assessmentTitle: `${periodLabel} Continuous Assessment Test`,
-              score: testVal,
-              maxScore: 40,
-              session: selectedSession,
-              term: selectedTerm,
-              teacherComment: `[Period: ${effectiveExamPeriod}] Recorded via Broadsheet for ${activeCell.subject.name}`,
-            }),
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+            body: JSON.stringify(caPayload),
           });
           if (caRes.ok) {
             try {
@@ -1053,53 +1065,63 @@ export const ClassBroadsheet: React.FC = () => {
 
         // Direct Supabase cloud persistence safeguard
         try {
-          await supabase.from('assessments').insert({
-            student_id: activeCell.student.id,
-            subject_id: activeCell.subject.id,
-            assessment_type: 'CA',
-            assessment_title: `${periodLabel} Continuous Assessment Test`,
-            score: String(testVal),
-            max_score: '40',
-            percentage: String(Math.round((testVal / 40) * 100)),
-            grade: calculateSubjectGrade(computedTotal || testVal),
-            session: selectedSession,
-            term: selectedTerm,
-            teacher_comment: `[Period: ${effectiveExamPeriod}] Recorded via Broadsheet for ${activeCell.subject.name}`,
-          });
+          let targetStDbId = activeCell.student.id;
+          if (isNaN(Number(targetStDbId)) || Number(targetStDbId) > 2147483647) {
+            const { data: stFound } = await supabase
+              .from('students')
+              .select('id')
+              .eq('student_id', activeCell.student.studentId)
+              .limit(1);
+            if (stFound && stFound[0]?.id) targetStDbId = stFound[0].id;
+          }
+
+          if (targetStDbId && !isNaN(Number(targetStDbId))) {
+            await supabase.from('assessments').insert({
+              student_id: Number(targetStDbId),
+              subject_id: Number(activeCell.subject.id),
+              assessment_type: 'CA',
+              assessment_title: `${periodLabel} Continuous Assessment Test`,
+              score: String(testVal),
+              max_score: '40',
+              percentage: String(Math.round((testVal / 40) * 100)),
+              grade: calculateSubjectGrade(computedTotal || testVal),
+              session: selectedSession,
+              term: selectedTerm,
+              teacher_comment: `[Period: ${effectiveExamPeriod}] Recorded via Broadsheet for ${activeCell.subject.name}`,
+            });
+          }
         } catch (_) {}
       }
 
       // 2. Post/Update Main Exam component (over 60) to backend
       if (examVal !== null) {
-        if (activeCell.examId) {
+        const examPayload = {
+          studentId: activeCell.student.id,
+          studentNumber: activeCell.student.studentId,
+          firstName: activeCell.student.firstName,
+          surname: activeCell.student.surname,
+          currentClass: activeCell.student.currentClass || selectedClass,
+          subjectId: activeCell.subject.id,
+          assessmentType: 'Examination',
+          assessmentTitle: `${periodLabel} Main Examination`,
+          score: examVal,
+          maxScore: 60,
+          session: selectedSession,
+          term: selectedTerm,
+          teacherComment: `[Period: ${effectiveExamPeriod}] Recorded via Broadsheet for ${activeCell.subject.name}`,
+        };
+
+        if (activeCell.examId && !isNaN(Number(activeCell.examId))) {
           await fetch(`/api/scores/${activeCell.examId}`, {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body: JSON.stringify({
-              score: examVal,
-              maxScore: 60,
-              teacherComment: `[Period: ${effectiveExamPeriod}] Recorded via Broadsheet for ${activeCell.subject.name}`,
-            }),
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+            body: JSON.stringify(examPayload),
           });
         } else {
           const examRes = await fetch('/api/scores', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body: JSON.stringify({
-              studentId: activeCell.student.id,
-              studentNumber: activeCell.student.studentId,
-              firstName: activeCell.student.firstName,
-              surname: activeCell.student.surname,
-              currentClass: activeCell.student.currentClass || selectedClass,
-              subjectId: activeCell.subject.id,
-              assessmentType: 'Examination',
-              assessmentTitle: `${periodLabel} Main Examination`,
-              score: examVal,
-              maxScore: 60,
-              session: selectedSession,
-              term: selectedTerm,
-              teacherComment: `[Period: ${effectiveExamPeriod}] Recorded via Broadsheet for ${activeCell.subject.name}`,
-            }),
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+            body: JSON.stringify(examPayload),
           });
           if (examRes.ok) {
             try {
@@ -1113,19 +1135,31 @@ export const ClassBroadsheet: React.FC = () => {
 
         // Direct Supabase cloud persistence safeguard
         try {
-          await supabase.from('assessments').insert({
-            student_id: activeCell.student.id,
-            subject_id: activeCell.subject.id,
-            assessment_type: 'Examination',
-            assessment_title: `${periodLabel} Main Examination`,
-            score: String(examVal),
-            max_score: '60',
-            percentage: String(Math.round((examVal / 60) * 100)),
-            grade: calculateSubjectGrade(computedTotal || examVal),
-            session: selectedSession,
-            term: selectedTerm,
-            teacher_comment: `[Period: ${effectiveExamPeriod}] Recorded via Broadsheet for ${activeCell.subject.name}`,
-          });
+          let targetStDbId = activeCell.student.id;
+          if (isNaN(Number(targetStDbId)) || Number(targetStDbId) > 2147483647) {
+            const { data: stFound } = await supabase
+              .from('students')
+              .select('id')
+              .eq('student_id', activeCell.student.studentId)
+              .limit(1);
+            if (stFound && stFound[0]?.id) targetStDbId = stFound[0].id;
+          }
+
+          if (targetStDbId && !isNaN(Number(targetStDbId))) {
+            await supabase.from('assessments').insert({
+              student_id: Number(targetStDbId),
+              subject_id: Number(activeCell.subject.id),
+              assessment_type: 'Examination',
+              assessment_title: `${periodLabel} Main Examination`,
+              score: String(examVal),
+              max_score: '60',
+              percentage: String(Math.round((examVal / 60) * 100)),
+              grade: calculateSubjectGrade(computedTotal || examVal),
+              session: selectedSession,
+              term: selectedTerm,
+              teacher_comment: `[Period: ${effectiveExamPeriod}] Recorded via Broadsheet for ${activeCell.subject.name}`,
+            });
+          }
         } catch (_) {}
       }
 
