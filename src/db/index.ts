@@ -13,7 +13,7 @@ function sanitizePostgresUrl(url: string | undefined): string | undefined {
   return url.replace(/:(?:\[([^\]]+)\])(@)/, ':$1$2');
 }
 
-export const createPool = () => {
+export const createPool = (): Pool => {
   if (!global._postgresPool) {
     const rawConnectionString =
       process.env.DATABASE_URL ||
@@ -21,7 +21,7 @@ export const createPool = () => {
       process.env.SUPABASE_DB_URL ||
       (SUPABASE_DATABASE_URL && SUPABASE_DATABASE_URL.startsWith('postgres') ? SUPABASE_DATABASE_URL : undefined);
 
-    const connectionString = sanitizePostgresUrl(rawConnectionString);
+    const connectionString = sanitizePostgresUrl(rawConnectionString) || SUPABASE_DATABASE_URL;
 
     if (connectionString) {
       global._postgresPool = new Pool({
@@ -41,6 +41,13 @@ export const createPool = () => {
         max: 10,
         connectionTimeoutMillis: 15000,
       });
+    } else {
+      global._postgresPool = new Pool({
+        connectionString: SUPABASE_DATABASE_URL,
+        ssl: { rejectUnauthorized: false },
+        max: 10,
+        connectionTimeoutMillis: 15000,
+      });
     }
 
     if (global._postgresPool) {
@@ -49,9 +56,9 @@ export const createPool = () => {
       });
     }
   }
-  return global._postgresPool;
+  return global._postgresPool!;
 };
 
-const pool = createPool();
+export const pool = createPool();
 
 export const db = drizzle(pool, { schema });

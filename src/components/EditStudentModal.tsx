@@ -20,17 +20,19 @@ import {
 } from 'lucide-react';
 
 interface EditStudentModalProps {
-  isOpen: boolean;
+  isOpen?: boolean;
   student: Student | null;
   onClose: () => void;
-  onSaved: (updatedStudent: Student) => void;
+  onSaved?: (updatedStudent: Student) => void;
+  onStudentUpdated?: (updatedStudent: Student) => void;
 }
 
 export const EditStudentModal: React.FC<EditStudentModalProps> = ({
-  isOpen,
+  isOpen = true,
   student,
   onClose,
   onSaved,
+  onStudentUpdated,
 }) => {
   const { token } = useAuth();
 
@@ -99,7 +101,8 @@ export const EditStudentModal: React.FC<EditStudentModalProps> = ({
       });
 
       if (res.success && res.student) {
-        onSaved(res.student);
+        if (onSaved) onSaved(res.student);
+        if (onStudentUpdated) onStudentUpdated(res.student);
         onClose();
       }
     } catch (err: any) {

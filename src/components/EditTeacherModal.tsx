@@ -18,17 +18,19 @@ import {
 import { SCHOOL_CLASSES, CLASS_OPTIONS, isSameClass, normalizeClassName } from '../constants/classes.ts';
 
 interface EditTeacherModalProps {
-  isOpen: boolean;
+  isOpen?: boolean;
   teacher: TeacherRecord | null;
   onClose: () => void;
-  onSaved: (updatedTeacher: TeacherRecord) => void;
+  onSaved?: (updatedTeacher: TeacherRecord) => void;
+  onTeacherUpdated?: (updatedTeacher: TeacherRecord) => void;
 }
 
 export const EditTeacherModal: React.FC<EditTeacherModalProps> = ({
-  isOpen,
+  isOpen = true,
   teacher,
   onClose,
   onSaved,
+  onTeacherUpdated,
 }) => {
   const { token } = useAuth();
 
@@ -94,11 +96,13 @@ export const EditTeacherModal: React.FC<EditTeacherModalProps> = ({
       });
 
       if (res.success && res.teacher) {
-        onSaved({
+        const updated = {
           ...res.teacher,
           assignedClass: cleanClass,
           isClassTeacher: Boolean(cleanClass),
-        });
+        };
+        if (onSaved) onSaved(updated);
+        if (onTeacherUpdated) onTeacherUpdated(updated);
         onClose();
       }
     } catch (err: any) {

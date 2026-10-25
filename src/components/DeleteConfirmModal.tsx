@@ -9,7 +9,8 @@ interface DeleteConfirmModalProps {
   name: string;
   identifier: string;
   onConfirm: () => Promise<void>;
-  onClose: () => void;
+  onClose?: () => void;
+  onCancel?: () => void;
 }
 
 export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
@@ -20,9 +21,15 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
   identifier,
   onConfirm,
   onClose,
+  onCancel,
 }) => {
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const handleDismiss = () => {
+    if (onClose) onClose();
+    else if (onCancel) onCancel();
+  };
 
   if (!isOpen) return null;
 
@@ -31,7 +38,7 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
     setError(null);
     try {
       await onConfirm();
-      onClose();
+      handleDismiss();
     } catch (e: any) {
       setError(e.message || 'Failed to delete record');
     } finally {
@@ -54,7 +61,7 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
               <AlertTriangle className="w-6 h-6" />
             </div>
             <button
-              onClick={onClose}
+              onClick={handleDismiss}
               disabled={deleting}
               className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition cursor-pointer"
             >
@@ -93,7 +100,7 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
           <div className="mt-6 flex items-center justify-end gap-3">
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleDismiss}
               disabled={deleting}
               className="px-4 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 transition cursor-pointer"
             >
