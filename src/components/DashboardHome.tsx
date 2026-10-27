@@ -15,7 +15,8 @@ import {
   Search,
   School,
   GraduationCap,
-  KeyRound
+  KeyRound,
+  FileSpreadsheet
 } from 'lucide-react';
 import { Student } from '../types/index.ts';
 import {
@@ -23,6 +24,7 @@ import {
   fetchAllStudentsUnified,
   getLocalTeachers,
   fetchTeachersUnified,
+  fetchClassTeacherAssignments,
 } from '../lib/schoolStore.ts';
 
 interface DashboardHomeProps {
@@ -36,31 +38,82 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
 }) => {
   const { token, user } = useAuth();
 
+  const [classTeacherAssignments, setClassTeacherAssignments] = useState<Record<string, any>>(() => {
+    try {
+      const raw = typeof window !== 'undefined' ? localStorage.getItem('fis_class_teachers_v1') : null;
+      return raw ? JSON.parse(raw) : {};
+    } catch (_) {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    const loadAssignments = async () => {
+      try {
+        const data = await fetchClassTeacherAssignments(token);
+        if (data && typeof data === 'object') {
+          setClassTeacherAssignments(data);
+        }
+      } catch (_) {}
+    };
+    loadAssignments();
+
+    const handleUpdated = (e: any) => {
+      if (e?.detail) {
+        setClassTeacherAssignments(e.detail);
+      } else {
+        loadAssignments();
+      }
+    };
+    window.addEventListener('fis:class-teachers-updated', handleUpdated);
+    window.addEventListener('fis:teachers-updated', loadAssignments);
+    return () => {
+      window.removeEventListener('fis:class-teachers-updated', handleUpdated);
+      window.removeEventListener('fis:teachers-updated', loadAssignments);
+    };
+  }, [token]);
+
   const isVictorSuperAdmin = user?.role === 'super_admin' || user?.email?.toLowerCase() === 'victoralo1862@gmail.com';
   const isDirector = user?.role === 'director';
   const isPrincipal = user?.role === 'principal';
   const isAdmin = user?.role === 'admin';
   const isExecutive = isVictorSuperAdmin || isDirector || isPrincipal || isAdmin;
 
-  const isClassTeacher = Boolean(
-    user?.isClassTeacher ||
+  const effectiveAssignedClass =
     user?.assignedClass ||
-    (typeof window !== 'undefined' && (() => {
+    (() => {
       try {
-        const raw = localStorage.getItem('fis_class_teachers_v1');
-        if (!raw) return false;
-        const parsed = JSON.parse(raw);
-        const tchId = user?.teacherId || '';
-        const email = user?.email?.toLowerCase() || '';
+        const tchId = user?.teacherId ? String(user.teacherId).toUpperCase() : '';
+        const email = user?.email ? user.email.toLowerCase() : '';
         const userId = user?.id ? String(user.id) : '';
-        return Boolean(parsed[tchId] || parsed[userId] || parsed[email]);
-      } catch (_) {
-        return false;
-      }
-    })())
-  );
+        const fullName = `${user?.firstName || ''} ${user?.lastName || ''}`.trim().toLowerCase();
 
+        const raw = typeof window !== 'undefined' ? localStorage.getItem('fis_class_teachers_v1') : null;
+        const source = classTeacherAssignments && Object.keys(classTeacherAssignments).length > 0
+          ? classTeacherAssignments
+          : (raw ? JSON.parse(raw) : {});
+
+        if (tchId && source[tchId]?.className) return source[tchId].className;
+        if (userId && source[userId]?.className) return source[userId].className;
+        if (email && source[email]?.className) return source[email].className;
+
+        const found: any = Object.values(source).find((item: any) => {
+          if (!item || !item.className) return false;
+          if (tchId && item.teacherId && String(item.teacherId).toUpperCase() === tchId) return true;
+          if (userId && item.teacherId && String(item.teacherId) === userId) return true;
+          if (email && item.email && item.email.toLowerCase() === email) return true;
+          if (fullName && item.teacherName && item.teacherName.trim().toLowerCase() === fullName) return true;
+          return false;
+        });
+        return found?.className || null;
+      } catch (_) {
+        return null;
+      }
+    })();
+
+  const isClassTeacher = Boolean(effectiveAssignedClass || user?.isClassTeacher);
   const canAccessBroadsheet = isExecutive || isClassTeacher;
+
 
   const [stats, setStats] = useState({
     totalStudents: 0,
@@ -151,15 +204,35 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
               <School className="w-4 h-4 text-amber-400" />
               <span>Fenster International School</span>
             </div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
-              Welcome back, {user?.firstName} {user?.lastName || user?.surname}!
-            </h1>
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
+                Welcome back, {user?.firstName} {user?.lastName || user?.surname}!
+              </h1>
+              {isClassTeacher && (
+                <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm flex items-center gap-1.5">
+                  <GraduationCap className="w-3.5 h-3.5 text-emerald-400" />
+                  Class Teacher • {effectiveAssignedClass || 'Designated'}
+                </span>
+              )}
+            </div>
             <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-xl">
-              Teacher ID: <strong className="text-amber-400 font-mono">{user?.teacherId || 'TCH-2026-0001'}</strong> • Academic Session 2026/2027. Manage enrollments, generate AI-grounded MCQs, and track academic results.
+              {isClassTeacher ? (
+                <>Designated <strong className="text-emerald-400 font-semibold">Class Teacher of {effectiveAssignedClass || 'assigned class'}</strong>. </>
+              ) : null}
+              Teacher ID: <strong className="text-amber-400 font-mono">{user?.teacherId || 'TCH-2026-0001'}</strong> • Academic Session 2026/2027. Manage enrollments, enter scores, author reports, and review broadsheets.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
+            {canAccessBroadsheet && (
+              <button
+                onClick={() => onNavigate('results')}
+                className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs flex items-center gap-2 transition shadow-lg shadow-emerald-950/40 cursor-pointer border border-emerald-500/40"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-emerald-200" />
+                Class Broadsheet {effectiveAssignedClass ? `(${effectiveAssignedClass})` : ''}
+              </button>
+            )}
             <button
               onClick={() => onNavigate('ss3-mock-teacher')}
               className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-xl text-xs flex items-center gap-2 transition shadow-lg shadow-emerald-950/40 cursor-pointer"
@@ -167,6 +240,7 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
               <Award className="w-4 h-4 text-amber-300" />
               SS3 Mock Manager (/400)
             </button>
+
             <button
               onClick={() => onNavigate('question-generator')}
               className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-2 transition shadow-lg shadow-amber-500/20 cursor-pointer"

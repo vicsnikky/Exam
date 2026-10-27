@@ -98,15 +98,29 @@ export const ClassBroadsheet: React.FC = () => {
         const raw = localStorage.getItem('fis_class_teachers_v1');
         if (!raw) return null;
         const parsed = JSON.parse(raw);
-        const tchId = user?.teacherId || '';
+        const tchId = user?.teacherId ? String(user.teacherId).toUpperCase() : '';
         const email = user?.email?.toLowerCase() || '';
         const userId = user?.id ? String(user.id) : '';
-        const match = parsed[tchId] || parsed[userId] || parsed[email];
-        return match?.className || null;
+        const fullName = `${user?.firstName || ''} ${user?.lastName || ''}`.trim().toLowerCase();
+
+        if (tchId && parsed[tchId]?.className) return parsed[tchId].className;
+        if (userId && parsed[userId]?.className) return parsed[userId].className;
+        if (email && parsed[email]?.className) return parsed[email].className;
+
+        const found: any = Object.values(parsed).find((item: any) => {
+          if (!item || !item.className) return false;
+          if (tchId && item.teacherId && String(item.teacherId).toUpperCase() === tchId) return true;
+          if (userId && item.teacherId && String(item.teacherId) === userId) return true;
+          if (email && item.email && item.email.toLowerCase() === email) return true;
+          if (fullName && item.teacherName && item.teacherName.trim().toLowerCase() === fullName) return true;
+          return false;
+        });
+        return found?.className || null;
       } catch (_) {
         return null;
       }
     })());
+
 
   // Filters & Scope: Default to assigned class for Class Teachers
   const [selectedClass, setSelectedClass] = useState<string>(() => {
@@ -665,15 +679,13 @@ export const ClassBroadsheet: React.FC = () => {
             const scSubName = (sc.subjectName || '').trim().toLowerCase();
             const scSubCode = (sc.subjectCode || '').trim().toLowerCase();
 
+            // Strict subject match: exact ID, exact code, or exact normalized name.
+            // Never use loose substring .includes() so that distinct subjects like
+            // 'Home Economics' and 'Economics' do not collide.
             const matchesSub =
-              Number(sc.subjectId) === Number(sub.id) ||
-              String(sc.subjectId) === String(sub.id) ||
-              (scSubName && cleanSubName && (
-                scSubName === cleanSubName ||
-                scSubName.includes(cleanSubName) ||
-                cleanSubName.includes(scSubName)
-              )) ||
-              (scSubCode && cleanSubCode && scSubCode === cleanSubCode);
+              (sc.subjectId !== undefined && sc.subjectId !== null && Number(sc.subjectId) > 0 && (Number(sc.subjectId) === Number(sub.id) || String(sc.subjectId) === String(sub.id))) ||
+              (scSubCode && cleanSubCode && scSubCode === cleanSubCode) ||
+              (scSubName && cleanSubName && scSubName === cleanSubName);
             return matchesSub;
           });
 
@@ -692,15 +704,13 @@ export const ClassBroadsheet: React.FC = () => {
               if (!matchesSt) return false;
 
               const lSubName = (l.subjectName || '').trim().toLowerCase();
+              const lSubCode = (l.subjectCode || '').trim().toLowerCase();
               const matchesSub =
-                Number(l.subjectId) === Number(sub.id) ||
-                String(l.subjectId) === String(sub.id) ||
-                (lSubName && cleanSubName && (
-                  lSubName === cleanSubName ||
-                  lSubName.includes(cleanSubName) ||
-                  cleanSubName.includes(lSubName)
-                ));
+                (l.subjectId !== undefined && l.subjectId !== null && Number(l.subjectId) > 0 && (Number(l.subjectId) === Number(sub.id) || String(l.subjectId) === String(sub.id))) ||
+                (lSubCode && cleanSubCode && lSubCode === cleanSubCode) ||
+                (lSubName && cleanSubName && lSubName === cleanSubName);
               if (!matchesSub) return false;
+
 
               const termMatch = !l.term || !selectedTerm || normalizeTerm(l.term) === normalizeTerm(selectedTerm);
               const sessMatch = !l.session || !selectedSession || l.session.trim() === selectedSession.trim();

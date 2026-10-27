@@ -21,6 +21,7 @@ import { AnonymousComplaintModal } from './components/AnonymousComplaintModal.ts
 import { ChangePasswordModal } from './components/ChangePasswordModal.tsx';
 import { ExecutiveComplaintsManager } from './components/ExecutiveComplaintsManager.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
+import { fetchClassTeacherAssignments } from './lib/schoolStore.ts';
 import {
   GraduationCap,
   LayoutDashboard,
@@ -54,6 +55,41 @@ import { Student } from './types/index.ts';
 export default function App() {
   const { user, token, logout, isLoading } = useAuth();
 
+  const [classTeacherAssignments, setClassTeacherAssignments] = useState<Record<string, any>>(() => {
+    try {
+      const raw = typeof window !== 'undefined' ? localStorage.getItem('fis_class_teachers_v1') : null;
+      return raw ? JSON.parse(raw) : {};
+    } catch (_) {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    const loadAssignments = async () => {
+      try {
+        const data = await fetchClassTeacherAssignments(token);
+        if (data && typeof data === 'object') {
+          setClassTeacherAssignments(data);
+        }
+      } catch (_) {}
+    };
+    loadAssignments();
+
+    const handleUpdated = (e: any) => {
+      if (e?.detail) {
+        setClassTeacherAssignments(e.detail);
+      } else {
+        loadAssignments();
+      }
+    };
+    window.addEventListener('fis:class-teachers-updated', handleUpdated);
+    window.addEventListener('fis:teachers-updated', loadAssignments);
+    return () => {
+      window.removeEventListener('fis:class-teachers-updated', handleUpdated);
+      window.removeEventListener('fis:teachers-updated', loadAssignments);
+    };
+  }, [token]);
+
   const isStudent = user?.role === 'student';
   const isBursar = user?.role === 'bursar';
   const isVictorSuperAdmin = user?.role === 'super_admin' || user?.email?.toLowerCase() === 'victoralo1862@gmail.com';
@@ -69,26 +105,44 @@ export default function App() {
   const canRegisterStudent = !isStudent && !isBursar; // Teachers, Admins, Principal, Director & Super Admin can register students on their dashboard
   const isTeacher = !isStudent && !isBursar;
 
+  // Resolve assigned class dynamically across live user profile and school assignments
+  const effectiveAssignedClass =
+    user?.assignedClass ||
+    (() => {
+      try {
+        const tchId = user?.teacherId ? String(user.teacherId).toUpperCase() : '';
+        const email = user?.email ? user.email.toLowerCase() : '';
+        const userId = user?.id ? String(user.id) : '';
+        const fullName = `${user?.firstName || ''} ${user?.lastName || ''}`.trim().toLowerCase();
+
+        const raw = typeof window !== 'undefined' ? localStorage.getItem('fis_class_teachers_v1') : null;
+        const source = classTeacherAssignments && Object.keys(classTeacherAssignments).length > 0
+          ? classTeacherAssignments
+          : (raw ? JSON.parse(raw) : {});
+
+        if (tchId && source[tchId]?.className) return source[tchId].className;
+        if (userId && source[userId]?.className) return source[userId].className;
+        if (email && source[email]?.className) return source[email].className;
+
+        const found: any = Object.values(source).find((item: any) => {
+          if (!item || !item.className) return false;
+          if (tchId && item.teacherId && String(item.teacherId).toUpperCase() === tchId) return true;
+          if (userId && item.teacherId && String(item.teacherId) === userId) return true;
+          if (email && item.email && item.email.toLowerCase() === email) return true;
+          if (fullName && item.teacherName && item.teacherName.trim().toLowerCase() === fullName) return true;
+          return false;
+        });
+        return found?.className || null;
+      } catch (_) {
+        return null;
+      }
+    })();
+
   // Broadsheet permissions: Only Class Teachers, Admins, and Super Admins can access broadsheets.
   // Regular subject teachers are strictly limited to entering student scores.
-  const isClassTeacher = Boolean(
-    user?.isClassTeacher ||
-    user?.assignedClass ||
-    (typeof window !== 'undefined' && (() => {
-      try {
-        const raw = localStorage.getItem('fis_class_teachers_v1');
-        if (!raw) return false;
-        const parsed = JSON.parse(raw);
-        const tchId = user?.teacherId || '';
-        const email = user?.email?.toLowerCase() || '';
-        const userId = user?.id ? String(user.id) : '';
-        return Boolean(parsed[tchId] || parsed[userId] || parsed[email]);
-      } catch (_) {
-        return false;
-      }
-    })())
-  );
+  const isClassTeacher = Boolean(effectiveAssignedClass || user?.isClassTeacher);
   const canAccessBroadsheet = isSuperAdmin || isAdminOnly || isClassTeacher;
+
 
   const adminConsoleTitle = isVictorSuperAdmin
     ? 'Super Admin Console'
@@ -371,15 +425,28 @@ export default function App() {
                     STUDENT ({user.currentClass || 'Scholar'})
                   </span>
                 )}
-                {user?.role === 'teacher' && (
+                {isClassTeacher ? (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm">
+                    CLASS TEACHER {effectiveAssignedClass ? `(${effectiveAssignedClass})` : ''}
+                  </span>
+                ) : user?.role === 'teacher' ? (
                   <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-500/20 text-indigo-300">
                     FACULTY TEACHER
                   </span>
-                )}
+                ) : null}
               </span>
               <span className="text-[10px] text-slate-400 font-mono">
-                {isStudent ? `ID: ${user.studentId}` : isBursar ? 'Bursary Fee Clearance & Locks' : isExecutive ? 'Full System Authority' : `Faculty: ${user.teacherId || user.email}`}
+                {isStudent
+                  ? `ID: ${user.studentId}`
+                  : isBursar
+                  ? 'Bursary Fee Clearance & Locks'
+                  : isExecutive
+                  ? 'Full System Authority'
+                  : isClassTeacher
+                  ? `Class Teacher • ${effectiveAssignedClass || 'Assigned'} • ${user.teacherId || user.email}`
+                  : `Faculty: ${user.teacherId || user.email}`}
               </span>
+
             </div>
 
             {!isStudent && (
@@ -721,9 +788,10 @@ export default function App() {
                     )}
                     <span className="relative z-10 flex items-center gap-3">
                       <FileText className="w-4 h-4 shrink-0" />
-                      Class Broadsheet & Results
+                      Class Broadsheet & Results {effectiveAssignedClass ? `(${effectiveAssignedClass})` : ''}
                     </span>
                   </motion.button>
+
                 )}
 
                 <motion.button
@@ -998,14 +1066,17 @@ export default function App() {
                     >
                       Add Student Score
                     </button>
-                    <button
-                      onClick={() => { setActiveTab('results'); setMobileMenuOpen(false); }}
-                      className={`w-full text-left px-3 py-2 text-xs rounded-lg transition ${
-                        activeTab === 'results' ? 'bg-emerald-700 text-white font-semibold' : 'text-slate-300 hover:bg-slate-700'
-                      }`}
-                    >
-                      Results & Ledgers
-                    </button>
+                    {canAccessBroadsheet && (
+                      <button
+                        onClick={() => { setActiveTab('results'); setMobileMenuOpen(false); }}
+                        className={`w-full text-left px-3 py-2 text-xs rounded-lg transition ${
+                          activeTab === 'results' ? 'bg-emerald-700 text-white font-semibold' : 'text-slate-300 hover:bg-slate-700'
+                        }`}
+                      >
+                        Class Broadsheet & Results {effectiveAssignedClass ? `(${effectiveAssignedClass})` : ''}
+                      </button>
+                    )}
+
                     <button
                       onClick={() => { setActiveTab('ss3-mock-teacher'); setMobileMenuOpen(false); }}
                       className={`w-full text-left px-3 py-2 text-xs rounded-lg transition ${

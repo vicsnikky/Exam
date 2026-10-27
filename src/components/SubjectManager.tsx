@@ -8,11 +8,13 @@ import {
   CheckCircle,
   Hash,
   FileText,
-  AlertCircle
+  AlertCircle,
+  Trash2,
+  AlertTriangle
 } from 'lucide-react';
 import { Subject } from '../types/index.ts';
 import { supabase } from '../supabaseConfig.ts';
-import { fetchAllSubjectsUnified, saveCustomSubjectLocally } from '../lib/subjectStore.ts';
+import { fetchAllSubjectsUnified, saveCustomSubjectLocally, deleteSubjectLocally } from '../lib/subjectStore.ts';
 
 export const SubjectManager: React.FC = () => {
   const { token, user } = useAuth();
@@ -21,8 +23,11 @@ export const SubjectManager: React.FC = () => {
   const [code, setCode] = useState('');
   const [description, setDescription] = useState('');
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [subjectToDelete, setSubjectToDelete] = useState<Subject | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
 
   const fetchSubjects = async () => {
     try {
@@ -125,6 +130,54 @@ export const SubjectManager: React.FC = () => {
       setSaving(false);
     }
   };
+
+  const handleConfirmDeleteSubject = async () => {
+    if (!subjectToDelete) return;
+    setDeleting(true);
+    setError(null);
+    setSuccess(null);
+
+    const target = subjectToDelete;
+    try {
+      // 1. Immediately delete locally & update blacklists
+      deleteSubjectLocally(target.id, target.code, target.name);
+
+      // 2. Delete / mark inactive in Supabase
+      try {
+        await supabase.from('subjects').delete().eq('code', target.code);
+        if (target.id) {
+          await supabase.from('subjects').delete().eq('id', target.id);
+        }
+      } catch (supaErr) {
+        console.warn('Supabase subject delete deferred:', supaErr);
+      }
+
+      // 3. Call backend API
+      try {
+        const res = await fetch(`/api/subjects/${target.id}`, {
+          method: 'DELETE',
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          console.warn('Backend subject delete response:', text);
+        }
+      } catch (netErr) {
+        console.warn('Backend subject delete network error:', netErr);
+      }
+
+      setSuccess(`Subject "${target.name}" (${target.code}) removed from school catalog.`);
+      setSubjectToDelete(null);
+      await fetchSubjects();
+    } catch (err: any) {
+      setError(err.message || 'Failed to delete subject');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
 
   return (
     <div className="space-y-6">
@@ -231,9 +284,9 @@ export const SubjectManager: React.FC = () => {
             {subjects.map((s, idx) => (
               <div
                 key={`sm_subj_${s.id}_${s.code || ''}_${idx}`}
-                className="p-3.5 bg-slate-900/80 border border-slate-700/80 rounded-xl flex items-start justify-between"
+                className="p-3.5 bg-slate-900/80 border border-slate-700/80 rounded-xl flex items-start justify-between gap-3 group hover:border-slate-600 transition"
               >
-                <div>
+                <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-bold text-white text-sm">{s.name}</span>
                     <span className="px-2 py-0.5 rounded font-mono text-[10px] font-bold bg-indigo-950 text-indigo-300 border border-indigo-800/50">
@@ -261,12 +314,72 @@ export const SubjectManager: React.FC = () => {
                     {s.description || 'Active syllabus subject.'}
                   </p>
                 </div>
-                <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0 mt-1.5" title="Active" />
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" title="Active curriculum subject" />
+                  <button
+                    type="button"
+                    onClick={() => setSubjectToDelete(s)}
+                    className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition cursor-pointer"
+                    title={`Delete ${s.name} (${s.code})`}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
         </div>
       </div>
+
+      {/* Delete Subject Confirmation Modal */}
+      {subjectToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+          <div className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-rose-400">
+              <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">Delete Subject</h3>
+                <p className="text-xs text-slate-400">Remove curriculum subject from school catalog</p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-slate-950/60 border border-slate-800 rounded-xl space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-bold text-white">{subjectToDelete.name}</span>
+                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-indigo-950 text-indigo-300 border border-indigo-800/40">
+                  {subjectToDelete.code}
+                </span>
+              </div>
+              <p className="text-xs text-slate-400">
+                Are you sure you want to remove this subject? It will be removed across the Broadsheet, Student Profiles, and Quiz modules.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={() => setSubjectToDelete(null)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={handleConfirmDeleteSubject}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-rose-950/40 cursor-pointer disabled:opacity-50"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                {deleting ? 'Deleting...' : 'Confirm Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+

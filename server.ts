@@ -1218,6 +1218,54 @@ app.put('/api/subjects/:id', authenticate, async (req: AuthRequest, res) => {
   }
 });
 
+app.delete('/api/subjects/:id', authenticate, async (req: AuthRequest, res) => {
+  try {
+    if (req.appUser?.role === 'student' || req.appUser?.role === 'bursar') {
+      return res.status(403).json({ error: 'Academic faculty and school administrators only' });
+    }
+    const subId = Number(req.params.id);
+    if (!subId || isNaN(subId)) {
+      return res.status(400).json({ error: 'Valid numeric subject ID is required' });
+    }
+
+    // Check if subject exists
+    const existing = await db.select().from(subjects).where(eq(subjects.id, subId)).limit(1);
+    if (existing.length === 0) {
+      return res.status(404).json({ error: 'Subject not found in catalog' });
+    }
+    const targetSub = existing[0];
+
+    // Attempt deletion; if foreign key constraints exist, mark status as inactive
+    try {
+      await db.delete(subjects).where(eq(subjects.id, subId));
+    } catch (fkErr) {
+      console.warn('Subject has associated records; archiving with status=inactive:', fkErr);
+      await db.update(subjects).set({ status: 'inactive' }).where(eq(subjects.id, subId));
+    }
+
+    try {
+      await db.insert(auditLogs).values({
+        actorName: `${req.appUser?.firstName || 'Faculty'} ${req.appUser?.lastName || 'Member'}`,
+        actorRole: req.appUser?.role || 'teacher',
+        action: 'SUBJECT_DELETED',
+        targetEntity: 'subjects',
+        details: `Subject removed from curriculum: ${targetSub.name} (${targetSub.code})`,
+        schoolId: req.appUser?.schoolId || 1,
+      });
+    } catch (_) {}
+
+    return res.json({
+      success: true,
+      message: `Subject ${targetSub.name} (${targetSub.code}) removed successfully`,
+      deletedSubject: targetSub,
+    });
+  } catch (error: any) {
+    console.error('Delete subject error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to delete subject' });
+  }
+});
+
+
 // ----------------------------------------------------
 // 5. SCORE ENTRY & RECORDING (Multi-subject, existing student never re-registered)
 // ----------------------------------------------------

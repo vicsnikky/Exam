@@ -24,6 +24,8 @@ export const BASELINE_SUBJECTS: Subject[] = [
 ];
 
 const CUSTOM_SUBJECTS_KEY = 'fis_custom_subjects_v1';
+const DELETED_SUBJECT_CODES_KEY = 'fis_deleted_subject_codes_v1';
+const DELETED_SUBJECT_IDS_KEY = 'fis_deleted_subject_ids_v1';
 
 export function getCustomSubjects(): Subject[] {
   try {
@@ -50,10 +52,51 @@ export function saveCustomSubjectLocally(newSub: Subject): Subject[] {
     updated = [newSub, ...current];
   }
 
+  // Remove from deleted blacklists if re-created
+  try {
+    const rawCodes = localStorage.getItem(DELETED_SUBJECT_CODES_KEY);
+    if (rawCodes) {
+      const codeSet = new Set<string>(JSON.parse(rawCodes));
+      codeSet.delete(newSub.code.toUpperCase());
+      localStorage.setItem(DELETED_SUBJECT_CODES_KEY, JSON.stringify([...codeSet]));
+    }
+  } catch (_) {}
+
   localStorage.setItem(CUSTOM_SUBJECTS_KEY, JSON.stringify(updated));
   window.dispatchEvent(new CustomEvent('fis:subjects-updated', { detail: updated }));
   return updated;
 }
+
+export function deleteSubjectLocally(id: number | string, code?: string, name?: string): void {
+  const idStr = String(id);
+  const codeUpper = (code || '').toUpperCase().trim();
+  const nameLower = (name || '').toLowerCase().trim();
+
+  // 1. Remove from local custom subjects
+  const current = getCustomSubjects();
+  const filtered = current.filter(
+    (s) => String(s.id) !== idStr && (!codeUpper || s.code.toUpperCase() !== codeUpper) && (!nameLower || s.name.toLowerCase() !== nameLower)
+  );
+  localStorage.setItem(CUSTOM_SUBJECTS_KEY, JSON.stringify(filtered));
+
+  // 2. Add to deleted tracking sets so baseline / server cached subjects stay deleted
+  try {
+    const rawIds = localStorage.getItem(DELETED_SUBJECT_IDS_KEY);
+    const idSet = new Set<string>(rawIds ? JSON.parse(rawIds) : []);
+    idSet.add(idStr);
+    localStorage.setItem(DELETED_SUBJECT_IDS_KEY, JSON.stringify([...idSet]));
+
+    if (codeUpper) {
+      const rawCodes = localStorage.getItem(DELETED_SUBJECT_CODES_KEY);
+      const codeSet = new Set<string>(rawCodes ? JSON.parse(rawCodes) : []);
+      codeSet.add(codeUpper);
+      localStorage.setItem(DELETED_SUBJECT_CODES_KEY, JSON.stringify([...codeSet]));
+    }
+  } catch (_) {}
+
+  window.dispatchEvent(new CustomEvent('fis:subjects-updated', { detail: filtered }));
+}
+
 
 export async function fetchAllSubjectsUnified(token?: string | null): Promise<Subject[]> {
   const custom = getCustomSubjects();
@@ -122,7 +165,23 @@ export async function fetchAllSubjectsUnified(token?: string | null): Promise<Su
     }
   }
 
-  const allList = Array.from(mergedMap.values());
+  // Load deleted sets
+  let deletedIds = new Set<string>();
+  let deletedCodes = new Set<string>();
+  try {
+    const rawIds = localStorage.getItem(DELETED_SUBJECT_IDS_KEY);
+    if (rawIds) deletedIds = new Set<string>(JSON.parse(rawIds));
+    const rawCodes = localStorage.getItem(DELETED_SUBJECT_CODES_KEY);
+    if (rawCodes) deletedCodes = new Set<string>(JSON.parse(rawCodes));
+  } catch (_) {}
+
+  const allList = Array.from(mergedMap.values()).filter((s) => {
+    if (s.status === 'inactive') return false;
+    if (s.id && deletedIds.has(String(s.id))) return false;
+    if (s.code && deletedCodes.has(s.code.toUpperCase())) return false;
+    return true;
+  });
+
 
   // Guarantee strictly unique integer IDs across all subjects to prevent React duplicate key collisions
   const seenIds = new Set<number>();
