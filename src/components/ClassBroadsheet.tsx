@@ -59,6 +59,100 @@ import { supabase } from '../supabaseConfig.ts';
 
 export { isSecondaryClass };
 
+// Canonical Subject Key Resolution
+// Prevents collisions between 'Home Economics' and 'Economics', 'Further Mathematics' and 'Mathematics',
+// while correctly mapping aliases like 'CRS' <-> 'Christian Religious Studies', 'PHE' <-> 'Physical and Health Education', etc.
+export function getSubjectCanonicalKey(id?: number | string | null, code?: string | null, name?: string | null): string {
+  const cleanId = id !== undefined && id !== null ? Number(id) : NaN;
+  const n = (name || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  const c = (code || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  // Strict distinction for Home Economics vs Economics
+  if (n.includes('homeecon') || c === 'hec') return 'home_economics';
+  if (n === 'economics' || n === 'economic' || c === 'eco') return 'economics';
+
+  // Strict distinction for Further Mathematics vs General Mathematics
+  if (n.includes('furthermath') || n.includes('addmath') || c === 'fmth' || c === 'fmath') return 'further_maths';
+  if (n.includes('math') || c === 'mth' || c === 'math' || c === 'maths') return 'mathematics';
+
+  // Strict distinction for English Language vs Literature in English
+  if (n.includes('literature') || c === 'lit') return 'literature';
+  if (n.includes('english') || c === 'eng') return 'english';
+
+  // Religious Studies
+  if (n.includes('christian') || n.includes('crs') || n.includes('crk') || c === 'crs' || c === 'crk') return 'crs';
+  if (n.includes('islamic') || n.includes('irs') || n.includes('irk') || c === 'irs' || c === 'irk') return 'irs';
+
+  // Physical & Health Education
+  if (n.includes('physical') || n.includes('health') || n === 'phe' || c === 'phe' || c === 'pe') return 'phe';
+
+  // Basic Science vs Basic Technology
+  if (n.includes('basictech') || n.includes('btech') || c === 'btech' || c === 'tech') return 'basic_technology';
+  if (n.includes('basicsci') || n.includes('bst') || c === 'bst' || n.includes('integratedsci')) return 'basic_science';
+
+  // Cultural and Creative Arts
+  if (n.includes('cultural') || n.includes('creative') || n === 'cca' || c === 'cca' || n.includes('fineart')) return 'cca';
+
+  // Civic & Values Education
+  if (n.includes('nationalvalue') || n === 'nve' || c === 'nve') return 'nve';
+  if (n.includes('civic') || c === 'civ') return 'civic_education';
+  if (n.includes('social') || c === 'sos') return 'social_studies';
+
+  // Computer / Digital Tech
+  if (n.includes('computer') || n.includes('data') || n.includes('ict') || n.includes('dtech') || c === 'dtech' || c === 'ict' || c === 'cmp' || c === 'dp') return 'computer_studies';
+
+  // Languages
+  if (n.includes('yoruba') || c === 'yor') return 'yoruba';
+  if (n.includes('igbo') || c === 'igb') return 'igbo';
+  if (n.includes('hausa') || c === 'hau') return 'hausa';
+  if (n.includes('french') || c === 'fre' || c === 'frc') return 'french';
+
+  // Sciences & Social Sciences
+  if (n.includes('biology') || c === 'bio') return 'biology';
+  if (n.includes('chemistry') || c === 'chm') return 'chemistry';
+  if (n.includes('physics') || c === 'phy') return 'physics';
+  if (n.includes('agric') || c === 'agr') return 'agric';
+  if (n.includes('commerce') || c === 'com') return 'commerce';
+  if (n.includes('account') || n.includes('bookkeep') || c === 'acc') return 'accounting';
+  if (n.includes('government') || c === 'gov') return 'government';
+  if (n.includes('geography') || c === 'geo') return 'geography';
+  if (n.includes('business') || c === 'bus') return 'business_studies';
+
+  if (!isNaN(cleanId) && cleanId > 0) return `id_${cleanId}`;
+  return n || c || (cleanId ? `id_${cleanId}` : 'unknown');
+}
+
+export function isSameAcademicSubject(
+  subA: { id?: number | string | null; code?: string | null; name?: string | null },
+  subB: { id?: number | string | null; code?: string | null; name?: string | null }
+): boolean {
+  const idA = subA.id !== undefined && subA.id !== null ? Number(subA.id) : NaN;
+  const idB = subB.id !== undefined && subB.id !== null ? Number(subB.id) : NaN;
+  if (!isNaN(idA) && !isNaN(idB) && idA > 0 && idB > 0 && idA === idB) {
+    return true;
+  }
+
+  const codeA = (subA.code || '').trim().toLowerCase();
+  const codeB = (subB.code || '').trim().toLowerCase();
+  if (codeA && codeB && codeA === codeB) {
+    return true;
+  }
+
+  const nameA = (subA.name || '').trim().toLowerCase();
+  const nameB = (subB.name || '').trim().toLowerCase();
+  if (nameA && nameB && nameA === nameB) {
+    return true;
+  }
+
+  const keyA = getSubjectCanonicalKey(subA.id, subA.code, subA.name);
+  const keyB = getSubjectCanonicalKey(subB.id, subB.code, subB.name);
+  if (keyA && keyB && keyA !== 'unknown' && keyA === keyB) {
+    return true;
+  }
+
+  return false;
+}
+
 // Grade calculation helper
 export function calculateSubjectGrade(totalScore: number): string {
   if (totalScore >= 75) return 'A1';
@@ -628,6 +722,41 @@ export const ClassBroadsheet: React.FC = () => {
       // Stage 5 = Term 3 1st Half, Stage 6 = Term 3 Terminal (session cumulative: Terms 1, 2 & 3)
       const currentStage = getExamStageOrder(selectedTerm, effectiveExamPeriod);
 
+      // Dynamically discover and register any subjects present in serverScores or localScores that are not yet in subs
+      const allUnifiedSubjects = [...subs];
+      const hasSubject = (candidate: { id?: any; name?: any; code?: any }) => {
+        return allUnifiedSubjects.some((existing) => isSameAcademicSubject(existing, candidate));
+      };
+
+      serverScores.forEach((sc) => {
+        if (!sc.subjectName && !sc.subjectId) return;
+        if (!hasSubject({ id: sc.subjectId, name: sc.subjectName, code: sc.subjectCode })) {
+          const newSub: Subject = {
+            id: Number(sc.subjectId) || (allUnifiedSubjects.length > 0 ? Math.max(...allUnifiedSubjects.map((s) => Number(s.id) || 0)) + 1 : 100),
+            name: sc.subjectName || `Subject ${sc.subjectId}`,
+            code: sc.subjectCode || 'SUB',
+            status: 'active',
+          };
+          allUnifiedSubjects.push(newSub);
+        }
+      });
+
+      localScores.forEach((loc) => {
+        if (!loc.subjectName && !loc.subjectId) return;
+        if (!hasSubject({ id: loc.subjectId, name: loc.subjectName, code: loc.subjectCode })) {
+          const newSub: Subject = {
+            id: Number(loc.subjectId) || (allUnifiedSubjects.length > 0 ? Math.max(...allUnifiedSubjects.map((s) => Number(s.id) || 0)) + 1 : 100),
+            name: loc.subjectName || `Subject ${loc.subjectId}`,
+            code: loc.subjectCode || 'SUB',
+            status: 'active',
+          };
+          allUnifiedSubjects.push(newSub);
+        }
+      });
+
+      // Update availableSubjects state so all discovered subjects have broadsheet columns
+      setAvailableSubjects(allUnifiedSubjects);
+
       // Build broadsheet rows
       const rows: BroadsheetRow[] = targetStudents.map((st) => {
         const cleanStId = String(st.studentId || '').toUpperCase().trim();
@@ -653,11 +782,8 @@ export const ClassBroadsheet: React.FC = () => {
         let countedSubjects = 0;
         const currentStageScoresList: Array<{ subjectId: number | string; totalScore: number; units: number }> = [];
 
-        subs.forEach((sub) => {
-          const cleanSubName = (sub.name || '').trim().toLowerCase();
-          const cleanSubCode = (sub.code || '').trim().toLowerCase();
-
-          // Find assessments for this student and subject
+        allUnifiedSubjects.forEach((sub) => {
+          // Find assessments for this student and subject using canonical subject matching
           const stScores = serverScores.filter((sc) => {
             if (isScoreDeleted(sc.id, st.id, sub.id)) return false;
             if (sc.assessmentType === 'SS3_MOCK') return false;
@@ -676,16 +802,11 @@ export const ClassBroadsheet: React.FC = () => {
               (scStName && stFullName && (scStName === stFullName || scStName.includes(stFullName) || stFullName.includes(scStName)));
             if (!matchesSt) return false;
 
-            const scSubName = (sc.subjectName || '').trim().toLowerCase();
-            const scSubCode = (sc.subjectCode || '').trim().toLowerCase();
-
-            // Strict subject match: exact ID, exact code, or exact normalized name.
-            // Never use loose substring .includes() so that distinct subjects like
-            // 'Home Economics' and 'Economics' do not collide.
-            const matchesSub =
-              (sc.subjectId !== undefined && sc.subjectId !== null && Number(sc.subjectId) > 0 && (Number(sc.subjectId) === Number(sub.id) || String(sc.subjectId) === String(sub.id))) ||
-              (scSubCode && cleanSubCode && scSubCode === cleanSubCode) ||
-              (scSubName && cleanSubName && scSubName === cleanSubName);
+            // Strict canonical subject match: resolves aliases (e.g. CRS, PHE, French) without colliding Economics & Home Economics
+            const matchesSub = isSameAcademicSubject(
+              { id: sub.id, code: sub.code, name: sub.name },
+              { id: sc.subjectId, code: sc.subjectCode, name: sc.subjectName }
+            );
             return matchesSub;
           });
 
@@ -703,14 +824,11 @@ export const ClassBroadsheet: React.FC = () => {
                 (l.studentName && stFullName && l.studentName.trim().toLowerCase() === stFullName);
               if (!matchesSt) return false;
 
-              const lSubName = (l.subjectName || '').trim().toLowerCase();
-              const lSubCode = (l.subjectCode || '').trim().toLowerCase();
-              const matchesSub =
-                (l.subjectId !== undefined && l.subjectId !== null && Number(l.subjectId) > 0 && (Number(l.subjectId) === Number(sub.id) || String(l.subjectId) === String(sub.id))) ||
-                (lSubCode && cleanSubCode && lSubCode === cleanSubCode) ||
-                (lSubName && cleanSubName && lSubName === cleanSubName);
+              const matchesSub = isSameAcademicSubject(
+                { id: sub.id, code: sub.code, name: sub.name },
+                { id: l.subjectId, code: l.subjectCode, name: l.subjectName }
+              );
               if (!matchesSub) return false;
-
 
               const termMatch = !l.term || !selectedTerm || normalizeTerm(l.term) === normalizeTerm(selectedTerm);
               const sessMatch = !l.session || !selectedSession || l.session.trim() === selectedSession.trim();
@@ -755,12 +873,8 @@ export const ClassBroadsheet: React.FC = () => {
                 Number(s.maxScore) === 40;
               if (!isCA) return false;
 
-              if (isSecondary) {
-                if (effectiveExamPeriod === 'first-half') {
-                  return title.includes('first half') || title.includes('1st half') || title.includes('6th') || comm.includes('first-half');
-                } else {
-                  return title.includes('terminal') || comm.includes('terminal') || (!title.includes('first half') && !title.includes('1st half') && !title.includes('6th') && !comm.includes('first-half'));
-                }
+              if (isSecondary && effectiveExamPeriod === 'first-half') {
+                return title.includes('first half') || title.includes('1st half') || title.includes('6th') || comm.includes('first-half');
               }
               return true;
             });

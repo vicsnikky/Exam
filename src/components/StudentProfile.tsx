@@ -27,7 +27,8 @@ import {
   CreditCard,
   MapPin,
 } from 'lucide-react';
-import { Student, AssessmentRecord } from '../types/index.ts';
+import { Student, AssessmentRecord, Subject } from '../types/index.ts';
+import { fetchAllSubjectsUnified } from '../lib/subjectStore.ts';
 import {
   getLocalStudents,
   getInstitutionalVault,
@@ -127,10 +128,20 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
   // Edit Score Modal State
   const [editingAssessment, setEditingAssessment] = useState<AssessmentRecord | null>(null);
+  const [availableSubjects, setAvailableSubjects] = useState<Subject[]>([]);
+  const [editSubjectId, setEditSubjectId] = useState<number | string>('');
   const [editCa, setEditCa] = useState<string>('');
   const [editExam, setEditExam] = useState<string>('');
   const [editComment, setEditComment] = useState<string>('');
   const [savingEdit, setSavingEdit] = useState(false);
+
+  useEffect(() => {
+    fetchAllSubjectsUnified(token).then((subs) => {
+      if (Array.isArray(subs) && subs.length > 0) {
+        setAvailableSubjects(subs);
+      }
+    }).catch(() => {});
+  }, [token]);
 
   // Financial & Bursary Statement Modal
   const [showFeeModal, setShowFeeModal] = useState(false);
@@ -728,6 +739,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     }
 
     setEditingAssessment(a);
+    setEditSubjectId(a.subjectId || '');
     setEditCa(parsedCa);
     setEditExam(parsedExam);
     setEditComment(userNote);
@@ -743,6 +755,11 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
       const isCaItem = Number(editingAssessment.maxScore) === 40 || editingAssessment.assessmentType === 'CA';
       const targetScore = isCaItem ? (parsedCaNum ?? Number(editingAssessment.score)) : (parsedExamNum ?? Number(editingAssessment.score));
+
+      const targetSubjectId = editSubjectId ? Number(editSubjectId) : Number(editingAssessment.subjectId);
+      const selectedSubObj = availableSubjects.find((s) => Number(s.id) === targetSubjectId || String(s.id) === String(targetSubjectId));
+      const targetSubjectName = selectedSubObj?.name || editingAssessment.subjectName;
+      const targetSubjectCode = selectedSubObj?.code || editingAssessment.subjectCode;
 
       const updatedPayload = JSON.stringify({
         caScore: parsedCaNum,
@@ -760,7 +777,9 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
         body: JSON.stringify({
           studentId: student?.id,
           studentNumber: student?.studentId,
-          subjectId: editingAssessment.subjectId,
+          subjectId: targetSubjectId,
+          subjectName: targetSubjectName,
+          subjectCode: targetSubjectCode,
           assessmentType: editingAssessment.assessmentType,
           assessmentTitle: editingAssessment.assessmentTitle,
           session: editingAssessment.session || student?.session || '2026/2027',
@@ -778,13 +797,14 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
         throw new Error(errData.error || errData.message || 'Failed to update score');
       }
 
-      // Direct Supabase cloud persistence safeguard for edited score
+      // Direct Supabase cloud persistence safeguard for edited score (including corrected subject_id)
       try {
         const numericScoreId = Number(editingAssessment.id);
         if (!isNaN(numericScoreId) && numericScoreId > 0 && numericScoreId <= 2147483647) {
           await supabase
             .from('assessments')
             .update({
+              subject_id: targetSubjectId,
               score: String(targetScore),
               max_score: String(editingAssessment.maxScore),
               percentage: String(Math.round((targetScore / (Number(editingAssessment.maxScore) || 100)) * 100)),
@@ -795,7 +815,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
         } else if (student?.id) {
           await supabase.from('assessments').insert({
             student_id: Number(student.id),
-            subject_id: Number(editingAssessment.subjectId),
+            subject_id: targetSubjectId,
             assessment_type: editingAssessment.assessmentType || (isCaItem ? 'CA' : 'Examination'),
             assessment_title: editingAssessment.assessmentTitle || (isCaItem ? 'Continuous Assessment Test' : 'Main Examination'),
             score: String(targetScore),
@@ -806,6 +826,51 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
             term: editingAssessment.term || selectedPrintTerm,
             teacher_comment: updatedPayload,
           });
+        }
+      } catch (_) {}
+
+      // Update local broadsheet cache so the new subject reflects instantly
+      try {
+        const rawBroad = localStorage.getItem('fis_broadsheet_scores_v2');
+        if (rawBroad) {
+          const bList = JSON.parse(rawBroad);
+          const updatedBroad = bList.map((b: any) => {
+            const matchesId = String(b.id) === String(editingAssessment.id) || String(b.testId) === String(editingAssessment.id) || String(b.examId) === String(editingAssessment.id);
+            const matchesStudent = student && (String(b.studentId) === String(student.id) || b.studentNumber === student.studentId);
+            const matchesOldSub = Number(b.subjectId) === Number(editingAssessment.subjectId);
+            if (matchesId || (matchesStudent && matchesOldSub)) {
+              return {
+                ...b,
+                subjectId: targetSubjectId,
+                subjectName: targetSubjectName,
+                subjectCode: targetSubjectCode,
+                testScore: isCaItem ? (parsedCaNum ?? b.testScore) : b.testScore,
+                examScore: !isCaItem ? (parsedExamNum ?? b.examScore) : b.examScore,
+                totalScore: (parsedCaNum ?? (Number(b.testScore) || 0)) + (parsedExamNum ?? (Number(b.examScore) || 0)),
+              };
+            }
+            return b;
+          });
+          localStorage.setItem('fis_broadsheet_scores_v2', JSON.stringify(updatedBroad));
+        }
+      } catch (_) {}
+
+      // Un-delete blacklist for new student + subject in case previously deleted
+      try {
+        const rawDel = localStorage.getItem('fis_deleted_score_ids_v1');
+        if (rawDel) {
+          const dSet = new Set<string>(JSON.parse(rawDel));
+          if (student?.id) {
+            dSet.delete(`key_${student.id}_${targetSubjectId}`);
+            dSet.delete(`key_${student.id}_${targetSubjectId}_CA`);
+            dSet.delete(`key_${student.id}_${targetSubjectId}_Examination`);
+          }
+          if (student?.studentId) {
+            dSet.delete(`key_${student.studentId}_${targetSubjectId}`);
+            dSet.delete(`key_${student.studentId}_${targetSubjectId}_CA`);
+            dSet.delete(`key_${student.studentId}_${targetSubjectId}_Examination`);
+          }
+          localStorage.setItem('fis_deleted_score_ids_v1', JSON.stringify([...dSet]));
         }
       } catch (_) {}
 
@@ -1389,11 +1454,81 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   // Handler to delete all records for a subject row
   const handleDeleteSubjectRow = async (row: GroupedSubjectRow) => {
     if (!confirm(`Are you sure you want to delete all recorded scores for ${row.subjectName}?`)) return;
-    if (row.caRecord) await handleDeleteScore(row.caRecord.id, row.subjectName, row.caRecord);
-    if (row.examRecord) await handleDeleteScore(row.examRecord.id, row.subjectName, row.examRecord);
-    if (row.primaryRecord && (!row.caRecord || row.primaryRecord.id !== row.caRecord.id) && (!row.examRecord || row.primaryRecord.id !== row.examRecord.id)) {
-      await handleDeleteScore(row.primaryRecord.id, row.subjectName, row.primaryRecord);
+
+    // Find all assessment records matching this subject
+    const related = assessments.filter(
+      (a) =>
+        (a.subjectId && row.subjectId && Number(a.subjectId) === Number(row.subjectId)) ||
+        (a.subjectName && row.subjectName && a.subjectName.toLowerCase() === row.subjectName.toLowerCase())
+    );
+
+    for (const rec of related) {
+      try {
+        await handleDeleteScore(rec.id, row.subjectName, rec);
+      } catch (_) {}
     }
+
+    // Direct deletion query to server to delete all scores for student + subject
+    try {
+      const q = new URLSearchParams();
+      if (student?.id) q.set('studentId', String(student.id));
+      if (row.subjectId) q.set('subjectId', String(row.subjectId));
+      if (row.term) q.set('term', row.term);
+      if (row.session) q.set('session', row.session);
+      await fetch(`/api/scores?${q.toString()}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token || 'local-teacher-auth:teacher@school.edu'}` },
+      });
+    } catch (_) {}
+
+    // Also remove from Supabase
+    try {
+      let targetStDbId = student?.id;
+      if (targetStDbId && row.subjectId) {
+        await supabase
+          .from('assessments')
+          .delete()
+          .eq('student_id', Number(targetStDbId))
+          .eq('subject_id', Number(row.subjectId));
+      }
+    } catch (_) {}
+
+    // In local broadsheet cache:
+    try {
+      const cached = localStorage.getItem('fis_broadsheet_scores_v2');
+      if (cached) {
+        const list = JSON.parse(cached);
+        const filtered = list.filter(
+          (l: any) =>
+            !(
+              (l.studentId === student?.id || l.studentNumber === student?.studentId) &&
+              (Number(l.subjectId) === Number(row.subjectId) || (l.subjectName && l.subjectName.toLowerCase() === row.subjectName.toLowerCase()))
+            )
+        );
+        localStorage.setItem('fis_broadsheet_scores_v2', JSON.stringify(filtered));
+      }
+    } catch (_) {}
+
+    // Add subject deletion key to deletedIds
+    try {
+      const deletedRaw = localStorage.getItem('fis_deleted_score_ids_v1');
+      const deletedIds = new Set<string>(deletedRaw ? JSON.parse(deletedRaw) : []);
+      if (student?.id && row.subjectId) {
+        deletedIds.add(`key_${student.id}_${row.subjectId}`);
+        deletedIds.add(`key_${student.id}_${row.subjectId}_CA`);
+        deletedIds.add(`key_${student.id}_${row.subjectId}_Examination`);
+      }
+      if (student?.studentId && row.subjectId) {
+        deletedIds.add(`key_${student.studentId}_${row.subjectId}`);
+        deletedIds.add(`key_${student.studentId}_${row.subjectId}_CA`);
+        deletedIds.add(`key_${student.studentId}_${row.subjectId}_Examination`);
+      }
+      localStorage.setItem('fis_deleted_score_ids_v1', JSON.stringify([...deletedIds]));
+    } catch (_) {}
+
+    window.dispatchEvent(new CustomEvent('fis:scores-updated'));
+    window.dispatchEvent(new CustomEvent('fis:broadsheet-scores-updated'));
+    await loadProfile();
   };
 
   return (
@@ -1789,8 +1924,25 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                       return (
                         <div key={subj} className="bg-slate-900/70 border border-slate-700/70 p-4 rounded-xl">
                           <div className="flex items-center justify-between mb-2">
-                            <span className="font-semibold text-white text-sm">{subj}</span>
-                            <span className="text-xs font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className="font-semibold text-white text-sm truncate">{subj}</span>
+                              {canManageScores && (
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    if (!confirm(`Are you sure you want to delete all recorded scores for "${subj}"? This will immediately remove this subject from the student profile and the broadsheet.`)) return;
+                                    for (const rec of validRecords) {
+                                      await handleDeleteScore(rec.id, subj, rec);
+                                    }
+                                  }}
+                                  title={`Delete all recorded scores for ${subj}`}
+                                  className="p-1 rounded-md text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition cursor-pointer shrink-0"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                            <span className="text-xs font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 shrink-0">
                               Avg: {avg}%
                             </span>
                           </div>
@@ -1798,9 +1950,9 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                             {validRecords.map((r, rIdx) => (
                               <div
                                 key={`rec_${r.id}_${rIdx}`}
-                                className="flex items-center justify-between text-slate-300 py-1 border-b border-slate-800/60 last:border-0"
+                                className="flex items-center justify-between text-slate-300 py-1.5 border-b border-slate-800/60 last:border-0"
                               >
-                                <span className="text-slate-400 truncate max-w-[150px]">
+                                <span className="text-slate-400 truncate max-w-[120px] sm:max-w-[140px]">
                                   {r.assessmentTitle || 'Test'}
                                 </span>
                                 <div className="flex items-center gap-2">
@@ -1820,6 +1972,29 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                                   >
                                     {r.grade || 'C'}
                                   </span>
+                                  {canManageScores && (
+                                    <div className="flex items-center gap-1 ml-1 pl-1 border-l border-slate-800">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleOpenEdit(r)}
+                                        title="Edit score or reassign subject"
+                                        className="p-1 rounded text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 transition cursor-pointer"
+                                      >
+                                        <Edit2 className="w-3 h-3" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={async () => {
+                                          if (!confirm(`Are you sure you want to delete this score record (${r.assessmentTitle || 'Test'}: ${r.score}/${r.maxScore})?`)) return;
+                                          await handleDeleteScore(r.id, subj, r);
+                                        }}
+                                        title="Delete this score"
+                                        className="p-1 rounded text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition cursor-pointer"
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                             ))}
@@ -2573,10 +2748,32 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
             </div>
 
             <div className="space-y-3 text-xs">
-              <div className="bg-slate-800 p-3 rounded-xl space-y-1">
-                <span className="text-slate-400 block font-medium">Subject & Assessment:</span>
-                <p className="font-bold text-white text-sm">{editingAssessment.subjectName}</p>
-                <p className="text-slate-400 text-xs">{editingAssessment.assessmentTitle}</p>
+              {/* Subject Selection & Reassignment Dropdown */}
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1">
+                  Assigned Subject
+                </label>
+                <select
+                  value={editSubjectId}
+                  onChange={(e) => setEditSubjectId(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white font-medium focus:outline-none focus:border-emerald-500 cursor-pointer"
+                >
+                  {availableSubjects.map((sub) => (
+                    <option key={sub.id} value={sub.id}>
+                      {sub.name} ({sub.code})
+                    </option>
+                  ))}
+                </select>
+                {editSubjectId && String(editSubjectId) !== String(editingAssessment.subjectId) && (
+                  <div className="mt-1.5 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] leading-snug">
+                    💡 <strong>Correcting score mistake:</strong> Score will be transferred from <em>{editingAssessment.subjectName}</em> to the newly selected subject on the student profile and broadsheet.
+                  </div>
+                )}
+              </div>
+
+              <div className="bg-slate-800/60 p-2.5 rounded-xl border border-slate-700">
+                <span className="text-slate-400 block text-[11px] font-medium">Assessment Reference:</span>
+                <p className="font-bold text-white text-xs mt-0.5">{editingAssessment.assessmentTitle || 'Academic Evaluation'}</p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">

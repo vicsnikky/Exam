@@ -225,6 +225,15 @@ export async function ensureTablesExist(pool: Pool) {
     ALTER TABLE complaints ADD COLUMN IF NOT EXISTS forwarded_at TIMESTAMP;
     ALTER TABLE complaints ADD COLUMN IF NOT EXISTS forwarded_by TEXT;
     ALTER TABLE complaints ADD COLUMN IF NOT EXISTS forwarding_notes TEXT;
+
+    ALTER TABLE teachers ADD COLUMN IF NOT EXISTS assigned_class TEXT;
+    CREATE TABLE IF NOT EXISTS class_teachers (
+      id SERIAL PRIMARY KEY,
+      class_name TEXT NOT NULL,
+      teacher_id TEXT NOT NULL,
+      teacher_name TEXT NOT NULL,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+    );
   `;
 
   try {

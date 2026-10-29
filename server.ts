@@ -22,13 +22,15 @@ import {
   academicSessions,
   auditLogs,
   schools,
-  complaints
+  complaints,
+  classTeachers,
 } from './src/db/schema.ts';
 import { eq, ilike, or, and, desc, sql, isNull, ne } from 'drizzle-orm';
 import { authenticate, type AuthRequest } from './src/middleware/auth.ts';
 import { seedDatabase } from './src/db/seed.ts';
 import { generateStudentId, calculateGrade, calculateWaecGrade } from './src/lib/id-generator.ts';
 import { getGeminiClient } from './src/lib/gemini.ts';
+import { supabase } from './src/supabaseConfig.ts';
 
 dotenv.config();
 
@@ -417,18 +419,47 @@ app.post('/api/auth/login', async (req, res) => {
 
     const userTeacherId = teacherRec[0]?.teacherId || (u.role === 'super_admin' ? 'ADMIN-GLOBAL' : 'TCH-2026-0001');
     const teacherDbId = teacherRec[0]?.id;
-    const assignment =
-      inMemoryClassTeacherAssignments[userTeacherId] ||
-      (teacherDbId ? inMemoryClassTeacherAssignments[String(teacherDbId)] : null) ||
-      inMemoryClassTeacherAssignments[String(u.id)] ||
-      (u.email ? inMemoryClassTeacherAssignments[u.email.toLowerCase()] : null) ||
-      Object.values(inMemoryClassTeacherAssignments).find((a) => {
-        if (!a || !a.className) return false;
-        if (a.teacherId && userTeacherId && String(a.teacherId).toUpperCase() === String(userTeacherId).toUpperCase()) return true;
-        if (a.teacherName && `${u.firstName} ${u.lastName}`.trim().toLowerCase() === a.teacherName.toLowerCase()) return true;
-        return false;
-      });
-    const userAssignedClass = assignment ? assignment.className : null;
+
+    let userAssignedClass: string | null = teacherRec[0]?.assignedClass || null;
+    if (!userAssignedClass && userTeacherId) {
+      try {
+        const ctRows = await db.select().from(classTeachers).where(eq(classTeachers.teacherId, userTeacherId)).limit(1);
+        if (ctRows.length > 0 && ctRows[0].className) {
+          userAssignedClass = ctRows[0].className;
+        }
+      } catch (_) {}
+    }
+    // Cross-device Supabase fallback
+    if (!userAssignedClass && userTeacherId) {
+      try {
+        const { data: sTch } = await supabase.from('teachers').select('assigned_class').eq('teacher_id', userTeacherId).limit(1);
+        if (sTch && sTch[0]?.assigned_class) {
+          userAssignedClass = sTch[0].assigned_class;
+        }
+      } catch (_) {}
+    }
+    if (!userAssignedClass && userTeacherId) {
+      try {
+        const { data: sCt } = await supabase.from('class_teachers').select('class_name').eq('teacher_id', userTeacherId).limit(1);
+        if (sCt && sCt[0]?.class_name) {
+          userAssignedClass = sCt[0].class_name;
+        }
+      } catch (_) {}
+    }
+    if (!userAssignedClass) {
+      const assignment =
+        inMemoryClassTeacherAssignments[userTeacherId] ||
+        (teacherDbId ? inMemoryClassTeacherAssignments[String(teacherDbId)] : null) ||
+        inMemoryClassTeacherAssignments[String(u.id)] ||
+        (u.email ? inMemoryClassTeacherAssignments[u.email.toLowerCase()] : null) ||
+        Object.values(inMemoryClassTeacherAssignments).find((a) => {
+          if (!a || !a.className) return false;
+          if (a.teacherId && userTeacherId && String(a.teacherId).toUpperCase() === String(userTeacherId).toUpperCase()) return true;
+          if (a.teacherName && `${u.firstName} ${u.lastName}`.trim().toLowerCase() === a.teacherName.toLowerCase()) return true;
+          return false;
+        });
+      userAssignedClass = assignment ? assignment.className : null;
+    }
 
     return res.json({
       token,
@@ -456,17 +487,57 @@ app.post('/api/auth/login', async (req, res) => {
 app.get('/api/auth/me', authenticate, async (req: AuthRequest, res) => {
   if (!req.appUser) return res.status(401).json({ error: 'Unauthorized' });
   const tchId = req.appUser.teacherProfile?.teacherId || (req.appUser as any).teacherId;
-  const assignment =
-    (tchId ? inMemoryClassTeacherAssignments[tchId] : null) ||
-    inMemoryClassTeacherAssignments[String(req.appUser.id)] ||
-    (req.appUser.email ? inMemoryClassTeacherAssignments[req.appUser.email.toLowerCase()] : null) ||
-    Object.values(inMemoryClassTeacherAssignments).find((a) => {
-      if (!a || !a.className) return false;
-      if (a.teacherId && tchId && String(a.teacherId).toUpperCase() === String(tchId).toUpperCase()) return true;
-      if (a.teacherName && `${req.appUser?.firstName} ${req.appUser?.lastName}`.trim().toLowerCase() === a.teacherName.toLowerCase()) return true;
-      return false;
-    });
-  const assignedClass = assignment ? assignment.className : ((req.appUser as any).assignedClass || null);
+
+  let assignedClass: string | null = (req.appUser as any).assignedClass || req.appUser.teacherProfile?.assignedClass || null;
+  if (!assignedClass && req.appUser.role !== 'student') {
+    try {
+      if (tchId) {
+        const tRows = await db.select().from(teachers).where(eq(teachers.teacherId, tchId)).limit(1);
+        if (tRows.length > 0 && tRows[0].assignedClass) {
+          assignedClass = tRows[0].assignedClass;
+        }
+      }
+      if (!assignedClass && req.appUser.id) {
+        const tRows = await db.select().from(teachers).where(eq(teachers.userId, req.appUser.id)).limit(1);
+        if (tRows.length > 0 && tRows[0].assignedClass) {
+          assignedClass = tRows[0].assignedClass;
+        }
+      }
+      if (!assignedClass && tchId) {
+        const ctRows = await db.select().from(classTeachers).where(eq(classTeachers.teacherId, tchId)).limit(1);
+        if (ctRows.length > 0 && ctRows[0].className) {
+          assignedClass = ctRows[0].className;
+        }
+      }
+      // Cross-device Supabase fallback
+      if (!assignedClass && tchId) {
+        const { data: sTch } = await supabase.from('teachers').select('assigned_class').eq('teacher_id', tchId).limit(1);
+        if (sTch && sTch[0]?.assigned_class) {
+          assignedClass = sTch[0].assigned_class;
+        }
+      }
+      if (!assignedClass && tchId) {
+        const { data: sCt } = await supabase.from('class_teachers').select('class_name').eq('teacher_id', tchId).limit(1);
+        if (sCt && sCt[0]?.class_name) {
+          assignedClass = sCt[0].class_name;
+        }
+      }
+    } catch (_) {}
+  }
+
+  if (!assignedClass) {
+    const assignment =
+      (tchId ? inMemoryClassTeacherAssignments[tchId] : null) ||
+      inMemoryClassTeacherAssignments[String(req.appUser.id)] ||
+      (req.appUser.email ? inMemoryClassTeacherAssignments[req.appUser.email.toLowerCase()] : null) ||
+      Object.values(inMemoryClassTeacherAssignments).find((a) => {
+        if (!a || !a.className) return false;
+        if (a.teacherId && tchId && String(a.teacherId).toUpperCase() === String(tchId).toUpperCase()) return true;
+        if (a.teacherName && `${req.appUser?.firstName} ${req.appUser?.lastName}`.trim().toLowerCase() === a.teacherName.toLowerCase()) return true;
+        return false;
+      });
+    assignedClass = assignment ? assignment.className : null;
+  }
 
   return res.json({
     user: {
@@ -1607,11 +1678,52 @@ function persistClassTeachersData() {
 }
 
 app.get('/api/class-teachers', authenticate, async (_req: AuthRequest, res) => {
+  const p = createPool();
+  try {
+    const ctRes = await p.query('SELECT class_name, teacher_id, teacher_name, updated_at FROM class_teachers');
+    for (const row of ctRes.rows) {
+      if (row.class_name && row.teacher_id) {
+        const item = {
+          teacherId: row.teacher_id,
+          teacherName: row.teacher_name || 'Class Teacher',
+          className: row.class_name,
+          updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString(),
+        };
+        inMemoryClassTeacherAssignments[row.teacher_id] = item;
+        inMemoryClassTeacherAssignments[row.class_name] = item;
+      }
+    }
+
+    const tRes = await p.query(
+      `SELECT t.id, t.teacher_id, t.assigned_class, u.first_name, u.last_name, u.email 
+       FROM teachers t 
+       LEFT JOIN users u ON t.user_id = u.id 
+       WHERE t.assigned_class IS NOT NULL AND t.assigned_class != ''`
+    );
+    for (const row of tRes.rows) {
+      const tName = `${row.first_name || ''} ${row.last_name || ''}`.trim() || 'Class Teacher';
+      const item = {
+        teacherId: row.teacher_id || String(row.id),
+        teacherName: tName,
+        className: row.assigned_class,
+        updatedAt: new Date().toISOString(),
+      };
+      if (row.teacher_id) inMemoryClassTeacherAssignments[row.teacher_id] = item;
+      if (row.id) inMemoryClassTeacherAssignments[String(row.id)] = item;
+      if (row.email) inMemoryClassTeacherAssignments[row.email.toLowerCase()] = item;
+      inMemoryClassTeacherAssignments[row.assigned_class] = item;
+    }
+  } catch (err) {
+    console.warn('DB class teachers read fallback:', err);
+  }
+
   const byClass: Record<string, any[]> = {};
   Object.values(inMemoryClassTeacherAssignments).forEach((item) => {
     if (item && item.className) {
       if (!byClass[item.className]) byClass[item.className] = [];
-      byClass[item.className].push(item);
+      if (!byClass[item.className].some((x) => x.teacherId === item.teacherId)) {
+        byClass[item.className].push(item);
+      }
     }
   });
 
@@ -1656,7 +1768,12 @@ app.post('/api/class-teachers', authenticate, async (req: AuthRequest, res) => {
       if (foundUser.length > 0) dbUser = foundUser[0];
     }
 
+    const p = createPool();
+    const resolvedTeacherId = dbTeacher ? dbTeacher.teacherId : tKey;
+    const resolvedDbId = dbTeacher ? dbTeacher.id : (!isNaN(Number(tKey)) ? Number(tKey) : null);
+
     if (!className || className === 'none' || className === 'unassigned') {
+      // Unassign locally
       delete inMemoryClassTeacherAssignments[tKey];
       if (dbTeacher) {
         delete inMemoryClassTeacherAssignments[dbTeacher.teacherId];
@@ -1666,12 +1783,37 @@ app.post('/api/class-teachers', authenticate, async (req: AuthRequest, res) => {
       if (dbUser && dbUser.email) {
         delete inMemoryClassTeacherAssignments[dbUser.email.toLowerCase()];
       }
+
+      // Unassign in PostgreSQL
+      try {
+        if (resolvedDbId) {
+          await p.query('UPDATE teachers SET assigned_class = NULL WHERE id = $1', [resolvedDbId]);
+        }
+        if (resolvedTeacherId) {
+          await p.query('UPDATE teachers SET assigned_class = NULL WHERE teacher_id = $1', [resolvedTeacherId]);
+          await p.query('DELETE FROM class_teachers WHERE teacher_id = $1', [resolvedTeacherId]);
+        }
+        await p.query('DELETE FROM class_teachers WHERE teacher_id = $1', [tKey]);
+      } catch (sqlErr) {
+        console.warn('Postgres class teacher unassign note:', sqlErr);
+      }
+
+      // Unassign in Supabase
+      try {
+        if (resolvedTeacherId) {
+          await supabase.from('teachers').update({ assigned_class: null }).eq('teacher_id', resolvedTeacherId);
+          await supabase.from('class_teachers').delete().eq('teacher_id', resolvedTeacherId);
+        }
+      } catch (supaErr) {
+        console.warn('Supabase class teacher unassign note:', supaErr);
+      }
     } else {
+      const cleanClass = String(className).trim();
       const effectiveName = String(teacherName || (dbUser ? `${dbUser.firstName} ${dbUser.lastName}` : 'Class Teacher')).trim();
       const entry = {
-        teacherId: dbTeacher ? dbTeacher.teacherId : tKey,
+        teacherId: resolvedTeacherId,
         teacherName: effectiveName,
-        className: String(className).trim(),
+        className: cleanClass,
         updatedAt: new Date().toISOString(),
       };
       inMemoryClassTeacherAssignments[tKey] = entry;
@@ -1683,6 +1825,43 @@ app.post('/api/class-teachers', authenticate, async (req: AuthRequest, res) => {
       if (dbUser && dbUser.email) {
         inMemoryClassTeacherAssignments[dbUser.email.toLowerCase()] = entry;
       }
+
+      // Assign in PostgreSQL
+      try {
+        if (resolvedDbId) {
+          await p.query('UPDATE teachers SET assigned_class = $1 WHERE id = $2', [cleanClass, resolvedDbId]);
+        }
+        if (resolvedTeacherId) {
+          await p.query('UPDATE teachers SET assigned_class = $1 WHERE teacher_id = $2', [cleanClass, resolvedTeacherId]);
+        }
+        // Remove previous assignment for this class or teacher
+        await p.query(
+          'DELETE FROM class_teachers WHERE class_name = $1 OR teacher_id = $2 OR teacher_id = $3',
+          [cleanClass, resolvedTeacherId, tKey]
+        );
+        // Insert new assignment
+        await p.query(
+          'INSERT INTO class_teachers (class_name, teacher_id, teacher_name, updated_at) VALUES ($1, $2, $3, NOW())',
+          [cleanClass, resolvedTeacherId, effectiveName]
+        );
+      } catch (sqlErr) {
+        console.warn('Postgres class teacher assign note:', sqlErr);
+      }
+
+      // Assign in Supabase
+      try {
+        if (resolvedTeacherId) {
+          await supabase.from('teachers').update({ assigned_class: cleanClass }).eq('teacher_id', resolvedTeacherId);
+          await supabase.from('class_teachers').delete().or(`class_name.eq.${cleanClass},teacher_id.eq.${resolvedTeacherId}`);
+          await supabase.from('class_teachers').insert([{
+            class_name: cleanClass,
+            teacher_id: resolvedTeacherId,
+            teacher_name: effectiveName,
+          }]);
+        }
+      } catch (supaErr) {
+        console.warn('Supabase class teacher assign note:', supaErr);
+      }
     }
 
     persistClassTeachersData();
@@ -1691,7 +1870,9 @@ app.post('/api/class-teachers', authenticate, async (req: AuthRequest, res) => {
     Object.values(inMemoryClassTeacherAssignments).forEach((item) => {
       if (item && item.className) {
         if (!byClass[item.className]) byClass[item.className] = [];
-        byClass[item.className].push(item);
+        if (!byClass[item.className].some((x) => x.teacherId === item.teacherId)) {
+          byClass[item.className].push(item);
+        }
       }
     });
 
@@ -4261,6 +4442,7 @@ app.get('/api/admin/teachers', authenticate, async (req: AuthRequest, res) => {
         email: users.email,
         phone: teachers.phone,
         schoolName: teachers.schoolName,
+        assignedClass: teachers.assignedClass,
         role: users.role,
         createdAt: teachers.createdAt,
       })
@@ -4268,7 +4450,7 @@ app.get('/api/admin/teachers', authenticate, async (req: AuthRequest, res) => {
       .innerJoin(users, eq(teachers.userId, users.id))
       .orderBy(desc(teachers.createdAt));
 
-    const teachersWithClass = teacherList.map((t) => {
+    const teacherListMap = teacherList.map((t) => {
       const assigned =
         inMemoryClassTeacherAssignments[t.teacherId] ||
         inMemoryClassTeacherAssignments[String(t.id)] ||
@@ -4284,14 +4466,16 @@ app.get('/api/admin/teachers', authenticate, async (req: AuthRequest, res) => {
           }
           return false;
         });
+
+      const effectiveClass = t.assignedClass || (assigned ? assigned.className : null);
       return {
         ...t,
-        assignedClass: assigned ? assigned.className : null,
-        isClassTeacher: Boolean(assigned),
+        assignedClass: effectiveClass,
+        isClassTeacher: Boolean(effectiveClass),
       };
     });
 
-    return res.json({ teachers: teachersWithClass });
+    return res.json({ teachers: teacherListMap });
   } catch (error: any) {
     return res.status(500).json({ error: error.message });
   }
@@ -4610,6 +4794,8 @@ app.put('/api/admin/teachers/:id', authenticate, async (req: AuthRequest, res) =
       const idKey = String(targetTeacher.id);
       const userKey = targetTeacher.userId ? String(targetTeacher.userId) : null;
       const emailKey = email || targetTeacher.email;
+      const p = createPool();
+
       if (assignedClass && assignedClass.trim() !== '' && assignedClass !== 'none' && assignedClass !== 'unassigned') {
         const cleanClass = assignedClass.trim();
         const effectiveName = `${firstName || targetTeacher.firstName || ''} ${lastName || targetTeacher.lastName || ''}`.trim() || 'Class Teacher';
@@ -4623,11 +4809,49 @@ app.put('/api/admin/teachers/:id', authenticate, async (req: AuthRequest, res) =
         inMemoryClassTeacherAssignments[idKey] = entry;
         if (userKey) inMemoryClassTeacherAssignments[userKey] = entry;
         if (emailKey) inMemoryClassTeacherAssignments[String(emailKey).toLowerCase()] = entry;
+
+        // Persist to PostgreSQL
+        try {
+          await p.query('UPDATE teachers SET assigned_class = $1 WHERE id = $2 OR teacher_id = $3', [cleanClass, targetTeacher.id, targetTeacher.teacherId]);
+          await p.query('DELETE FROM class_teachers WHERE class_name = $1 OR teacher_id = $2', [cleanClass, targetTeacher.teacherId]);
+          await p.query('INSERT INTO class_teachers (class_name, teacher_id, teacher_name, updated_at) VALUES ($1, $2, $3, NOW())', [cleanClass, targetTeacher.teacherId, effectiveName]);
+        } catch (dbErr) {
+          console.warn('Postgres admin teacher class update note:', dbErr);
+        }
+
+        // Persist to Supabase
+        try {
+          await supabase.from('teachers').update({ assigned_class: cleanClass }).eq('teacher_id', targetTeacher.teacherId);
+          await supabase.from('class_teachers').delete().or(`class_name.eq.${cleanClass},teacher_id.eq.${targetTeacher.teacherId}`);
+          await supabase.from('class_teachers').insert([{
+            class_name: cleanClass,
+            teacher_id: targetTeacher.teacherId,
+            teacher_name: effectiveName,
+          }]);
+        } catch (supaErr) {
+          console.warn('Supabase admin teacher class update note:', supaErr);
+        }
       } else {
         delete inMemoryClassTeacherAssignments[tKey];
         delete inMemoryClassTeacherAssignments[idKey];
         if (userKey) delete inMemoryClassTeacherAssignments[userKey];
         if (emailKey) delete inMemoryClassTeacherAssignments[String(emailKey).toLowerCase()];
+
+        // Unassign in PostgreSQL
+        try {
+          await p.query('UPDATE teachers SET assigned_class = NULL WHERE id = $1 OR teacher_id = $2', [targetTeacher.id, targetTeacher.teacherId]);
+          await p.query('DELETE FROM class_teachers WHERE teacher_id = $1', [targetTeacher.teacherId]);
+        } catch (dbErr) {
+          console.warn('Postgres admin teacher class unassign note:', dbErr);
+        }
+
+        // Unassign in Supabase
+        try {
+          await supabase.from('teachers').update({ assigned_class: null }).eq('teacher_id', targetTeacher.teacherId);
+          await supabase.from('class_teachers').delete().eq('teacher_id', targetTeacher.teacherId);
+        } catch (supaErr) {
+          console.warn('Supabase admin teacher class unassign note:', supaErr);
+        }
       }
       persistClassTeachersData();
     }

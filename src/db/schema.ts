@@ -39,7 +39,17 @@ export const teachers = pgTable('teachers', {
   phone: text('phone'),
   schoolName: text('school_name').notNull(),
   schoolId: integer('school_id').references(() => schools.id),
+  assignedClass: text('assigned_class'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// Class Teachers Assignments table
+export const classTeachers = pgTable('class_teachers', {
+  id: serial('id').primaryKey(),
+  className: text('class_name').notNull(),
+  teacherId: text('teacher_id').notNull(),
+  teacherName: text('teacher_name').notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
 // Academic sessions & terms

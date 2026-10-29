@@ -1208,6 +1208,7 @@ export async function updateTeacher(
     const supaUpdates: any = {
       phone: updatedTeacher.phone,
       school_name: updatedTeacher.schoolName,
+      assigned_class: updatedTeacher.assignedClass || null,
     };
     await supabase.from('teachers').update(supaUpdates).eq('teacher_id', updatedTeacher.teacherId);
 
@@ -1712,31 +1713,80 @@ const CLASS_TEACHER_REMARKS_CACHE_KEY = 'fis_class_teacher_remarks_v1';
 export async function fetchClassTeacherAssignments(
   token?: string | null
 ): Promise<Record<string, { teacherId: string | number; teacherName: string; className: string }>> {
+  let result: Record<string, any> = {};
+
+  // 1. First attempt backend API fetch
   try {
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
     const res = await fetch('/api/class-teachers', { headers });
     if (res.ok) {
       const data = await res.json();
-      if (data && data.assignments) {
-        try {
-          localStorage.setItem(CLASS_TEACHERS_CACHE_KEY, JSON.stringify(data.assignments));
-        } catch (_) {}
-        return data.assignments;
+      if (data && data.assignments && typeof data.assignments === 'object') {
+        result = { ...data.assignments };
       }
     }
   } catch (err) {
-    console.warn('Deferred class teachers fetch:', err);
+    console.warn('Backend class teachers fetch deferred:', err);
   }
 
+  // 2. Direct Supabase Cloud DB sync fallback (for cross-device reliability)
   try {
-    const raw = typeof window !== 'undefined' ? localStorage.getItem(CLASS_TEACHERS_CACHE_KEY) : null;
-    if (raw) return JSON.parse(raw);
+    const { data: ctRows } = await supabase.from('class_teachers').select('*');
+    if (Array.isArray(ctRows) && ctRows.length > 0) {
+      for (const row of ctRows) {
+        if (row.class_name && row.teacher_id) {
+          const entry = {
+            teacherId: row.teacher_id,
+            teacherName: row.teacher_name || 'Class Teacher',
+            className: row.class_name,
+            updatedAt: row.updated_at || new Date().toISOString(),
+          };
+          result[row.teacher_id] = entry;
+          result[row.class_name] = entry;
+        }
+      }
+    }
+
+    const { data: tRows } = await supabase
+      .from('teachers')
+      .select('id, teacher_id, assigned_class')
+      .not('assigned_class', 'is', null);
+    if (Array.isArray(tRows) && tRows.length > 0) {
+      for (const t of tRows) {
+        if (t.assigned_class) {
+          const entry = {
+            teacherId: t.teacher_id || String(t.id),
+            teacherName: 'Class Teacher',
+            className: t.assigned_class,
+            updatedAt: new Date().toISOString(),
+          };
+          if (t.teacher_id) result[t.teacher_id] = entry;
+          if (t.id) result[String(t.id)] = entry;
+          result[t.assigned_class] = entry;
+        }
+      }
+    }
+  } catch (supaErr) {
+    console.warn('Supabase class teachers sync note:', supaErr);
+  }
+
+  // 3. Fallback to localStorage if online sources empty
+  if (Object.keys(result).length === 0) {
+    try {
+      const raw = typeof window !== 'undefined' ? localStorage.getItem(CLASS_TEACHERS_CACHE_KEY) : null;
+      if (raw) result = JSON.parse(raw);
+    } catch (_) {}
+  }
+
+  // Save merged result to localStorage
+  try {
+    if (typeof window !== 'undefined' && Object.keys(result).length > 0) {
+      localStorage.setItem(CLASS_TEACHERS_CACHE_KEY, JSON.stringify(result));
+    }
   } catch (_) {}
 
-  return {
-    'SS 3': { teacherId: 'TCH-2026-0001', teacherName: 'Victor Alo', className: 'SS 3' },
-  };
+  return result;
 }
 
 export function getClassTeachers(
@@ -1786,12 +1836,13 @@ export async function assignClassTeacher(
   const effectiveTeacherName =
     teacherName ||
     (matchedTeacher ? `${matchedTeacher.firstName} ${matchedTeacher.lastName}`.trim() : 'Class Teacher');
+  const resolvedTeacherId = matchedTeacher?.teacherId || tKey;
 
   if (!isAssigned) {
     keysToUpdate.forEach((k) => delete current[k]);
   } else {
     const entry = {
-      teacherId: matchedTeacher?.teacherId || tKey,
+      teacherId: resolvedTeacherId,
       teacherName: effectiveTeacherName,
       className: cleanClass!,
       updatedAt: new Date().toISOString(),
@@ -1799,6 +1850,7 @@ export async function assignClassTeacher(
     keysToUpdate.forEach((k) => {
       current[k] = entry;
     });
+    if (cleanClass) current[cleanClass] = entry;
   }
 
   try {
@@ -1825,6 +1877,25 @@ export async function assignClassTeacher(
     window.dispatchEvent(new CustomEvent('fis:teachers-updated'));
   }
 
+  // Direct Supabase Cloud DB update for multi-device sync
+  try {
+    if (isAssigned && cleanClass) {
+      await supabase.from('teachers').update({ assigned_class: cleanClass }).eq('teacher_id', resolvedTeacherId);
+      await supabase.from('class_teachers').delete().or(`class_name.eq.${cleanClass},teacher_id.eq.${resolvedTeacherId}`);
+      await supabase.from('class_teachers').insert([{
+        class_name: cleanClass,
+        teacher_id: resolvedTeacherId,
+        teacher_name: effectiveTeacherName,
+      }]);
+    } else {
+      await supabase.from('teachers').update({ assigned_class: null }).eq('teacher_id', resolvedTeacherId);
+      await supabase.from('class_teachers').delete().eq('teacher_id', resolvedTeacherId);
+    }
+  } catch (supaErr) {
+    console.warn('Supabase direct class teacher update note:', supaErr);
+  }
+
+  // Network call to backend
   try {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -1833,7 +1904,7 @@ export async function assignClassTeacher(
       headers,
       body: JSON.stringify({
         className: cleanClass,
-        teacherId: matchedTeacher?.teacherId || tKey,
+        teacherId: resolvedTeacherId,
         teacherName: effectiveTeacherName,
       }),
     });
