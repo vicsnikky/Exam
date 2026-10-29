@@ -420,8 +420,10 @@ app.post('/api/auth/login', async (req, res) => {
     const userTeacherId = teacherRec[0]?.teacherId || (u.role === 'super_admin' ? 'ADMIN-GLOBAL' : 'TCH-2026-0001');
     const teacherDbId = teacherRec[0]?.id;
 
-    let userAssignedClass: string | null = teacherRec[0]?.assignedClass || null;
-    if (!userAssignedClass && userTeacherId) {
+    let userAssignedClass: string | null = (u.role === 'super_admin' || u.email?.toLowerCase() === 'victoralo1862@gmail.com')
+      ? null
+      : (teacherRec[0]?.assignedClass || null);
+    if (!userAssignedClass && userTeacherId && u.role !== 'super_admin') {
       try {
         const ctRows = await db.select().from(classTeachers).where(eq(classTeachers.teacherId, userTeacherId)).limit(1);
         if (ctRows.length > 0 && ctRows[0].className) {

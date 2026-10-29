@@ -1,28 +1,10 @@
 {
   "assignments": {
-    "1": {
-      "teacherId": "TCH-2026-0001",
-      "teacherName": "Victor Alo",
-      "className": "SS 3",
-      "updatedAt": "2026-10-29T16:16:53.373Z"
-    },
-    "TCH-2026-0001": {
-      "teacherId": "TCH-2026-0001",
-      "teacherName": "Victor Alo",
-      "className": "SS 3",
-      "updatedAt": "2026-10-29T16:16:53.373Z"
-    },
     "TCH-2026-0002": {
       "teacherId": "TCH-2026-0002",
       "teacherName": "Test Teacher",
       "className": "SS 1",
       "updatedAt": "2026-10-19T07:56:57.224Z"
-    },
-    "victoralo1862@gmail.com": {
-      "teacherId": "TCH-2026-0001",
-      "teacherName": "Victor Alo",
-      "className": "SS 3",
-      "updatedAt": "2026-10-29T16:16:53.373Z"
     }
   },
   "remarks": {
