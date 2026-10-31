@@ -1,12 +1,5 @@
 {
-  "assignments": {
-    "TCH-2026-0002": {
-      "teacherId": "TCH-2026-0002",
-      "teacherName": "Test Teacher",
-      "className": "SS 1",
-      "updatedAt": "2026-10-19T07:56:57.224Z"
-    }
-  },
+  "assignments": {},
   "remarks": {
     "1": {
       "studentId": "1",

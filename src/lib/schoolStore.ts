@@ -2,8 +2,8 @@ import type { Student, User } from '../types/index.ts';
 import { safeFetchJson } from './api.ts';
 import { supabase } from '../supabaseConfig.ts';
 import bcrypt from 'bcryptjs';
-import { normalizeClassName } from '../constants/classes.ts';
-export { normalizeClassName };
+import { normalizeClassName, isSameClass } from '../constants/classes.ts';
+export { normalizeClassName, isSameClass };
 
 export interface TeacherRecord {
   id: number;
@@ -1779,7 +1779,8 @@ export async function fetchClassTeacherAssignments(
     } catch (_) {}
   }
 
-  // Save merged result to localStorage
+  // Save merged result to memory and localStorage
+  inMemoryClassTeacherAssignmentsCache = { ...result };
   try {
     if (typeof window !== 'undefined' && Object.keys(result).length > 0) {
       localStorage.setItem(CLASS_TEACHERS_CACHE_KEY, JSON.stringify(result));
@@ -1789,15 +1790,71 @@ export async function fetchClassTeacherAssignments(
   return result;
 }
 
+let inMemoryClassTeacherAssignmentsCache: Record<string, { teacherId: string | number; teacherName: string; className: string }> = {};
+
 export function getClassTeachers(
   className?: string | null,
   assignments?: Record<string, any>
 ): Array<{ teacherId: string | number; teacherName: string; className: string }> {
-  if (!className) return [];
-  const source = assignments || {};
-  return Object.values(source).filter(
-    (a: any) => a && a.className && a.className.trim().toUpperCase() === className.trim().toUpperCase()
-  );
+  let source: Record<string, any> = assignments || {};
+  if (Object.keys(source).length === 0) {
+    source = inMemoryClassTeacherAssignmentsCache;
+  }
+  if (Object.keys(source).length === 0) {
+    try {
+      const raw = typeof window !== 'undefined' ? localStorage.getItem(CLASS_TEACHERS_CACHE_KEY) : null;
+      if (raw) source = JSON.parse(raw);
+    } catch (_) {}
+  }
+
+  const list: Array<{ teacherId: string | number; teacherName: string; className: string }> = [];
+  const seen = new Set<string>();
+
+  Object.values(source).forEach((item: any) => {
+    if (item && item.className && item.teacherId) {
+      const key = `${String(item.teacherId).toUpperCase()}__${String(item.className).toUpperCase()}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        list.push({
+          teacherId: item.teacherId,
+          teacherName: item.teacherName || 'Class Teacher',
+          className: item.className,
+        });
+      }
+    }
+  });
+
+  try {
+    const localTeachers = getLocalTeachers();
+    localTeachers.forEach((t) => {
+      if (t.assignedClass && t.teacherId) {
+        const key = `${String(t.teacherId).toUpperCase()}__${String(t.assignedClass).toUpperCase()}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          list.push({
+            teacherId: t.teacherId,
+            teacherName: `${t.firstName} ${t.lastName}`.trim() || 'Class Teacher',
+            className: t.assignedClass,
+          });
+        }
+      }
+    });
+  } catch (_) {}
+
+  if (!className || className.trim() === '') {
+    return list;
+  }
+
+  return list.filter((item) => isSameClass(item.className, className));
+}
+
+export function getClassTeacherForClass(
+  className: string | null | undefined,
+  assignments?: Record<string, any>
+): { teacherId: string | number; teacherName: string; className: string } | null {
+  if (!className) return null;
+  const matches = getClassTeachers(className, assignments);
+  return matches.length > 0 ? matches[0] : null;
 }
 
 export async function assignClassTeacher(
@@ -1853,6 +1910,8 @@ export async function assignClassTeacher(
     if (cleanClass) current[cleanClass] = entry;
   }
 
+  inMemoryClassTeacherAssignmentsCache = { ...current };
+
   try {
     localStorage.setItem(CLASS_TEACHERS_CACHE_KEY, JSON.stringify(current));
   } catch (_) {}
@@ -1881,7 +1940,8 @@ export async function assignClassTeacher(
   try {
     if (isAssigned && cleanClass) {
       await supabase.from('teachers').update({ assigned_class: cleanClass }).eq('teacher_id', resolvedTeacherId);
-      await supabase.from('class_teachers').delete().or(`class_name.eq.${cleanClass},teacher_id.eq.${resolvedTeacherId}`);
+      await supabase.from('class_teachers').delete().eq('class_name', cleanClass);
+      await supabase.from('class_teachers').delete().eq('teacher_id', resolvedTeacherId);
       await supabase.from('class_teachers').insert([{
         class_name: cleanClass,
         teacher_id: resolvedTeacherId,

@@ -36,6 +36,7 @@ import {
   updateStudent,
   fetchClassTeacherAssignments,
   getClassTeachers,
+  getClassTeacherForClass,
   fetchClassTeacherRemark,
   saveClassTeacherRemark,
   fetchStudentComments,
@@ -1059,8 +1060,11 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
       const sId = student.studentId || String(student.id);
       const cName = student.currentClass;
       fetchClassTeacherAssignments(token).then((assignments) => {
-        if (assignments && cName && assignments[cName]) {
-          setAssignedClassTeacher(assignments[cName]);
+        if (cName) {
+          const matched = getClassTeacherForClass(cName, assignments);
+          if (matched) {
+            setAssignedClassTeacher(matched);
+          }
         }
       }).catch(() => {});
 
@@ -2738,14 +2742,27 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                     </div>
                   </div>
 
-                  <div className="flex items-end gap-8 sm:gap-16 print:gap-6 text-center">
-                    <div>
-                      <div className="w-36 print:w-24 border-b border-slate-600 print:border-black mb-1.5 print:mb-0.5" />
+                  <div className="flex items-end gap-6 sm:gap-10 print:gap-4 text-center">
+                    {/* Signing Class Teacher */}
+                    <div className="flex flex-col items-center">
+                      <span className="text-xs print:text-[8px] font-semibold text-white print:text-black mb-1 print:mb-0.5 truncate max-w-[140px] print:max-w-[105px]">
+                        {assignedClassTeacher?.teacherName || 'Class Teacher'}
+                      </span>
+                      <div className="w-32 print:w-20 border-b border-slate-600 print:border-black mb-1.5 print:mb-0.5" />
+                      <span className="text-[11px] print:text-[7.5px] font-bold uppercase tracking-wider text-slate-300 print:text-black block">
+                        Class Teacher
+                      </span>
+                    </div>
+
+                    {/* Registrar */}
+                    <div className="flex flex-col items-center">
+                      <div className="w-28 print:w-18 border-b border-slate-600 print:border-black mb-1.5 print:mb-0.5" />
                       <span className="text-[11px] print:text-[7.5px] font-bold uppercase tracking-wider text-slate-300 print:text-black block">
                         Registrar
                       </span>
                     </div>
 
+                    {/* School Principal */}
                     <div className="flex flex-col items-center">
                       <img
                         src="https://i.ibb.co/MzHp6Yt/Whats-App-Image-2026-10-02-at-11-29-34-AM.jpg"

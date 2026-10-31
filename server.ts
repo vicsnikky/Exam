@@ -1680,8 +1680,10 @@ function persistClassTeachersData() {
   }
 }
 
-app.get('/api/class-teachers', authenticate, async (_req: AuthRequest, res) => {
+app.get('/api/class-teachers', async (_req, res) => {
   const p = createPool();
+  const freshAssignments: Record<string, any> = {};
+
   try {
     const ctRes = await p.query('SELECT class_name, teacher_id, teacher_name, updated_at FROM class_teachers');
     for (const row of ctRes.rows) {
@@ -1692,8 +1694,8 @@ app.get('/api/class-teachers', authenticate, async (_req: AuthRequest, res) => {
           className: row.class_name,
           updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString(),
         };
-        inMemoryClassTeacherAssignments[row.teacher_id] = item;
-        inMemoryClassTeacherAssignments[row.class_name] = item;
+        freshAssignments[row.teacher_id] = item;
+        freshAssignments[row.class_name] = item;
       }
     }
 
@@ -1711,14 +1713,60 @@ app.get('/api/class-teachers', authenticate, async (_req: AuthRequest, res) => {
         className: row.assigned_class,
         updatedAt: new Date().toISOString(),
       };
-      if (row.teacher_id) inMemoryClassTeacherAssignments[row.teacher_id] = item;
-      if (row.id) inMemoryClassTeacherAssignments[String(row.id)] = item;
-      if (row.email) inMemoryClassTeacherAssignments[row.email.toLowerCase()] = item;
-      inMemoryClassTeacherAssignments[row.assigned_class] = item;
+      if (row.teacher_id) freshAssignments[row.teacher_id] = item;
+      if (row.id) freshAssignments[String(row.id)] = item;
+      if (row.email) freshAssignments[row.email.toLowerCase()] = item;
+      freshAssignments[row.assigned_class] = item;
     }
   } catch (err) {
     console.warn('DB class teachers read fallback:', err);
   }
+
+  // Cross-sync with Supabase for multi-device reliability
+  try {
+    const { data: supaCt } = await supabase.from('class_teachers').select('*');
+    if (Array.isArray(supaCt)) {
+      for (const row of supaCt) {
+        if (row.class_name && row.teacher_id) {
+          const item = {
+            teacherId: row.teacher_id,
+            teacherName: row.teacher_name || 'Class Teacher',
+            className: row.class_name,
+            updatedAt: row.updated_at || new Date().toISOString(),
+          };
+          freshAssignments[row.teacher_id] = item;
+          freshAssignments[row.class_name] = item;
+        }
+      }
+    }
+
+    const { data: supaTch } = await supabase
+      .from('teachers')
+      .select('id, teacher_id, assigned_class')
+      .not('assigned_class', 'is', null);
+    if (Array.isArray(supaTch)) {
+      for (const row of supaTch) {
+        if (row.assigned_class && !freshAssignments[row.assigned_class]) {
+          const item = {
+            teacherId: row.teacher_id || String(row.id),
+            teacherName: 'Class Teacher',
+            className: row.assigned_class,
+            updatedAt: new Date().toISOString(),
+          };
+          if (row.teacher_id) freshAssignments[row.teacher_id] = item;
+          freshAssignments[row.assigned_class] = item;
+        }
+      }
+    }
+  } catch (supaErr) {
+    console.warn('Supabase class teachers sync note:', supaErr);
+  }
+
+  // Synchronize canonical in-memory state
+  for (const k of Object.keys(inMemoryClassTeacherAssignments)) {
+    delete inMemoryClassTeacherAssignments[k];
+  }
+  Object.assign(inMemoryClassTeacherAssignments, freshAssignments);
 
   const byClass: Record<string, any[]> = {};
   Object.values(inMemoryClassTeacherAssignments).forEach((item) => {
@@ -1776,8 +1824,21 @@ app.post('/api/class-teachers', authenticate, async (req: AuthRequest, res) => {
     const resolvedDbId = dbTeacher ? dbTeacher.id : (!isNaN(Number(tKey)) ? Number(tKey) : null);
 
     if (!className || className === 'none' || className === 'unassigned') {
-      // Unassign locally
+      // Unassign locally across all matching keys
+      Object.keys(inMemoryClassTeacherAssignments).forEach((k) => {
+        const item = inMemoryClassTeacherAssignments[k];
+        if (
+          item &&
+          (item.teacherId === tKey ||
+           item.teacherId === resolvedTeacherId ||
+           (dbTeacher && (item.teacherId === dbTeacher.teacherId || item.teacherId === String(dbTeacher.id))) ||
+           (dbUser && dbUser.email && k === dbUser.email.toLowerCase()))
+        ) {
+          delete inMemoryClassTeacherAssignments[k];
+        }
+      });
       delete inMemoryClassTeacherAssignments[tKey];
+      if (resolvedTeacherId) delete inMemoryClassTeacherAssignments[resolvedTeacherId];
       if (dbTeacher) {
         delete inMemoryClassTeacherAssignments[dbTeacher.teacherId];
         delete inMemoryClassTeacherAssignments[String(dbTeacher.id)];
@@ -1807,6 +1868,7 @@ app.post('/api/class-teachers', authenticate, async (req: AuthRequest, res) => {
           await supabase.from('teachers').update({ assigned_class: null }).eq('teacher_id', resolvedTeacherId);
           await supabase.from('class_teachers').delete().eq('teacher_id', resolvedTeacherId);
         }
+        await supabase.from('class_teachers').delete().eq('teacher_id', tKey);
       } catch (supaErr) {
         console.warn('Supabase class teacher unassign note:', supaErr);
       }
@@ -1855,7 +1917,8 @@ app.post('/api/class-teachers', authenticate, async (req: AuthRequest, res) => {
       try {
         if (resolvedTeacherId) {
           await supabase.from('teachers').update({ assigned_class: cleanClass }).eq('teacher_id', resolvedTeacherId);
-          await supabase.from('class_teachers').delete().or(`class_name.eq.${cleanClass},teacher_id.eq.${resolvedTeacherId}`);
+          await supabase.from('class_teachers').delete().eq('class_name', cleanClass);
+          await supabase.from('class_teachers').delete().eq('teacher_id', resolvedTeacherId);
           await supabase.from('class_teachers').insert([{
             class_name: cleanClass,
             teacher_id: resolvedTeacherId,
@@ -4895,7 +4958,8 @@ app.put('/api/admin/teachers/:id', authenticate, async (req: AuthRequest, res) =
         // Persist to Supabase
         try {
           await supabase.from('teachers').update({ assigned_class: cleanClass }).eq('teacher_id', targetTeacher.teacherId);
-          await supabase.from('class_teachers').delete().or(`class_name.eq.${cleanClass},teacher_id.eq.${targetTeacher.teacherId}`);
+          await supabase.from('class_teachers').delete().eq('class_name', cleanClass);
+          await supabase.from('class_teachers').delete().eq('teacher_id', targetTeacher.teacherId);
           await supabase.from('class_teachers').insert([{
             class_name: cleanClass,
             teacher_id: targetTeacher.teacherId,
