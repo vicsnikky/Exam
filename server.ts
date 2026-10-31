@@ -541,6 +541,10 @@ app.get('/api/auth/me', authenticate, async (req: AuthRequest, res) => {
     assignedClass = assignment ? assignment.className : null;
   }
 
+  if (req.appUser.role === 'super_admin' || req.appUser.email?.toLowerCase() === 'victoralo1862@gmail.com') {
+    assignedClass = null;
+  }
+
   return res.json({
     user: {
       ...req.appUser,
@@ -1605,10 +1609,7 @@ app.post('/api/bursar/fee-adjustments', authenticate, async (req: AuthRequest, r
 // CLASS TEACHER ASSIGNMENTS & REPORT CARD REMARKS
 // ----------------------------------------------------
 const CLASS_TEACHERS_FILE = path.resolve(process.cwd(), '.class_teachers.json');
-// Keyed by teacherId (string), value: { teacherId, teacherName, className, updatedAt }
-const inMemoryClassTeacherAssignments: Record<string, { teacherId: string | number; teacherName: string; className: string; updatedAt: string }> = {
-  'TCH-2026-0001': { teacherId: 'TCH-2026-0001', teacherName: 'Victor Alo', className: 'SS 3', updatedAt: new Date().toISOString() },
-};
+const inMemoryClassTeacherAssignments: Record<string, { teacherId: string | number; teacherName: string; className: string; updatedAt: string }> = {};
 const inMemoryClassTeacherRemarks: Record<string, { studentId: string; remark: string; term: string; session: string; teacherName: string; updatedAt: string }> = {};
 export interface StudentCommentsRecord {
   studentId: string;
@@ -2332,6 +2333,12 @@ app.post('/api/scores', authenticate, async (req: AuthRequest, res) => {
         .where(eq(assessments.id, matchedExisting.id))
         .returning();
       recordedAssessment = updated;
+
+      // Delete any duplicate rows for the same student, subject, term, and session to prevent multiple ghost copies
+      const extraDuplicates = existingAssessments.filter((ea) => ea.id !== matchedExisting.id);
+      for (const dup of extraDuplicates) {
+        await db.delete(assessments).where(eq(assessments.id, dup.id)).catch(() => {});
+      }
     } else {
       const [inserted] = await db.insert(assessments).values({
         studentId: resolvedStudent.id,
@@ -2349,6 +2356,37 @@ app.post('/api/scores', authenticate, async (req: AuthRequest, res) => {
         schoolId: req.appUser?.schoolId || 1,
       }).returning();
       recordedAssessment = inserted;
+    }
+
+    // Mirror write to Supabase & clean up duplicates in Supabase
+    try {
+      if (resolvedStudent.id && targetSubjectId) {
+        await supabase
+          .from('assessments')
+          .delete()
+          .eq('student_id', resolvedStudent.id)
+          .eq('subject_id', targetSubjectId)
+          .eq('session', targetSession)
+          .ilike('term', `%${targetTerm}%`)
+          .eq('assessment_type', assessmentType.trim());
+
+        await supabase.from('assessments').insert({
+          id: recordedAssessment?.id,
+          student_id: resolvedStudent.id,
+          subject_id: targetSubjectId,
+          assessment_type: assessmentType.trim(),
+          assessment_title: assessmentTitle.trim(),
+          score: numScore.toString(),
+          max_score: numMax.toString(),
+          percentage: percentage.toString(),
+          grade,
+          session: targetSession,
+          term: targetTerm,
+          teacher_comment: teacherComment ? teacherComment.trim() : null,
+        });
+      }
+    } catch (supaErr) {
+      console.warn('Supabase assessment upsert sync note:', supaErr);
     }
 
     // Audit Log
@@ -3488,6 +3526,25 @@ app.delete('/api/scores/:id', authenticate, async (req: AuthRequest, res) => {
       }
     }
 
+    // 3. Mirror deletion in Supabase cloud DB to prevent ghost resurrected scores
+    try {
+      if (rawId && !isNaN(scoreId) && scoreId > 0 && scoreId <= PG_MAX_INT) {
+        await supabase.from('assessments').delete().eq('id', scoreId);
+      }
+      if (resolvedStudentId && resolvedSubjectId) {
+        let supaDel = supabase.from('assessments').delete().eq('student_id', resolvedStudentId).eq('subject_id', resolvedSubjectId);
+        if (termParam && termParam !== 'all') {
+          supaDel = supaDel.ilike('term', `%${termParam}%`);
+        }
+        if (typeParam) {
+          supaDel = supaDel.eq('assessment_type', typeParam);
+        }
+        await supaDel;
+      }
+    } catch (supaErr) {
+      console.warn('Supabase assessment delete note:', supaErr);
+    }
+
     return res.json({ success: true, message: 'Score record successfully deleted' });
   } catch (error: any) {
     console.error('Score delete error:', error);
@@ -3504,18 +3561,22 @@ app.delete('/api/scores', authenticate, async (req: AuthRequest, res) => {
     const sessionParam = req.query.session as string;
 
     const conditions: any[] = [];
+    let resolvedStDbId: number | null = null;
     if (studentParam) {
       if (!isNaN(Number(studentParam))) {
-        conditions.push(eq(assessments.studentId, Number(studentParam)));
+        resolvedStDbId = Number(studentParam);
+        conditions.push(eq(assessments.studentId, resolvedStDbId));
       } else {
         const found = await db.select({ id: students.id }).from(students).where(eq(students.studentId, studentParam.toUpperCase().trim())).limit(1);
         if (found.length > 0) {
-          conditions.push(eq(assessments.studentId, found[0].id));
+          resolvedStDbId = found[0].id;
+          conditions.push(eq(assessments.studentId, resolvedStDbId));
         }
       }
     }
-    if (subjectParam && !isNaN(Number(subjectParam))) {
-      conditions.push(eq(assessments.subjectId, Number(subjectParam)));
+    const resolvedSubDbId = (subjectParam && !isNaN(Number(subjectParam))) ? Number(subjectParam) : null;
+    if (resolvedSubDbId) {
+      conditions.push(eq(assessments.subjectId, resolvedSubDbId));
     }
     if (termParam && termParam !== 'all') {
       conditions.push(ilike(assessments.term, `%${termParam.trim()}%`));
@@ -3527,6 +3588,16 @@ app.delete('/api/scores', authenticate, async (req: AuthRequest, res) => {
     if (conditions.length > 0) {
       await db.delete(assessments).where(and(...conditions));
     }
+
+    // Mirror in Supabase
+    try {
+      if (resolvedStDbId && resolvedSubDbId) {
+        let q = supabase.from('assessments').delete().eq('student_id', resolvedStDbId).eq('subject_id', resolvedSubDbId);
+        if (termParam && termParam !== 'all') q = q.ilike('term', `%${termParam.trim()}%`);
+        if (sessionParam && sessionParam !== 'all') q = q.ilike('session', `%${sessionParam.trim()}%`);
+        await q;
+      }
+    } catch (_) {}
 
     return res.json({ success: true, message: 'Scores cleared successfully' });
   } catch (error: any) {

@@ -79,39 +79,40 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
   const isAdmin = user?.role === 'admin';
   const isExecutive = isVictorSuperAdmin || isDirector || isPrincipal || isAdmin;
 
-  const effectiveAssignedClass =
-    user?.assignedClass ||
-    (() => {
-      try {
-        const tchId = user?.teacherId ? String(user.teacherId).toUpperCase() : '';
-        const email = user?.email ? user.email.toLowerCase() : '';
-        const userId = user?.id ? String(user.id) : '';
-        const fullName = `${user?.firstName || ''} ${user?.lastName || ''}`.trim().toLowerCase();
+  const effectiveAssignedClass = isExecutive
+    ? null
+    : (user?.assignedClass ||
+      (() => {
+        try {
+          const tchId = user?.teacherId ? String(user.teacherId).toUpperCase() : '';
+          const email = user?.email ? user.email.toLowerCase() : '';
+          const userId = user?.id ? String(user.id) : '';
+          const fullName = `${user?.firstName || ''} ${user?.lastName || ''}`.trim().toLowerCase();
 
-        const raw = typeof window !== 'undefined' ? localStorage.getItem('fis_class_teachers_v1') : null;
-        const source = classTeacherAssignments && Object.keys(classTeacherAssignments).length > 0
-          ? classTeacherAssignments
-          : (raw ? JSON.parse(raw) : {});
+          const raw = typeof window !== 'undefined' ? localStorage.getItem('fis_class_teachers_v1') : null;
+          const source = classTeacherAssignments && Object.keys(classTeacherAssignments).length > 0
+            ? classTeacherAssignments
+            : (raw ? JSON.parse(raw) : {});
 
-        if (tchId && source[tchId]?.className) return source[tchId].className;
-        if (userId && source[userId]?.className) return source[userId].className;
-        if (email && source[email]?.className) return source[email].className;
+          if (tchId && source[tchId]?.className) return source[tchId].className;
+          if (userId && source[userId]?.className) return source[userId].className;
+          if (email && source[email]?.className) return source[email].className;
 
-        const found: any = Object.values(source).find((item: any) => {
-          if (!item || !item.className) return false;
-          if (tchId && item.teacherId && String(item.teacherId).toUpperCase() === tchId) return true;
-          if (userId && item.teacherId && String(item.teacherId) === userId) return true;
-          if (email && item.email && item.email.toLowerCase() === email) return true;
-          if (fullName && item.teacherName && item.teacherName.trim().toLowerCase() === fullName) return true;
-          return false;
-        });
-        return found?.className || null;
-      } catch (_) {
-        return null;
-      }
-    })();
+          const found: any = Object.values(source).find((item: any) => {
+            if (!item || !item.className) return false;
+            if (tchId && item.teacherId && String(item.teacherId).toUpperCase() === tchId) return true;
+            if (userId && item.teacherId && String(item.teacherId) === userId) return true;
+            if (email && item.email && item.email.toLowerCase() === email) return true;
+            if (fullName && item.teacherName && item.teacherName.trim().toLowerCase() === fullName) return true;
+            return false;
+          });
+          return found?.className || null;
+        } catch (_) {
+          return null;
+        }
+      })());
 
-  const isClassTeacher = Boolean(effectiveAssignedClass || user?.isClassTeacher);
+  const isClassTeacher = !isExecutive && Boolean(effectiveAssignedClass || user?.isClassTeacher);
   const canAccessBroadsheet = isExecutive || isClassTeacher;
 
 

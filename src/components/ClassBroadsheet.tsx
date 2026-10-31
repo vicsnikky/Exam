@@ -185,42 +185,53 @@ export const ClassBroadsheet: React.FC = () => {
   const isAdmin = user?.role === 'admin';
   const isExecutive = isVictorSuperAdmin || isDirector || isPrincipal || isAdmin;
 
-  const detectedClassTeacherClass =
-    user?.assignedClass ||
-    (typeof window !== 'undefined' && (() => {
-      try {
-        const raw = localStorage.getItem('fis_class_teachers_v1');
-        if (!raw) return null;
-        const parsed = JSON.parse(raw);
-        const tchId = user?.teacherId ? String(user.teacherId).toUpperCase() : '';
-        const email = user?.email?.toLowerCase() || '';
-        const userId = user?.id ? String(user.id) : '';
-        const fullName = `${user?.firstName || ''} ${user?.lastName || ''}`.trim().toLowerCase();
+  const detectedClassTeacherClass = isExecutive
+    ? null
+    : (user?.assignedClass ||
+      (typeof window !== 'undefined' && (() => {
+        try {
+          const raw = localStorage.getItem('fis_class_teachers_v1');
+          if (!raw) return null;
+          const parsed = JSON.parse(raw);
+          const tchId = user?.teacherId ? String(user.teacherId).toUpperCase() : '';
+          const email = user?.email?.toLowerCase() || '';
+          const userId = user?.id ? String(user.id) : '';
+          const fullName = `${user?.firstName || ''} ${user?.lastName || ''}`.trim().toLowerCase();
 
-        if (tchId && parsed[tchId]?.className) return parsed[tchId].className;
-        if (userId && parsed[userId]?.className) return parsed[userId].className;
-        if (email && parsed[email]?.className) return parsed[email].className;
+          if (tchId && parsed[tchId]?.className) return parsed[tchId].className;
+          if (userId && parsed[userId]?.className) return parsed[userId].className;
+          if (email && parsed[email]?.className) return parsed[email].className;
 
-        const found: any = Object.values(parsed).find((item: any) => {
-          if (!item || !item.className) return false;
-          if (tchId && item.teacherId && String(item.teacherId).toUpperCase() === tchId) return true;
-          if (userId && item.teacherId && String(item.teacherId) === userId) return true;
-          if (email && item.email && item.email.toLowerCase() === email) return true;
-          if (fullName && item.teacherName && item.teacherName.trim().toLowerCase() === fullName) return true;
-          return false;
-        });
-        return found?.className || null;
-      } catch (_) {
-        return null;
-      }
-    })());
+          const found: any = Object.values(parsed).find((item: any) => {
+            if (!item || !item.className) return false;
+            if (tchId && item.teacherId && String(item.teacherId).toUpperCase() === tchId) return true;
+            if (userId && item.teacherId && String(item.teacherId) === userId) return true;
+            if (email && item.email && item.email.toLowerCase() === email) return true;
+            if (fullName && item.teacherName && item.teacherName.trim().toLowerCase() === fullName) return true;
+            return false;
+          });
+          return found?.className || null;
+        } catch (_) {
+          return null;
+        }
+      })()));
 
-
-  // Filters & Scope: Default to assigned class for Class Teachers
-  const [selectedClass, setSelectedClass] = useState<string>(() => {
+  // Filters & Scope: Default to assigned class for Class Teachers, or saved/active class for Executives
+  const [selectedClass, setSelectedClassState] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = sessionStorage.getItem('fis_broadsheet_selected_class');
+      if (saved) return saved;
+    }
     if (detectedClassTeacherClass) return detectedClassTeacherClass;
-    return 'SS 3';
+    return 'JSS 3';
   });
+
+  const setSelectedClass = (cls: string) => {
+    setSelectedClassState(cls);
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('fis_broadsheet_selected_class', cls);
+    }
+  };
   const [selectedTerm, setSelectedTerm] = useState<string>('First Term');
   const [selectedSession, setSelectedSession] = useState<string>('2026/2027');
   const [examPeriod, setExamPeriod] = useState<'first-half' | 'terminal'>('terminal');
@@ -645,6 +656,17 @@ export const ClassBroadsheet: React.FC = () => {
         if (Array.isArray(supaData) && supaData.length > 0) {
           supaData.forEach((sc: any) => {
             if (sc.assessment_type === 'SS3_MOCK') return;
+            const alreadyExists = serverScores.some(
+              (s) =>
+                String(s.id) === String(sc.id) ||
+                ((Number(s.studentDbId || s.studentId) === Number(sc.student_id) || (s.studentNumber && sc.students?.student_id && s.studentNumber === sc.students.student_id)) &&
+                 Number(s.subjectId) === Number(sc.subject_id) &&
+                 s.assessmentType === sc.assessment_type &&
+                 s.term === sc.term &&
+                 s.session === sc.session)
+            );
+            if (alreadyExists) return;
+
             const mapped = {
               id: sc.id,
               studentDbId: sc.student_id,

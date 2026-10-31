@@ -393,7 +393,17 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
             const existingIds = new Set(realAssessments.map(a => String(a.id)));
             supaAssessments.forEach((sc: any) => {
               if (sc.assessment_type === 'SS3_MOCK') return;
-              if (!existingIds.has(String(sc.id))) {
+              if (existingIds.has(String(sc.id))) return;
+
+              const alreadyHasRecord = realAssessments.some((a) => {
+                const matchesSub = Number(a.subjectId) === Number(sc.subject_id) || (a.subjectName && sc.subjects?.name && a.subjectName.toLowerCase() === sc.subjects.name.toLowerCase());
+                const matchesType = (a.assessmentType || '').toUpperCase() === (sc.assessment_type || '').toUpperCase();
+                const matchesTerm = !a.term || !sc.term || a.term.trim().toLowerCase() === sc.term.trim().toLowerCase();
+                const matchesSess = !a.session || !sc.session || a.session.trim() === sc.session.trim();
+                return matchesSub && matchesType && matchesTerm && matchesSess;
+              });
+
+              if (!alreadyHasRecord) {
                 realAssessments.push({
                   id: sc.id,
                   studentId: resolvedStudent!.studentId,
@@ -590,10 +600,19 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           }
         } catch (_) {}
 
-        // Filter out empty score items
-        realAssessments = realAssessments.filter(
-          (a) => Number(a.score) > 0 || Number(a.percentage) > 0 || a.assessmentType === 'CA'
-        );
+        // Filter out empty score items and deduplicate to ensure only the latest score per subject and test type is kept
+        const dedupMap = new Map<string, any>();
+        realAssessments.forEach((a) => {
+          if (!(Number(a.score) > 0 || Number(a.percentage) > 0 || a.assessmentType === 'CA')) return;
+          if (isScoreDeleted(a.id, a.subjectId, a.assessmentType)) return;
+          const aTitle = (a.assessmentTitle || '').toLowerCase();
+          const aComm = (a.teacherComment || '').toLowerCase();
+          const isFirstHalf = aTitle.includes('first half') || aTitle.includes('1st half') || aTitle.includes('mid') || aComm.includes('first-half');
+          const pKey = isFirstHalf ? 'first-half' : 'terminal';
+          const subKey = `${a.subjectId || a.subjectName}_${(a.assessmentType || 'CA').toUpperCase()}_${a.term || 'First Term'}_${a.session || '2026/2027'}_${pKey}`;
+          dedupMap.set(subKey, a);
+        });
+        realAssessments = Array.from(dedupMap.values());
         realMockScores = realMockScores.filter((m) => Number(m.score) > 0 || Number(m.percentage) > 0);
 
         setAssessments(realAssessments);
@@ -1100,6 +1119,21 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
         }
         localStorage.setItem('fis_deleted_score_ids_v1', JSON.stringify([...deletedIds]));
       } catch (_) {}
+
+      // Direct deletion from Supabase cloud database
+      try {
+        if (!isNaN(Number(scoreId)) && Number(scoreId) > 0) {
+          await supabase.from('assessments').delete().eq('id', Number(scoreId));
+        }
+        if (student?.id && targetSubId) {
+          let sDel = supabase.from('assessments').delete().eq('student_id', Number(student.id)).eq('subject_id', Number(targetSubId));
+          if (targetTerm) sDel = sDel.ilike('term', `%${targetTerm}%`);
+          if (targetType) sDel = sDel.eq('assessment_type', targetType);
+          await sDel;
+        }
+      } catch (supaDelErr) {
+        console.warn('Direct Supabase delete deferred:', supaDelErr);
+      }
 
       // Delete from backend API
       const queryParams = new URLSearchParams();

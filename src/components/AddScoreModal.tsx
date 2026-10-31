@@ -534,6 +534,15 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
           }
 
           if (targetStDbId && !isNaN(Number(targetStDbId))) {
+            await supabase
+              .from('assessments')
+              .delete()
+              .eq('student_id', Number(targetStDbId))
+              .eq('subject_id', Number(selectedSubjectId))
+              .eq('session', session)
+              .ilike('term', `%${term}%`)
+              .eq('assessment_type', 'CA');
+
             await supabase.from('assessments').insert({
               student_id: Number(targetStDbId),
               subject_id: Number(selectedSubjectId),
@@ -595,6 +604,15 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
           }
 
           if (targetStDbId && !isNaN(Number(targetStDbId))) {
+            await supabase
+              .from('assessments')
+              .delete()
+              .eq('student_id', Number(targetStDbId))
+              .eq('subject_id', Number(selectedSubjectId))
+              .eq('session', session)
+              .ilike('term', `%${term}%`)
+              .eq('assessment_type', 'Examination');
+
             await supabase.from('assessments').insert({
               student_id: Number(targetStDbId),
               subject_id: Number(selectedSubjectId),
