@@ -2355,34 +2355,19 @@ export const ClassBroadsheet: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-end gap-6 sm:gap-10 print:gap-3 text-center">
-            {/* Signing Class Teacher */}
-            <div className="flex flex-col items-center">
-              <span className="text-[10px] print:text-[7.5px] font-bold text-slate-900 print:text-black mb-1 print:mb-0.5 truncate max-w-[130px] print:max-w-[95px]">
-                {assignedClassTeacherName || 'Class Teacher'}
-              </span>
-              <div className="w-28 print:w-20 border-b border-black mb-1 print:mb-0.5" />
-              <span className="text-[9px] print:text-[6.5px] font-bold uppercase tracking-wider text-black block">Class Teacher</span>
+          <div className="flex items-end gap-10 sm:gap-14 print:gap-5 text-center">
+            <div>
+              <div className="w-32 print:w-20 border-b border-black mb-1 print:mb-0.5" />
+              <span className="text-[10px] print:text-[7px] font-bold uppercase tracking-wider text-black block">Registrar</span>
             </div>
-
-            {/* Registrar */}
-            <div className="flex flex-col items-center">
-              <span className="text-[10px] print:text-[7.5px] font-semibold text-slate-800 print:text-black mb-1 print:mb-0.5">
-                Official Registry
-              </span>
-              <div className="w-24 print:w-18 border-b border-black mb-1 print:mb-0.5" />
-              <span className="text-[9px] print:text-[6.5px] font-bold uppercase tracking-wider text-black block">Registrar</span>
-            </div>
-
-            {/* School Principal */}
             <div className="flex flex-col items-center">
               <img
                 src="https://i.ibb.co/MzHp6Yt/Whats-App-Image-2026-10-02-at-11-29-34-AM.jpg"
                 alt="School Principal Signature"
                 className="h-10 print:h-5 w-auto object-contain mb-0.5 print:mb-0.5 filter contrast-125 mix-blend-multiply"
               />
-              <div className="w-32 print:w-22 border-b border-black mb-1 print:mb-0.5" />
-              <span className="text-[9px] print:text-[6.5px] font-bold uppercase tracking-wider text-black block">School Principal</span>
+              <div className="w-36 print:w-22 border-b border-black mb-1 print:mb-0.5" />
+              <span className="text-[10px] print:text-[7px] font-bold uppercase tracking-wider text-black block">School Principal</span>
             </div>
           </div>
         </div>
@@ -3757,7 +3742,6 @@ export const ClassBroadsheet: React.FC = () => {
         {/* Print Signatures */}
         <div className="grid grid-cols-3 gap-8 mt-8 pt-4 border-t border-black text-center text-[10px]">
           <div>
-            <span className="text-[10px] font-bold text-black block mb-0.5 truncate">{assignedClassTeacherName || 'Form Teacher'}</span>
             <div className="border-b border-black w-3/4 mx-auto mb-1" />
             <span className="font-bold uppercase">Form Teacher / Class Master</span>
           </div>
