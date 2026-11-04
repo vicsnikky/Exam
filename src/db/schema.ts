@@ -28,6 +28,7 @@ export const users = pgTable('users', {
   lastName: text('last_name').notNull(),
   role: text('role').notNull().default('teacher'), // 'teacher' | 'student' | 'admin'
   schoolId: integer('school_id').references(() => schools.id),
+  photoUrl: text('photo_url'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
@@ -40,6 +41,7 @@ export const teachers = pgTable('teachers', {
   schoolName: text('school_name').notNull(),
   schoolId: integer('school_id').references(() => schools.id),
   assignedClass: text('assigned_class'),
+  photoUrl: text('photo_url'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
@@ -49,6 +51,15 @@ export const classTeachers = pgTable('class_teachers', {
   className: text('class_name').notNull(),
   teacherId: text('teacher_id').notNull(),
   teacherName: text('teacher_name').notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// Universal Profile Photos table for fast multi-device synchronization
+export const profilePhotos = pgTable('profile_photos', {
+  id: serial('id').primaryKey(),
+  userType: text('user_type').notNull(), // 'student' | 'teacher' | 'user'
+  identifier: text('identifier').notNull().unique(), // e.g. FEN-2026-000001 or teacher@school.edu
+  photoUrl: text('photo_url').notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
@@ -76,6 +87,7 @@ export const students = pgTable('students', {
   school: text('school').notNull(),
   session: text('session').notNull(), // e.g. 2026/2027
   passwordHash: text('password_hash'), // For student PIN/password login
+  photoUrl: text('photo_url'),
   schoolId: integer('school_id').references(() => schools.id),
   registeredByTeacherId: integer('registered_by_teacher_id').references(() => teachers.id),
   createdAt: timestamp('created_at').defaultNow().notNull(),

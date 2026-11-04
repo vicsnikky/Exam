@@ -21,7 +21,13 @@ import { AnonymousComplaintModal } from './components/AnonymousComplaintModal.ts
 import { ChangePasswordModal } from './components/ChangePasswordModal.tsx';
 import { ExecutiveComplaintsManager } from './components/ExecutiveComplaintsManager.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
-import { fetchClassTeacherAssignments } from './lib/schoolStore.ts';
+import { PhotoUploadModal } from './components/PhotoUploadModal.tsx';
+import {
+  fetchClassTeacherAssignments,
+  uploadStaffProfilePhoto,
+  uploadStudentPassportPhoto,
+  getCachedProfilePhoto,
+} from './lib/schoolStore.ts';
 import {
   GraduationCap,
   LayoutDashboard,
@@ -49,11 +55,12 @@ import {
   Key,
   KeyRound,
   ShieldCheck,
+  Camera,
 } from 'lucide-react';
 import { Student } from './types/index.ts';
 
 export default function App() {
-  const { user, token, logout, isLoading } = useAuth();
+  const { user, token, logout, refreshUser, isLoading } = useAuth();
 
   const [classTeacherAssignments, setClassTeacherAssignments] = useState<Record<string, any>>(() => {
     try {
@@ -70,6 +77,14 @@ export default function App() {
         const data = await fetchClassTeacherAssignments(token);
         if (data && typeof data === 'object') {
           setClassTeacherAssignments(data);
+          if (user && !user.assignedClass && user.role === 'teacher') {
+            const tchId = user.teacherId ? String(user.teacherId).toUpperCase() : '';
+            const email = user.email ? user.email.toLowerCase() : '';
+            const match = (tchId && data[tchId]) || (email && data[email]) || Object.values(data).find((d: any) => d?.teacherId && String(d.teacherId).toUpperCase() === tchId);
+            if (match && match.className) {
+              refreshUser();
+            }
+          }
         }
       } catch (_) {}
     };
@@ -174,6 +189,30 @@ export default function App() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showAnonymousModal, setShowAnonymousModal] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [showStaffPhotoModal, setShowStaffPhotoModal] = useState(false);
+
+  const userPhoto =
+    user?.photoUrl ||
+    (user?.email ? getCachedProfilePhoto(user.email) : null) ||
+    (user?.teacherId ? getCachedProfilePhoto(user.teacherId) : null) ||
+    (user?.studentId ? getCachedProfilePhoto(user.studentId) : null) ||
+    (user?.id ? getCachedProfilePhoto(String(user.id)) : null) ||
+    null;
+
+  const handleSaveUserPhoto = async (photoDataUrl: string) => {
+    if (!user) return;
+    try {
+      if (isStudent && (user.studentId || user.id)) {
+        await uploadStudentPassportPhoto(token, user.studentId || user.id, photoDataUrl);
+      } else {
+        await uploadStaffProfilePhoto(token, photoDataUrl, user.email, user.teacherId || String(user.id));
+      }
+      await refreshUser();
+    } catch (err: any) {
+      console.error('Failed to save profile photo:', err);
+      throw err;
+    }
+  };
 
   useEffect(() => {
     const handleOpenPwd = () => setShowPasswordModal(true);
@@ -446,7 +485,31 @@ export default function App() {
                   ? `Class Teacher • ${effectiveAssignedClass || 'Assigned'} • ${user.teacherId || user.email}`
                   : `Faculty: ${user.teacherId || user.email}`}
               </span>
+            </div>
 
+            {/* User Profile Avatar with Direct Upload Trigger */}
+            <div
+              onClick={() => setShowStaffPhotoModal(true)}
+              className="relative group cursor-pointer shrink-0"
+              title="Click to upload or update profile picture"
+            >
+              <div className="w-10 h-10 rounded-xl bg-slate-800 border-2 border-amber-400/50 flex items-center justify-center overflow-hidden shadow-md group-hover:border-amber-300 transition">
+                {userPhoto ? (
+                  <img
+                    src={userPhoto}
+                    alt={user.firstName}
+                    className="w-full h-full object-cover object-center group-hover:scale-105 transition"
+                  />
+                ) : (
+                  <div className="w-full h-full bg-emerald-800/80 text-amber-300 flex items-center justify-center font-bold text-xs">
+                    {user.firstName?.[0] || 'U'}
+                    {user.lastName?.[0] || user.surname?.[0] || ''}
+                  </div>
+                )}
+              </div>
+              <div className="absolute -bottom-1 -right-1 bg-amber-500 text-slate-950 p-1 rounded-full shadow border-2 border-slate-900 group-hover:bg-amber-400 transition">
+                <Camera className="w-2.5 h-2.5" />
+              </div>
             </div>
 
             {!isStudent && (
@@ -479,6 +542,15 @@ export default function App() {
       <ChangePasswordModal
         isOpen={showPasswordModal}
         onClose={() => setShowPasswordModal(false)}
+      />
+
+      <PhotoUploadModal
+        isOpen={showStaffPhotoModal}
+        onClose={() => setShowStaffPhotoModal(false)}
+        onPhotoSaved={handleSaveUserPhoto}
+        title={isStudent ? 'Upload Student Passport Photo' : 'Upload Staff Profile Picture'}
+        subtitle={isStudent ? `${user.firstName} ${user.surname} • ${user.studentId}` : `${user.firstName} ${user.lastName || user.surname || ''} • ${user.role.toUpperCase()}`}
+        currentPhotoUrl={userPhoto}
       />
 
       {/* Main Layout */}

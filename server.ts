@@ -24,6 +24,7 @@ import {
   schools,
   complaints,
   classTeachers,
+  profilePhotos,
 } from './src/db/schema.ts';
 import { eq, ilike, or, and, desc, sql, isNull, ne } from 'drizzle-orm';
 import { authenticate, type AuthRequest } from './src/middleware/auth.ts';
@@ -359,6 +360,7 @@ app.post('/api/auth/login', async (req, res) => {
           parentName: st.parentName || null,
           parentPhone: st.parentPhone || null,
           role: 'student',
+          photoUrl: (st as any).photoUrl || null,
         },
       });
     }
@@ -476,6 +478,7 @@ app.post('/api/auth/login', async (req, res) => {
         schoolName: teacherRec[0]?.schoolName || 'Fenster International School',
         assignedClass: userAssignedClass,
         isClassTeacher: Boolean(userAssignedClass),
+        photoUrl: (u as any).photoUrl || teacherRec[0]?.photoUrl || null,
       },
     });
   } catch (error: any) {
@@ -524,6 +527,22 @@ app.get('/api/auth/me', authenticate, async (req: AuthRequest, res) => {
           assignedClass = sCt[0].class_name;
         }
       }
+      if (!assignedClass) {
+        try {
+          const p = createPool();
+          const ctRes = await p.query(
+            `SELECT ct.class_name FROM class_teachers ct 
+             LEFT JOIN teachers t ON (ct.teacher_id = t.teacher_id OR ct.teacher_id = CAST(t.id AS VARCHAR))
+             LEFT JOIN users u ON t.user_id = u.id
+             WHERE ct.teacher_id = $1 OR ct.teacher_id = $2 OR u.email = $3 OR u.id = $4
+             LIMIT 1`,
+            [tchId || '', String(req.appUser.id || ''), req.appUser.email?.toLowerCase() || '', req.appUser.id || 0]
+          );
+          if (ctRes.rows.length > 0 && ctRes.rows[0].class_name) {
+            assignedClass = ctRes.rows[0].class_name;
+          }
+        } catch (_) {}
+      }
     } catch (_) {}
   }
 
@@ -545,13 +564,254 @@ app.get('/api/auth/me', authenticate, async (req: AuthRequest, res) => {
     assignedClass = null;
   }
 
+  let photoUrl: string | null = (req.appUser as any).photoUrl || null;
+  if (!photoUrl) {
+    try {
+      const email = (req.appUser.email || '').toLowerCase().trim();
+      const userId = String(req.appUser.id || '');
+      const stId = (req.appUser.studentProfile?.studentId || (req.appUser as any).studentId || '').toUpperCase();
+      const tId = (tchId || '').toUpperCase();
+
+      const p = createPool();
+      const pRes = await p.query(
+        `SELECT photo_url FROM profile_photos 
+         WHERE identifier = $1 OR identifier = $2 OR identifier = $3 OR identifier = $4
+         ORDER BY updated_at DESC LIMIT 1`,
+        [email, userId, stId || 'none', tId || 'none']
+      );
+      if (pRes.rows.length > 0 && pRes.rows[0].photo_url) {
+        photoUrl = pRes.rows[0].photo_url;
+      }
+    } catch (_) {}
+  }
+  if (!photoUrl) {
+    try {
+      if (req.appUser.role === 'student') {
+        const sId = (req.appUser.studentProfile?.studentId || (req.appUser as any).studentId || '').toUpperCase();
+        if (sId) {
+          const sRow = await db.select().from(students).where(eq(students.studentId, sId)).limit(1);
+          if (sRow.length > 0 && sRow[0].photoUrl) {
+            photoUrl = sRow[0].photoUrl;
+          }
+        }
+      } else if (req.appUser.id) {
+        const uRow = await db.select().from(users).where(eq(users.id, req.appUser.id)).limit(1);
+        if (uRow.length > 0 && uRow[0].photoUrl) {
+          photoUrl = uRow[0].photoUrl;
+        }
+      }
+    } catch (_) {}
+  }
+
   return res.json({
     user: {
       ...req.appUser,
       assignedClass,
       isClassTeacher: Boolean(assignedClass),
+      photoUrl,
     },
   });
+});
+
+// Staff & User Profile Photo Upload
+app.post('/api/users/profile-photo', authenticate, async (req: AuthRequest, res) => {
+  try {
+    if (!req.appUser) return res.status(401).json({ error: 'Unauthorized' });
+    const { photo } = req.body;
+    if (!photo || typeof photo !== 'string') {
+      return res.status(400).json({ error: 'Valid photo data is required' });
+    }
+
+    const userId = req.appUser.id;
+    const email = (req.appUser.email || '').toLowerCase().trim();
+    const tchId = req.appUser.teacherProfile?.teacherId || (req.appUser as any).teacherId;
+    const stId = req.appUser.studentProfile?.studentId || (req.appUser as any).studentId;
+
+    // 1. Update users table
+    if (userId) {
+      await db.update(users).set({ photoUrl: photo }).where(eq(users.id, userId));
+    }
+    if (email) {
+      await db.update(users).set({ photoUrl: photo }).where(eq(users.email, email));
+    }
+    if (tchId) {
+      await db.update(teachers).set({ photoUrl: photo }).where(eq(teachers.teacherId, tchId));
+    }
+    if (stId) {
+      await db.update(students).set({ photoUrl: photo }).where(eq(students.studentId, String(stId).toUpperCase()));
+    }
+
+    // 2. Multi-key upsert into profile_photos
+    const p = createPool();
+    const keys: string[] = [];
+    if (email) keys.push(email);
+    if (userId) keys.push(String(userId));
+    if (tchId) keys.push(String(tchId).toUpperCase());
+    if (stId) keys.push(String(stId).toUpperCase());
+
+    for (const key of keys) {
+      try {
+        await p.query(
+          `INSERT INTO profile_photos (user_type, identifier, photo_url, updated_at)
+           VALUES ($1, $2, $3, NOW())
+           ON CONFLICT (identifier) DO UPDATE SET photo_url = EXCLUDED.photo_url, updated_at = NOW()`,
+          [req.appUser.role, key, photo]
+        );
+      } catch (_) {}
+    }
+
+    // 3. Supabase sync
+    try {
+      if (email) await supabase.from('users').update({ photo_url: photo }).eq('email', email);
+      if (tchId) await supabase.from('teachers').update({ photo_url: photo }).eq('teacher_id', tchId);
+      if (stId) await supabase.from('students').update({ photo_url: photo }).eq('student_id', String(stId).toUpperCase());
+    } catch (_) {}
+
+    return res.json({
+      success: true,
+      message: 'Profile photo updated successfully',
+      photoUrl: photo,
+      user: {
+        ...req.appUser,
+        photoUrl: photo,
+      },
+    });
+  } catch (err: any) {
+    console.error('Error updating user profile photo:', err);
+    return res.status(500).json({ error: err.message || 'Failed to update profile photo' });
+  }
+});
+
+// Student Passport Photo Upload
+app.post('/api/students/:id/photo', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const rawId = req.params.id;
+    const { photo } = req.body;
+    if (!photo || typeof photo !== 'string') {
+      return res.status(400).json({ error: 'Valid photo image data is required.' });
+    }
+
+    // Permissions check
+    const isStudentUser = req.appUser?.role === 'student';
+    if (isStudentUser) {
+      const myStudentId = (req.appUser?.studentProfile?.studentId || (req.appUser as any)?.studentId || '').toUpperCase();
+      const myId = String(req.appUser?.id || '');
+      const targetParam = String(rawId).toUpperCase();
+      if (targetParam !== myStudentId && targetParam !== myId) {
+        return res.status(403).json({ error: 'Students can only upload their own passport photo.' });
+      }
+    }
+
+    // Locate student
+    const numParam = Number(rawId);
+    let targetStudent: any = null;
+    if (!isNaN(numParam) && numParam > 0) {
+      const byId = await db.select().from(students).where(eq(students.id, numParam)).limit(1);
+      if (byId.length > 0) targetStudent = byId[0];
+    }
+    if (!targetStudent) {
+      const byStudentId = await db.select().from(students).where(eq(students.studentId, String(rawId).toUpperCase())).limit(1);
+      if (byStudentId.length > 0) targetStudent = byStudentId[0];
+    }
+
+    if (!targetStudent) {
+      return res.status(404).json({ error: 'Student record not found.' });
+    }
+
+    // Update students table
+    await db.update(students).set({ photoUrl: photo }).where(eq(students.id, targetStudent.id));
+
+    // Multi-key upsert into profile_photos
+    const p = createPool();
+    const sId = (targetStudent.studentId || '').toUpperCase();
+    const sNumId = String(targetStudent.id);
+
+    try {
+      if (sId) {
+        await p.query(
+          `INSERT INTO profile_photos (user_type, identifier, photo_url, updated_at)
+           VALUES ('student', $1, $2, NOW())
+           ON CONFLICT (identifier) DO UPDATE SET photo_url = EXCLUDED.photo_url, updated_at = NOW()`,
+          [sId, photo]
+        );
+      }
+      if (sNumId) {
+        await p.query(
+          `INSERT INTO profile_photos (user_type, identifier, photo_url, updated_at)
+           VALUES ('student', $1, $2, NOW())
+           ON CONFLICT (identifier) DO UPDATE SET photo_url = EXCLUDED.photo_url, updated_at = NOW()`,
+          [sNumId, photo]
+        );
+      }
+      if (targetStudent.email) {
+        await p.query(
+          `INSERT INTO profile_photos (user_type, identifier, photo_url, updated_at)
+           VALUES ('student', $1, $2, NOW())
+           ON CONFLICT (identifier) DO UPDATE SET photo_url = EXCLUDED.photo_url, updated_at = NOW()`,
+          [targetStudent.email.toLowerCase().trim(), photo]
+        );
+      }
+    } catch (e) {
+      console.warn('profile_photos student upsert warning:', e);
+    }
+
+    // Cross-sync to Supabase
+    try {
+      if (sId) await supabase.from('students').update({ photo_url: photo }).eq('student_id', sId);
+    } catch (_) {}
+
+    return res.json({
+      success: true,
+      message: 'Passport photograph uploaded and synchronized.',
+      photoUrl: photo,
+      studentId: sId,
+    });
+  } catch (err: any) {
+    console.error('Error uploading student photo:', err);
+    return res.status(500).json({ error: err.message || 'Failed to upload student photo' });
+  }
+});
+
+// Fast Identifier Profile Photo Lookup
+app.get('/api/profile-photo/:identifier', async (req, res) => {
+  try {
+    const raw = String(req.params.identifier || '').trim();
+    if (!raw) return res.status(400).json({ error: 'Identifier required' });
+
+    const p = createPool();
+    const queryRes = await p.query(
+      `SELECT photo_url FROM profile_photos 
+       WHERE identifier = $1 OR identifier = $2 OR identifier = $3
+       ORDER BY updated_at DESC LIMIT 1`,
+      [raw, raw.toUpperCase(), raw.toLowerCase()]
+    );
+
+    if (queryRes.rows.length > 0 && queryRes.rows[0].photo_url) {
+      return res.json({ success: true, photoUrl: queryRes.rows[0].photo_url });
+    }
+
+    // Check students table
+    const stRes = await p.query(
+      `SELECT photo_url FROM students WHERE student_id = $1 OR CAST(id AS VARCHAR) = $2 LIMIT 1`,
+      [raw.toUpperCase(), raw]
+    );
+    if (stRes.rows.length > 0 && stRes.rows[0].photo_url) {
+      return res.json({ success: true, photoUrl: stRes.rows[0].photo_url });
+    }
+
+    // Check users table
+    const uRes = await p.query(
+      `SELECT photo_url FROM users WHERE email = $1 OR CAST(id AS VARCHAR) = $2 LIMIT 1`,
+      [raw.toLowerCase(), raw]
+    );
+    if (uRes.rows.length > 0 && uRes.rows[0].photo_url) {
+      return res.json({ success: true, photoUrl: uRes.rows[0].photo_url });
+    }
+
+    return res.json({ success: false, photoUrl: null });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
 });
 
 // Change Password for Staff (excluding students)
@@ -929,8 +1189,27 @@ app.get('/api/students/:id', authenticate, async (req: AuthRequest, res) => {
       term: 'First Term',
     };
 
+    let studentPhoto = (student as any).photoUrl || null;
+    if (!studentPhoto) {
+      try {
+        const p = createPool();
+        const pRes = await p.query(
+          `SELECT photo_url FROM profile_photos 
+           WHERE identifier = $1 OR identifier = $2
+           ORDER BY updated_at DESC LIMIT 1`,
+          [String(student.studentId || '').toUpperCase(), String(student.id)]
+        );
+        if (pRes.rows.length > 0 && pRes.rows[0].photo_url) {
+          studentPhoto = pRes.rows[0].photo_url;
+        }
+      } catch (_) {}
+    }
+
     return res.json({
-      student,
+      student: {
+        ...student,
+        photoUrl: studentPhoto,
+      },
       assessments: assessmentRecords,
       attendance: studentAttendance,
       stats: {
@@ -1975,14 +2254,10 @@ app.post('/api/students/:id/class-teacher-remark', authenticate, async (req: Aut
     }
 
     const isExecOrAdmin = role === 'super_admin' || role === 'admin' || role === 'director' || role === 'principal' || req.appUser?.email === 'victoralo1862@gmail.com';
-    const tchId = req.appUser?.teacherProfile?.teacherId || (req.appUser as any)?.teacherId;
-    const assignment =
-      (tchId ? inMemoryClassTeacherAssignments[tchId] : null) ||
-      inMemoryClassTeacherAssignments[String(req.appUser?.id)] ||
-      (req.appUser?.email ? inMemoryClassTeacherAssignments[req.appUser.email.toLowerCase()] : null);
+    const isTeacher = role === 'teacher' || Boolean(req.appUser?.teacherProfile) || Boolean((req.appUser as any)?.teacherId);
 
-    if (!isExecOrAdmin && !assignment) {
-      return res.status(403).json({ error: 'Permission denied: Only designated Class Teachers and School Administrators can author official class teacher comments.' });
+    if (!isExecOrAdmin && !isTeacher) {
+      return res.status(403).json({ error: 'Permission denied: Faculty Teachers and School Administrators can author official class teacher comments.' });
     }
     const rawId = req.params.id;
     const cleanId = String(rawId).trim().toUpperCase();
@@ -2084,15 +2359,7 @@ app.post('/api/students/:id/comments', authenticate, async (req: AuthRequest, re
     }
 
     const isExecOrAdmin = role === 'super_admin' || role === 'admin' || role === 'director' || role === 'principal' || req.appUser?.email === 'victoralo1862@gmail.com';
-    const tchId = req.appUser?.teacherProfile?.teacherId || (req.appUser as any)?.teacherId;
-    const assignment =
-      (tchId ? inMemoryClassTeacherAssignments[tchId] : null) ||
-      inMemoryClassTeacherAssignments[String(req.appUser?.id)] ||
-      (req.appUser?.email ? inMemoryClassTeacherAssignments[req.appUser.email.toLowerCase()] : null) ||
-      ((req.appUser as any)?.isClassTeacher ? { className: (req.appUser as any)?.assignedClass || 'Assigned' } : null) ||
-      ((req.appUser as any)?.assignedClass ? { className: (req.appUser as any)?.assignedClass } : null);
-
-    const isClassTeacherUser = Boolean(assignment || (req.appUser as any)?.isClassTeacher || (req.appUser as any)?.assignedClass);
+    const isTeacher = role === 'teacher' || Boolean(req.appUser?.teacherProfile) || Boolean((req.appUser as any)?.teacherId);
 
     const rawId = req.params.id;
     const cleanId = String(rawId).trim().toUpperCase();
@@ -2126,9 +2393,9 @@ app.post('/api/students/:id/comments', authenticate, async (req: AuthRequest, re
       }
     }
 
-    // Check permission for Class Teacher comment: must be assigned class teacher or executive/admin
-    if (classTeacherComment !== undefined && !isExecOrAdmin && !isClassTeacherUser) {
-      return res.status(403).json({ error: 'Permission denied: Only designated Class Teachers and School Administrators can author the Class Teacher’s comment.' });
+    // Check permission for Class Teacher comment: all teachers and admins can author
+    if (classTeacherComment !== undefined && !isExecOrAdmin && !isTeacher) {
+      return res.status(403).json({ error: 'Permission denied: Faculty Teachers and School Administrators can author the Class Teacher’s comment.' });
     }
 
     if (classTeacherComment !== undefined) {
@@ -4586,7 +4853,16 @@ app.get('/api/admin/teachers', authenticate, async (req: AuthRequest, res) => {
       .innerJoin(users, eq(teachers.userId, users.id))
       .orderBy(desc(teachers.createdAt));
 
+    const ctList = await db.select().from(classTeachers);
+    const ctMap: Record<string, string> = {};
+    for (const ct of ctList) {
+      if (ct.teacherId && ct.className) {
+        ctMap[ct.teacherId.toUpperCase().trim()] = ct.className;
+      }
+    }
+
     const teacherListMap = teacherList.map((t) => {
+      const fromCtTable = (t.teacherId && ctMap[t.teacherId.toUpperCase().trim()]) || null;
       const assigned =
         inMemoryClassTeacherAssignments[t.teacherId] ||
         inMemoryClassTeacherAssignments[String(t.id)] ||
@@ -4603,7 +4879,7 @@ app.get('/api/admin/teachers', authenticate, async (req: AuthRequest, res) => {
           return false;
         });
 
-      const effectiveClass = t.assignedClass || (assigned ? assigned.className : null);
+      const effectiveClass = t.assignedClass || fromCtTable || (assigned ? assigned.className : null);
       return {
         ...t,
         assignedClass: effectiveClass,
@@ -4689,13 +4965,34 @@ app.post('/api/admin/teachers', authenticate, async (req: AuthRequest, res) => {
     let assignedClassName: string | null = null;
     if (assignedClass && assignedClass !== 'none' && assignedClass !== 'unassigned') {
       assignedClassName = String(assignedClass).trim();
+      const effectiveName = `${newUser.firstName} ${newUser.lastName}`.trim();
       inMemoryClassTeacherAssignments[newTeacher.teacherId] = {
         teacherId: newTeacher.teacherId,
-        teacherName: `${newUser.firstName} ${newUser.lastName}`.trim(),
+        teacherName: effectiveName,
         className: assignedClassName,
         updatedAt: new Date().toISOString(),
       };
       persistClassTeachersData();
+
+      // Persist to PostgreSQL database directly
+      try {
+        const p = createPool();
+        await p.query('UPDATE teachers SET assigned_class = $1 WHERE id = $2', [assignedClassName, newTeacher.id]);
+        await p.query('DELETE FROM class_teachers WHERE class_name = $1 OR teacher_id = $2', [assignedClassName, newTeacher.teacherId]);
+        await p.query('INSERT INTO class_teachers (class_name, teacher_id, teacher_name, updated_at) VALUES ($1, $2, $3, NOW())', [assignedClassName, newTeacher.teacherId, effectiveName]);
+      } catch (sqlErr) {
+        console.warn('Postgres registration class teacher assign note:', sqlErr);
+      }
+
+      // Persist to Supabase Cloud DB
+      try {
+        await supabase.from('teachers').update({ assigned_class: assignedClassName }).eq('teacher_id', newTeacher.teacherId);
+        await supabase.from('class_teachers').delete().eq('class_name', assignedClassName);
+        await supabase.from('class_teachers').delete().eq('teacher_id', newTeacher.teacherId);
+        await supabase.from('class_teachers').insert([{ class_name: assignedClassName, teacher_id: newTeacher.teacherId, teacher_name: effectiveName }]);
+      } catch (supaErr) {
+        console.warn('Supabase registration class teacher assign note:', supaErr);
+      }
     }
 
     // Audit log

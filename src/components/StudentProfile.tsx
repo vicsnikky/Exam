@@ -26,6 +26,7 @@ import {
   Sparkles,
   CreditCard,
   MapPin,
+  Camera,
 } from 'lucide-react';
 import { Student, AssessmentRecord, Subject } from '../types/index.ts';
 import { fetchAllSubjectsUnified } from '../lib/subjectStore.ts';
@@ -41,7 +42,10 @@ import {
   saveClassTeacherRemark,
   fetchStudentComments,
   saveStudentComments,
+  uploadStudentPassportPhoto,
+  getCachedProfilePhoto,
 } from '../lib/schoolStore.ts';
+import { PhotoUploadModal } from './PhotoUploadModal.tsx';
 import { supabase } from '../supabaseConfig.ts';
 import {
   isStudentFeeLocked,
@@ -148,6 +152,24 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   const [showFeeModal, setShowFeeModal] = useState(false);
   const [editProfileModalOpen, setEditProfileModalOpen] = useState(false);
 
+  // Photo Upload Modal State
+  const [photoModalOpen, setPhotoModalOpen] = useState(false);
+  const studentPhoto =
+    student?.photoUrl ||
+    (student ? getCachedProfilePhoto(student.studentId || String(student.id)) : null) ||
+    null;
+
+  const handleSaveStudentPhoto = async (photoDataUrl: string) => {
+    if (!student) return;
+    try {
+      await uploadStudentPassportPhoto(token, student.studentId || student.id, photoDataUrl);
+      setStudent((prev) => (prev ? { ...prev, photoUrl: photoDataUrl } : null));
+    } catch (err: any) {
+      console.error('Failed to save student photo:', err);
+      throw err;
+    }
+  };
+
   // Guardian Details Edit Modal
   const [guardianModalOpen, setGuardianModalOpen] = useState(false);
   const [editParentName, setEditParentName] = useState('');
@@ -188,9 +210,9 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   );
 
   // Permissions:
-  // Class Teacher Comment: editable by assigned Class Teacher, or Admin / Principal / Director / Super Admin
-  const canEditClassTeacherRemark = hasAdminPrivileges || isClassTeacherForThisStudent;
-  // Principal Comment: editable by Principal, Director, Admin, and Super Admin
+  // Class Teacher Comment: all faculty teachers and administrators can view and edit
+  const canEditClassTeacherRemark = Boolean(user && user.role !== 'student' && user.role !== 'bursar');
+  // Principal Comment: strictly only executive and administrative leadership can edit
   const canEditPrincipalComment = hasAdminPrivileges;
 
   const loadProfile = async () => {
@@ -202,8 +224,9 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
       let resolvedStudent: Student | null = initialStudent || null;
       let realAssessments: AssessmentRecord[] = [];
       let realMockScores: any[] = [];
+      let initialAttendance: any = null;
 
-      // 1. Try Backend student profile endpoint
+      // 1. Try Backend student profile endpoint (returns student, assessments, attendance, stats, and subject performance in 1 roundtrip)
       try {
         const res = await fetch(`/api/students/${encodeURIComponent(String(studentIdOrId))}`, {
           headers: {
@@ -218,6 +241,9 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
               resolvedStudent = data.student;
               if (Array.isArray(data.assessments)) {
                 realAssessments = data.assessments;
+              }
+              if (data.attendance) {
+                initialAttendance = data.attendance;
               }
               if (data.subjectPerformance && typeof data.subjectPerformance === 'object') {
                 setSubjectPerformance(data.subjectPerformance);
@@ -305,32 +331,36 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           } catch (_) {}
         }
 
-        // Load School Attendance record from backend and local cache
+        // Load School Attendance record (prefer data directly from /api/students/:id if available)
         try {
-          let loadedAtt: any = null;
+          let loadedAtt: any = initialAttendance || null;
           const targetId = resolvedStudent.studentId || resolvedStudent.id;
-          const rawAtt = localStorage.getItem('fis_student_attendance_v1') || localStorage.getItem('fis_attendance_records_v1');
-          if (rawAtt) {
-            try {
-              const parsed = JSON.parse(rawAtt);
-              const k1 = String(resolvedStudent.studentId || '').toUpperCase().trim();
-              const k2 = String(resolvedStudent.id || '').trim();
-              if (k1 && parsed[k1]) loadedAtt = parsed[k1];
-              else if (k2 && parsed[k2]) loadedAtt = parsed[k2];
-            } catch (_) {}
+          if (!loadedAtt) {
+            const rawAtt = localStorage.getItem('fis_student_attendance_v1') || localStorage.getItem('fis_attendance_records_v1');
+            if (rawAtt) {
+              try {
+                const parsed = JSON.parse(rawAtt);
+                const k1 = String(resolvedStudent.studentId || '').toUpperCase().trim();
+                const k2 = String(resolvedStudent.id || '').trim();
+                if (k1 && parsed[k1]) loadedAtt = parsed[k1];
+                else if (k2 && parsed[k2]) loadedAtt = parsed[k2];
+              } catch (_) {}
+            }
           }
 
-          try {
-            const attRes = await fetch(`/api/students/${encodeURIComponent(String(targetId))}/attendance`, {
-              headers: { Authorization: `Bearer ${token}` },
-            });
-            if (attRes.ok) {
-              const attData = await attRes.json();
-              if (attData && attData.attendance) {
-                loadedAtt = attData.attendance;
+          if (!loadedAtt) {
+            try {
+              const attRes = await fetch(`/api/students/${encodeURIComponent(String(targetId))}/attendance`, {
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              if (attRes.ok) {
+                const attData = await attRes.json();
+                if (attData && attData.attendance) {
+                  loadedAtt = attData.attendance;
+                }
               }
-            }
-          } catch (_) {}
+            } catch (_) {}
+          }
 
           if (loadedAtt && loadedAtt.timesOpened !== undefined) {
             const opened = Math.max(0, Number(loadedAtt.timesOpened) || 0);
@@ -350,7 +380,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
         setStudent(resolvedStudent);
 
-        // Fetch regular assessments from API if not yet provided
+        // Fetch regular assessments from API only if not already provided
         if (realAssessments.length === 0) {
           try {
             const res = await fetch(`/api/scores?student=${encodeURIComponent(resolvedStudent.studentId)}`, {
@@ -383,133 +413,67 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           } catch (_) {}
         }
 
-        // Direct Supabase query for assessments as a cross-device cloud safeguard
-        try {
-          const { data: supaAssessments } = await supabase
-            .from('assessments')
-            .select('*, subjects(id, name, code)')
-            .eq('student_id', resolvedStudent.id)
-            .neq('assessment_type', 'SS3_MOCK');
-          if (Array.isArray(supaAssessments) && supaAssessments.length > 0) {
-            const existingIds = new Set(realAssessments.map(a => String(a.id)));
-            supaAssessments.forEach((sc: any) => {
-              if (sc.assessment_type === 'SS3_MOCK') return;
-              if (existingIds.has(String(sc.id))) return;
-
-              const alreadyHasRecord = realAssessments.some((a) => {
-                const matchesSub = Number(a.subjectId) === Number(sc.subject_id) || (a.subjectName && sc.subjects?.name && a.subjectName.toLowerCase() === sc.subjects.name.toLowerCase());
-                const matchesType = (a.assessmentType || '').toUpperCase() === (sc.assessment_type || '').toUpperCase();
-                const matchesTerm = !a.term || !sc.term || a.term.trim().toLowerCase() === sc.term.trim().toLowerCase();
-                const matchesSess = !a.session || !sc.session || a.session.trim() === sc.session.trim();
-                return matchesSub && matchesType && matchesTerm && matchesSess;
-              });
-
-              if (!alreadyHasRecord) {
-                realAssessments.push({
-                  id: sc.id,
-                  studentId: resolvedStudent!.studentId,
-                  subjectId: sc.subject_id,
-                  subjectName: sc.subjects?.name || 'Subject',
-                  subjectCode: sc.subjects?.code || 'SUB',
-                  assessmentTitle: sc.assessment_title || 'Continuous Assessment',
-                  assessmentType: sc.assessment_type || 'Examination',
-                  score: Number(sc.score) || 0,
-                  maxScore: Number(sc.max_score || 100),
-                  percentage: Number(sc.percentage || sc.score || 0),
-                  grade: sc.grade || 'A',
-                  session: sc.session || resolvedStudent!.session,
-                  term: sc.term || 'First Term',
-                  teacherComment: sc.teacher_comment || '',
-                  createdAt: sc.created_at,
-                });
-              }
-            });
-          }
-        } catch (_) {}
-
+        // Parse deleted IDs from localStorage
         const deletedRaw = localStorage.getItem('fis_deleted_score_ids_v1');
         const deletedIds = new Set<string>(deletedRaw ? JSON.parse(deletedRaw) : []);
 
-        const isScoreDeleted = (id: any, subId?: any, aType?: any) => {
+        // Exactly match the deleted score's primary key ID so re-uploaded scores are never blocked
+        const isScoreDeleted = (id: any, _subId?: any, _aType?: any) => {
           if (id && deletedIds.has(String(id))) return true;
-          if (subId) {
-            if (deletedIds.has(`key_${resolvedStudent!.id}_${subId}`) || deletedIds.has(`key_${resolvedStudent!.studentId}_${subId}`)) return true;
-            if (aType) {
-              if (deletedIds.has(`key_${resolvedStudent!.id}_${subId}_${aType}`) || deletedIds.has(`key_${resolvedStudent!.studentId}_${subId}_${aType}`)) return true;
-            }
-          }
           return false;
         };
 
-        realAssessments = realAssessments.filter((a) => !isScoreDeleted(a.id, a.subjectId, a.assessmentType));
+        realAssessments = realAssessments.filter((a) => !isScoreDeleted(a.id));
 
-        // Fetch SS3 Mock scores from Backend API
-        try {
-          const res = await fetch(
-            `/api/ss3-mock/scores?studentId=${resolvedStudent.id}&studentNumber=${encodeURIComponent(
-              resolvedStudent.studentId
-            )}`,
-            { headers: { Authorization: `Bearer ${token}` } }
-          );
-          if (res.ok) {
-            const mText = await res.text();
-            let mData: any = {};
-            try { mData = JSON.parse(mText); } catch (_) {}
-            if (mData && Array.isArray(mData.scores) && mData.scores.length > 0) {
-              realMockScores = mData.scores.filter((m: any) => !isScoreDeleted(m.id, m.subjectId, 'SS3_MOCK'));
-            } else if (mData && Array.isArray(mData.weeklySummaries)) {
-              const flat: any[] = [];
-              for (const ws of mData.weeklySummaries) {
-                if (Array.isArray(ws.subjects)) {
-                  for (const sub of ws.subjects) {
-                    if (isScoreDeleted(sub.id, sub.subjectId, 'SS3_MOCK')) continue;
-                    flat.push({
-                      id: sub.id || `${ws.weekNumber}_${sub.subjectId}`,
-                      studentId: resolvedStudent.studentId,
-                      subjectId: sub.subjectId,
-                      subjectName: sub.subjectName,
-                      subjectCode: sub.subjectCode || (sub.isEnglish ? 'ENG' : 'ELEC'),
-                      weekNumber: ws.weekNumber,
-                      rawScore: sub.rawScore,
-                      maxRawScore: sub.maxRawScore,
-                      score: Number(sub.score || sub.scaledScore || 0),
-                      maxScore: 100,
-                      percentage: Number(sub.score || sub.scaledScore || 0),
-                      grade: sub.grade || (Number(sub.score) >= 75 ? 'A1' : 'C4'),
-                      remark: sub.remark || (Number(sub.score) >= 70 ? 'Distinction' : 'Credit'),
-                    });
+        // SS3 Weekly Mock scores: ONLY fetch for SS3 students to keep primary and junior student views lightning fast
+        const isSS3Student = Boolean(
+          resolvedStudent.currentClass &&
+          (resolvedStudent.currentClass.includes('SS 3') ||
+           resolvedStudent.currentClass.includes('SS3') ||
+           resolvedStudent.currentClass.includes('SSS 3') ||
+           resolvedStudent.currentClass.includes('SSS3'))
+        );
+
+        if (isSS3Student) {
+          try {
+            const res = await fetch(
+              `/api/ss3-mock/scores?studentId=${resolvedStudent.id}&studentNumber=${encodeURIComponent(
+                resolvedStudent.studentId
+              )}`,
+              { headers: { Authorization: `Bearer ${token}` } }
+            );
+            if (res.ok) {
+              const mText = await res.text();
+              let mData: any = {};
+              try { mData = JSON.parse(mText); } catch (_) {}
+              if (mData && Array.isArray(mData.scores) && mData.scores.length > 0) {
+                realMockScores = mData.scores.filter((m: any) => !isScoreDeleted(m.id));
+              } else if (mData && Array.isArray(mData.weeklySummaries)) {
+                const flat: any[] = [];
+                for (const ws of mData.weeklySummaries) {
+                  if (Array.isArray(ws.subjects)) {
+                    for (const sub of ws.subjects) {
+                      if (isScoreDeleted(sub.id)) continue;
+                      flat.push({
+                        id: sub.id || `${ws.weekNumber}_${sub.subjectId}`,
+                        studentId: resolvedStudent.studentId,
+                        subjectId: sub.subjectId,
+                        subjectName: sub.subjectName,
+                        subjectCode: sub.subjectCode || (sub.isEnglish ? 'ENG' : 'ELEC'),
+                        weekNumber: ws.weekNumber,
+                        rawScore: sub.rawScore,
+                        maxRawScore: sub.maxRawScore,
+                        score: Number(sub.score || sub.scaledScore || 0),
+                        maxScore: 100,
+                        percentage: Number(sub.score || sub.scaledScore || 0),
+                        grade: sub.grade || (Number(sub.score) >= 75 ? 'A1' : 'C4'),
+                        remark: sub.remark || (Number(sub.score) >= 70 ? 'Distinction' : 'Credit'),
+                      });
+                    }
                   }
                 }
+                if (flat.length > 0) realMockScores = flat;
               }
-              if (flat.length > 0) realMockScores = flat;
-            }
-          }
-        } catch (_) {}
-
-        // Fallback to Supabase if mock scores not returned by backend
-        if (realMockScores.length === 0) {
-          try {
-            const { data: supaMocks } = await supabase
-              .from('ss3_mock_scores')
-              .select('*, subjects(*)')
-              .eq('student_id', resolvedStudent.id);
-
-            if (supaMocks && supaMocks.length > 0) {
-              realMockScores = supaMocks
-                .filter((m: any) => !isScoreDeleted(m.id, m.subject_id, 'SS3_MOCK'))
-                .map((m: any) => ({
-                  id: m.id,
-                  studentId: resolvedStudent!.studentId,
-                  subjectId: m.subject_id,
-                  subjectName: m.subjects?.name || 'Mock Subject',
-                  subjectCode: m.subjects?.code || 'SS3 CORE',
-                  weekNumber: m.week_number || 1,
-                  score: Number(m.score) || 0,
-                  maxScore: Number(m.max_score) || 100,
-                  percentage: Number(m.percentage) || Number(m.score) || 0,
-                  grade: m.grade || 'C4',
-                  remark: m.remark || 'Satisfactory',
-                }));
             }
           } catch (_) {}
         }
@@ -1113,14 +1077,6 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
         const deletedIds = new Set<string>(deletedRaw ? JSON.parse(deletedRaw) : []);
         deletedIds.add(String(scoreId));
         if (foundAssessment?.id) deletedIds.add(String(foundAssessment.id));
-        if (student?.id && targetSubId) {
-          deletedIds.add(`key_${student.id}_${targetSubId}`);
-          if (targetType) deletedIds.add(`key_${student.id}_${targetSubId}_${targetType}`);
-        }
-        if (student?.studentId && targetSubId) {
-          deletedIds.add(`key_${student.studentId}_${targetSubId}`);
-          if (targetType) deletedIds.add(`key_${student.studentId}_${targetSubId}_${targetType}`);
-        }
         localStorage.setItem('fis_deleted_score_ids_v1', JSON.stringify([...deletedIds]));
       } catch (_) {}
 
@@ -1595,6 +1551,14 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
               <Printer className="w-3.5 h-3.5 text-emerald-400" />
               Print Official Report Card
             </button>
+            <button
+              onClick={() => setPhotoModalOpen(true)}
+              className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-emerald-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition border border-emerald-500/30 cursor-pointer shadow-md"
+              title="Upload or change student passport photo"
+            >
+              <Camera className="w-3.5 h-3.5 text-emerald-400" />
+              {studentPhoto ? 'Change Passport Photo' : 'Upload Passport Photo'}
+            </button>
             {canManageScores && (
               <button
                 onClick={() => setEditProfileModalOpen(true)}
@@ -1695,9 +1659,33 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
             <div className="flex items-start sm:items-center gap-4">
-              <div className="w-16 h-16 rounded-2xl bg-emerald-700 text-amber-300 flex items-center justify-center text-xl font-bold shrink-0 shadow-lg shadow-emerald-950 border border-amber-400/40">
-                {student.firstName?.[0] || 'S'}
-                {student.surname?.[0] || 'C'}
+              <div
+                onClick={() => setPhotoModalOpen(true)}
+                className="relative group cursor-pointer shrink-0"
+                title="Click to upload or change student passport photograph"
+              >
+                <div className="w-16 h-20 sm:w-20 sm:h-24 rounded-2xl bg-slate-900 text-amber-300 flex items-center justify-center text-xl font-bold shadow-lg shadow-emerald-950 border-2 border-amber-400/40 overflow-hidden">
+                  {studentPhoto ? (
+                    <img
+                      src={studentPhoto}
+                      alt={student.firstName}
+                      className="w-full h-full object-cover object-center group-hover:scale-105 transition duration-200"
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-emerald-700 flex items-center justify-center text-amber-300">
+                      {student.firstName?.[0] || 'S'}
+                      {student.surname?.[0] || 'C'}
+                    </div>
+                  )}
+                </div>
+                {/* Camera Overlay Badge on Hover */}
+                <div className="absolute inset-0 rounded-2xl bg-black/45 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center text-white transition duration-150 backdrop-blur-[2px]">
+                  <Camera className="w-5 h-5 text-amber-300" />
+                  <span className="text-[9px] font-bold mt-1 text-amber-200">Change</span>
+                </div>
+                <div className="absolute -bottom-1 -right-1 bg-amber-500 text-slate-950 p-1.5 rounded-full shadow-md border-2 border-slate-900 group-hover:bg-amber-400 transition">
+                  <Camera className="w-3.5 h-3.5" />
+                </div>
               </div>
               <div>
                 <div className="flex flex-wrap items-center gap-2.5">
@@ -2430,20 +2418,42 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                   />
                 </div>
 
-                {/* 2. Student Name & Designated Season/Term Directly Under Name */}
-                <div className="text-center my-6 pb-4 border-b border-slate-800 print:border-slate-300 print:my-1 print:pb-1">
-                  <h1 className="text-2xl sm:text-3xl print:text-[15px] font-black text-white print:text-black tracking-tight uppercase print:leading-tight">
-                    {student.firstName} {student.middleName ? student.middleName + ' ' : ''}{student.surname}
-                  </h1>
+                {/* 2. Student Name & Designated Season/Term with Official Passport Photo Frame */}
+                <div className="flex items-center justify-between my-6 pb-4 border-b border-slate-800 print:border-slate-300 print:my-1 print:pb-1 gap-4">
+                  <div className="flex-1 text-center sm:text-left print:text-left">
+                    <h1 className="text-2xl sm:text-3xl print:text-[15px] font-black text-white print:text-black tracking-tight uppercase print:leading-tight">
+                      {student.firstName} {student.middleName ? student.middleName + ' ' : ''}{student.surname}
+                    </h1>
 
-                  {/* Season/Term in Nigerian Academic Format under name */}
-                  <div className="text-sm sm:text-base print:text-[10.5px] font-bold text-amber-400 print:text-emerald-900 mt-1 print:mt-0.5 uppercase tracking-wide">
-                    {selectedPrintTerm} {student.session || '2026/2027'} {selectedPrintTerm}{' '}
-                    {selectedExamType === 'midterm' ? 'First Half Exam' : 'Terminal Exam'}
+                    {/* Season/Term in Nigerian Academic Format under name */}
+                    <div className="text-sm sm:text-base print:text-[10.5px] font-bold text-amber-400 print:text-emerald-900 mt-1 print:mt-0.5 uppercase tracking-wide">
+                      {selectedPrintTerm} {student.session || '2026/2027'} {selectedPrintTerm}{' '}
+                      {selectedExamType === 'midterm' ? 'First Half Exam' : 'Terminal Exam'}
+                    </div>
+
+                    <div className="text-xs print:text-[9px] text-slate-400 print:text-slate-600 font-mono mt-0.5 print:mt-0">
+                      Admission Number: {student.studentId}
+                    </div>
                   </div>
 
-                  <div className="text-xs print:text-[9px] text-slate-400 print:text-slate-600 font-mono mt-0.5 print:mt-0">
-                    Admission Number: {student.studentId}
+                  {/* Official Passport Photograph Frame */}
+                  <div className="flex flex-col items-center justify-center shrink-0">
+                    <div className="w-20 h-24 sm:w-24 sm:h-28 print:w-16 print:h-20 rounded-lg border-2 border-slate-700 print:border-black bg-white overflow-hidden shadow-md flex items-center justify-center">
+                      {studentPhoto ? (
+                        <img
+                          src={studentPhoto}
+                          alt={`${student.firstName} Passport`}
+                          className="w-full h-full object-cover object-center"
+                        />
+                      ) : (
+                        <div className="flex flex-col items-center justify-center p-1 text-center h-full w-full bg-slate-100 print:bg-white text-slate-400 print:text-black">
+                          <User className="w-8 h-8 print:w-6 print:h-6 text-slate-400 print:text-black stroke-[1.5]" />
+                          <span className="text-[8px] print:text-[6.5px] font-bold uppercase tracking-tight text-slate-600 print:text-black mt-1 leading-none">
+                            PASSPORT
+                          </span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -3220,6 +3230,18 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
             setEditProfileModalOpen(false);
             loadProfile();
           }}
+        />
+      )}
+
+      {/* Student Passport Photograph Upload Modal */}
+      {photoModalOpen && student && (
+        <PhotoUploadModal
+          isOpen={photoModalOpen}
+          onClose={() => setPhotoModalOpen(false)}
+          onPhotoSaved={handleSaveStudentPhoto}
+          title={`Passport Photo • ${student.firstName} ${student.surname}`}
+          subtitle={`Student ID: ${student.studentId} (${student.currentClass})`}
+          currentPhotoUrl={studentPhoto}
         />
       )}
     </ErrorBoundary>

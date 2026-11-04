@@ -146,14 +146,8 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
       const deletedRaw = localStorage.getItem('fis_deleted_score_ids_v1');
       const deletedIds = new Set<string>(deletedRaw ? JSON.parse(deletedRaw) : []);
 
-      const isScoreDeleted = (id: any, subId?: any, aType?: any) => {
+      const isScoreDeleted = (id: any, _subId?: any, _aType?: any) => {
         if (id && deletedIds.has(String(id))) return true;
-        if (subId) {
-          if (deletedIds.has(`key_${st.id}_${subId}`) || deletedIds.has(`key_${st.studentId}_${subId}`)) return true;
-          if (aType) {
-            if (deletedIds.has(`key_${st.id}_${subId}_${aType}`) || deletedIds.has(`key_${st.studentId}_${subId}_${aType}`)) return true;
-          }
-        }
         return false;
       };
 
@@ -637,11 +631,10 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
         const filtered = list.filter(
           (l: any) =>
             !(
-              (l.studentId === matchedStudent.id || l.studentNumber === matchedStudent.studentId) &&
-              Number(l.subjectId) === Number(selectedSubjectId) &&
-              l.term === term &&
-              l.session === session &&
-              l.examPeriod === effectivePeriod
+              (String(l.studentId) === String(matchedStudent.id) || (matchedStudent.studentId && String(l.studentNumber).toUpperCase() === String(matchedStudent.studentId).toUpperCase())) &&
+              (Number(l.subjectId) === Number(selectedSubjectId) || (l.subjectName && l.subjectName.toLowerCase() === subName.toLowerCase())) &&
+              (!l.term || !term || l.term === term) &&
+              (!l.session || !session || l.session === session)
             )
         );
 
@@ -659,6 +652,25 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
         });
 
         localStorage.setItem('fis_broadsheet_scores_v2', JSON.stringify(filtered));
+      } catch (_) {}
+
+      // Unblacklist any deleted ID entries for this student & subject so the re-uploaded score is fully visible
+      try {
+        const deletedRaw = localStorage.getItem('fis_deleted_score_ids_v1');
+        if (deletedRaw) {
+          const dSet = new Set<string>(JSON.parse(deletedRaw));
+          if (matchedStudent?.id) {
+            dSet.delete(`key_${matchedStudent.id}_${selectedSubjectId}`);
+            dSet.delete(`key_${matchedStudent.id}_${selectedSubjectId}_CA`);
+            dSet.delete(`key_${matchedStudent.id}_${selectedSubjectId}_Examination`);
+          }
+          if (matchedStudent?.studentId) {
+            dSet.delete(`key_${matchedStudent.studentId}_${selectedSubjectId}`);
+            dSet.delete(`key_${matchedStudent.studentId}_${selectedSubjectId}_CA`);
+            dSet.delete(`key_${matchedStudent.studentId}_${selectedSubjectId}_Examination`);
+          }
+          localStorage.setItem('fis_deleted_score_ids_v1', JSON.stringify([...dSet]));
+        }
       } catch (_) {}
 
       // 4. Trigger global score update events so broadsheet & student profile live-reload
@@ -854,20 +866,12 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
       // Optimistically remove from state immediately
       setExistingScores((prev) => prev.filter((s) => String(s.id) !== String(scoreId)));
 
-      // Add to persistent deleted IDs set so it cannot resurrect from any local cache or backend query
+      // Add to persistent deleted IDs set so this exact score cannot resurrect from any local cache or backend query
       try {
         const deletedRaw = localStorage.getItem('fis_deleted_score_ids_v1');
         const deletedIds = new Set<string>(deletedRaw ? JSON.parse(deletedRaw) : []);
         deletedIds.add(String(scoreId));
         if (targetItem?.id) deletedIds.add(String(targetItem.id));
-        if (matchedStudent?.id && targetSubId) {
-          deletedIds.add(`key_${matchedStudent.id}_${targetSubId}`);
-          if (targetType) deletedIds.add(`key_${matchedStudent.id}_${targetSubId}_${targetType}`);
-        }
-        if (matchedStudent?.studentId && targetSubId) {
-          deletedIds.add(`key_${matchedStudent.studentId}_${targetSubId}`);
-          if (targetType) deletedIds.add(`key_${matchedStudent.studentId}_${targetSubId}_${targetType}`);
-        }
         localStorage.setItem('fis_deleted_score_ids_v1', JSON.stringify([...deletedIds]));
       } catch (_) {}
 

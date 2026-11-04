@@ -77,8 +77,9 @@ export const ResultsView: React.FC = () => {
   const [commentDraftPrincipal, setCommentDraftPrincipal] = useState('');
   const [savingComments, setSavingComments] = useState(false);
 
-  const canEditTeacherComment = isClassTeacher || isExecutive;
-  const canEditPrincipalComment = isExecutive;
+  const isTeacherUser = Boolean(user && user.role !== 'student' && user.role !== 'bursar');
+  const canEditTeacherComment = Boolean(isTeacherUser || isClassTeacher || isExecutive);
+  const canEditPrincipalComment = Boolean(isExecutive);
 
   const handleOpenCommentsModal = async (record: any) => {
     setCommentStudentRecord(record);

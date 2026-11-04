@@ -19,6 +19,7 @@ export interface TeacherRecord {
   createdAt: string;
   assignedClass?: string | null;
   isClassTeacher?: boolean;
+  photoUrl?: string | null;
 }
 
 const DEFAULT_STUDENTS: Student[] = [];
@@ -377,6 +378,7 @@ export async function fetchAllStudentsUnified(token?: string | null): Promise<St
             school: st.school || existing?.school || 'Fenster International School',
             session: st.session || existing?.session || '2026/2027',
             createdAt: st.created_at || existing?.createdAt || new Date().toISOString(),
+            photoUrl: st.photo_url || st.photoUrl || existing?.photoUrl || null,
           });
         }
       }
@@ -403,6 +405,7 @@ export async function fetchAllStudentsUnified(token?: string | null): Promise<St
               ...existing,
               ...st,
               studentId: sId,
+              photoUrl: st.photoUrl || (st as any).photo_url || existing?.photoUrl || null,
             });
           }
         }
@@ -548,6 +551,7 @@ export async function fetchTeachersUnified(token?: string | null): Promise<Teach
               createdAt: st.createdAt || existing?.createdAt || new Date().toISOString(),
               assignedClass: st.assignedClass !== undefined ? st.assignedClass : existing?.assignedClass || null,
               isClassTeacher: st.isClassTeacher !== undefined ? st.isClassTeacher : Boolean(st.assignedClass || existing?.assignedClass),
+              photoUrl: st.photoUrl || (st as any).photo_url || existing?.photoUrl || null,
             });
           }
         }
@@ -570,6 +574,7 @@ export async function fetchTeachersUnified(token?: string | null): Promise<Teach
         const key = (u?.email || st.teacher_id || String(st.id)).toLowerCase().trim();
         if (key) {
           const existing = mergedMap.get(key);
+          const effClass = st.assigned_class || existing?.assignedClass || null;
           mergedMap.set(key, {
             id: st.id || existing?.id || Date.now(),
             userId: st.user_id || u?.id || existing?.userId,
@@ -581,8 +586,9 @@ export async function fetchTeachersUnified(token?: string | null): Promise<Teach
             schoolName: st.school_name || existing?.schoolName || 'Fenster International School',
             role: u?.role || existing?.role || 'teacher',
             createdAt: st.created_at || existing?.createdAt || new Date().toISOString(),
-            assignedClass: existing?.assignedClass || null,
-            isClassTeacher: existing?.isClassTeacher || Boolean(existing?.assignedClass),
+            assignedClass: effClass,
+            isClassTeacher: Boolean(effClass),
+            photoUrl: st.photo_url || u?.photo_url || existing?.photoUrl || null,
           });
         }
       }
@@ -591,12 +597,21 @@ export async function fetchTeachersUnified(token?: string | null): Promise<Teach
     console.warn('Supabase teachers fetch deferred:', supaErr);
   }
 
-  // 4. Merge class teacher assignments from local and server cache so no teacher assignment is ever lost
+  // 4. Merge class teacher assignments from server and local cache so no teacher assignment is ever lost on any device
   try {
+    const serverAssignments = await fetchClassTeacherAssignments(token).catch(() => ({}));
     const rawAssignments = localStorage.getItem(CLASS_TEACHERS_CACHE_KEY);
     const localAssignments = rawAssignments ? JSON.parse(rawAssignments) : {};
-    for (const [key, t] of mergedMap.entries()) {
-      const match = localAssignments[t.teacherId] || localAssignments[String(t.id)];
+    const allAssignments = { ...localAssignments, ...serverAssignments };
+
+    for (const [, t] of mergedMap.entries()) {
+      const match =
+        allAssignments[t.teacherId] ||
+        allAssignments[String(t.id)] ||
+        (t.email && allAssignments[t.email.toLowerCase()]) ||
+        Object.values(allAssignments).find(
+          (a: any) => a?.teacherId && (a.teacherId === t.teacherId || a.teacherId === String(t.id))
+        );
       if (match && match.className) {
         t.assignedClass = match.className;
         t.isClassTeacher = true;
@@ -809,6 +824,7 @@ export async function updateStudent(
     school: (data.school || existing.school || 'Fenster International School').trim(),
     session: (data.session || existing.session || '2026/2027').trim(),
     password: data.password ? data.password.trim() : existing.password,
+    photoUrl: data.photoUrl !== undefined ? data.photoUrl : existing.photoUrl,
   };
 
   // 1. Immediately persist locally & institutional vault
@@ -832,6 +848,9 @@ export async function updateStudent(
       school: updatedStudent.school,
       session: updatedStudent.session,
     };
+    if (updatedStudent.photoUrl !== undefined) {
+      supaUpdates.photo_url = updatedStudent.photoUrl;
+    }
 
     if (data.password && data.password.trim().length > 0) {
       const salt = bcrypt.genSaltSync(8);
@@ -2228,5 +2247,137 @@ export async function saveClassTeacherRemark(
     session,
     teacherName: result.teacherName,
     updatedAt: result.updatedAt,
+  };
+}
+
+// ----------------------------------------------------
+// PHOTO MANAGEMENT & MULTI-DEVICE SYNCHRONIZATION
+// ----------------------------------------------------
+export const PROFILE_PHOTOS_CACHE_KEY = 'fis_profile_photos_v1';
+
+export function getCachedProfilePhoto(identifier: string): string | null {
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(PROFILE_PHOTOS_CACHE_KEY) : null;
+    if (!raw) return null;
+    const map = JSON.parse(raw);
+    const clean = identifier.trim();
+    return map[clean] || map[clean.toUpperCase()] || map[clean.toLowerCase()] || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+export function cacheProfilePhoto(identifier: string, photoUrl: string) {
+  try {
+    if (typeof window === 'undefined') return;
+    const raw = localStorage.getItem(PROFILE_PHOTOS_CACHE_KEY);
+    const map = raw ? JSON.parse(raw) : {};
+    const clean = identifier.trim();
+    map[clean] = photoUrl;
+    map[clean.toUpperCase()] = photoUrl;
+    map[clean.toLowerCase()] = photoUrl;
+    localStorage.setItem(PROFILE_PHOTOS_CACHE_KEY, JSON.stringify(map));
+  } catch (_) {}
+}
+
+export async function uploadStudentPassportPhoto(
+  token: string | null,
+  studentIdOrId: string | number,
+  photoDataUrl: string
+): Promise<{ success: boolean; photoUrl: string; message: string }> {
+  const cleanId = String(studentIdOrId).trim();
+  cacheProfilePhoto(cleanId, photoDataUrl);
+
+  // Update in local students list
+  const current = getLocalStudents();
+  const idx = current.findIndex(
+    (s) => String(s.id) === cleanId || String(s.studentId).toUpperCase() === cleanId.toUpperCase()
+  );
+  if (idx >= 0) {
+    current[idx].photoUrl = photoDataUrl;
+    saveLocalStudents(current);
+    mirrorToInstitutionalVault('student', current[idx]);
+    if (current[idx].studentId) {
+      cacheProfilePhoto(current[idx].studentId, photoDataUrl);
+    }
+  }
+
+  // Update Supabase
+  try {
+    if (idx >= 0 && current[idx].studentId) {
+      await supabase.from('students').update({ photo_url: photoDataUrl }).eq('student_id', current[idx].studentId);
+    }
+  } catch (_) {}
+
+  // Sync with backend API
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch(`/api/students/${encodeURIComponent(cleanId)}/photo`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ photo: photoDataUrl }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.studentId) cacheProfilePhoto(data.studentId, photoDataUrl);
+    }
+  } catch (e) {
+    console.warn('Backend student photo upload deferred:', e);
+  }
+
+  window.dispatchEvent(new CustomEvent('fis:students-updated'));
+  window.dispatchEvent(new CustomEvent('fis:scores-updated'));
+  return {
+    success: true,
+    photoUrl: photoDataUrl,
+    message: 'Passport photograph uploaded and synchronized.',
+  };
+}
+
+export async function uploadStaffProfilePhoto(
+  token: string | null,
+  photoDataUrl: string,
+  userEmail?: string,
+  userIdentifier?: string
+): Promise<{ success: boolean; photoUrl: string; message: string }> {
+  if (userEmail) cacheProfilePhoto(userEmail, photoDataUrl);
+  if (userIdentifier) cacheProfilePhoto(userIdentifier, photoDataUrl);
+
+  // Update in local teachers list
+  try {
+    const teachers = getLocalTeachers();
+    let changed = false;
+    for (const t of teachers) {
+      if (
+        (userEmail && t.email && t.email.toLowerCase() === userEmail.toLowerCase()) ||
+        (userIdentifier && t.teacherId && t.teacherId.toUpperCase() === userIdentifier.toUpperCase())
+      ) {
+        t.photoUrl = photoDataUrl;
+        changed = true;
+      }
+    }
+    if (changed) saveLocalTeachers(teachers);
+  } catch (_) {}
+
+  // Sync with backend API
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    await fetch('/api/users/profile-photo', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ photo: photoDataUrl }),
+    });
+  } catch (e) {
+    console.warn('Backend staff photo upload deferred:', e);
+  }
+
+  window.dispatchEvent(new CustomEvent('fis:user-updated'));
+  window.dispatchEvent(new CustomEvent('fis:teachers-updated'));
+  return {
+    success: true,
+    photoUrl: photoDataUrl,
+    message: 'Profile photo updated successfully',
   };
 }

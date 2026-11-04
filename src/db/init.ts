@@ -234,6 +234,19 @@ export async function ensureTablesExist(pool: Pool) {
       teacher_name TEXT NOT NULL,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
     );
+
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS photo_url TEXT;
+    ALTER TABLE teachers ADD COLUMN IF NOT EXISTS photo_url TEXT;
+    ALTER TABLE students ADD COLUMN IF NOT EXISTS photo_url TEXT;
+
+    CREATE TABLE IF NOT EXISTS profile_photos (
+      id SERIAL PRIMARY KEY,
+      user_type TEXT NOT NULL,
+      identifier TEXT NOT NULL UNIQUE,
+      photo_url TEXT NOT NULL,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_profile_photos_identifier ON profile_photos(identifier);
   `;
 
   try {

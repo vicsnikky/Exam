@@ -55,6 +55,7 @@ import {
   fetchStudentComments,
   saveStudentComments,
   fetchAllStudentComments,
+  getCachedProfilePhoto,
 } from '../lib/schoolStore.ts';
 import { EditStudentModal } from './EditStudentModal.tsx';
 import { supabase } from '../supabaseConfig.ts';
@@ -364,10 +365,11 @@ export const ClassBroadsheet: React.FC = () => {
   const canPrintClassResults = isExecutive || isAdmin || isClassTeacher;
 
   // Permissions for editing comments on the results view:
-  // - Class Teacher Comment: editable by Class Teacher (for this class) or Admin / Executive
-  const canEditTeacherComment = isClassTeacher || isExecutive || isAdmin;
-  // - Principal Comment: editable by Principal, Director, Admin, and Super Admin
-  const canEditPrincipalComment = isExecutive || isAdmin;
+  // - Class Teacher Comment: editable by ALL teachers and Admin / Executive
+  const isTeacherUser = user && user.role !== 'student' && user.role !== 'bursar';
+  const canEditTeacherComment = Boolean(isTeacherUser || isClassTeacher || isExecutive || isAdmin);
+  // - Principal Comment: editable ONLY by Principal, Director, Admin, and Super Admin
+  const canEditPrincipalComment = Boolean(isExecutive || isAdmin);
 
   const [classTeacherAssignments, setClassTeacherAssignments] = useState<Record<string, any>>(() => {
     try {
@@ -584,151 +586,63 @@ export const ClassBroadsheet: React.FC = () => {
     setStatusMsg(null);
     loadRemarks();
     try {
-      // 1. Unified subjects
-      const subs = await fetchAllSubjectsUnified(token);
-      setAvailableSubjects(subs);
-
-      // 2. Unified students
-      const allStudents = await fetchAllStudentsUnified(token);
-      let filtered = allStudents.filter((s) => isSameClass(s.currentClass, selectedClass));
-
-      // 3. Fetch scores and attendance from backend
-      const serverScores: any[] = [];
-      const backendAttendanceMap: Record<string, any> = {};
-
-      // 3a. Query class broadsheet endpoint
-      try {
-        const res = await fetch(
+      // 1. Parallel fetch all resources from server
+      const [broadsheetRes, sessScoresRes, subs] = await Promise.all([
+        fetch(
           `/api/broadsheet/class?class=${encodeURIComponent(selectedClass)}&term=${encodeURIComponent(selectedTerm)}&session=${encodeURIComponent(selectedSession)}&examPeriod=${encodeURIComponent(effectiveExamPeriod)}`,
           { headers: { Authorization: `Bearer ${authToken}` } }
-        );
-        if (res.ok) {
-          const text = await res.text();
-          let d: any = {};
-          try { d = JSON.parse(text); } catch (_) {}
-          if (Array.isArray(d.scores)) {
-            serverScores.push(...d.scores);
-          }
-          if (Array.isArray(d.students) && d.students.length > 0) {
-            d.students.forEach((st: any) => {
-              if (st.attendance) {
-                const k1 = String(st.studentId || '').toUpperCase().trim();
-                const k2 = String(st.id || '').trim();
-                if (k1) backendAttendanceMap[k1] = st.attendance;
-                if (k2) backendAttendanceMap[k2] = st.attendance;
-              }
-            });
-
-            // Merge server students into filtered list to ensure exact database IDs and admission numbers align
-            const existingStNums = new Set(filtered.map(s => String(s.studentId || '').toUpperCase().trim()));
-            d.students.forEach((srvSt: any) => {
-              const numKey = String(srvSt.studentId || '').toUpperCase().trim();
-              if (!existingStNums.has(numKey)) {
-                filtered.push(srvSt);
-                existingStNums.add(numKey);
-              } else {
-                // Update id on matching student to ensure database PK matches
-                const idx = filtered.findIndex(s => String(s.studentId || '').toUpperCase().trim() === numKey);
-                if (idx !== -1 && srvSt.id) {
-                  filtered[idx] = { ...filtered[idx], ...srvSt, id: srvSt.id };
-                }
-              }
-            });
-          }
-        }
-      } catch (e) {
-        console.warn('Backend class broadsheet fetch note:', e);
-      }
-
-      const targetStudents = filtered;
-      setClassStudents(targetStudents);
-
-      // 3b. Also query general scores endpoint (excluding SS3 Mock scores)
-      try {
-        const res = await fetch(
-          `/api/scores?class=${encodeURIComponent(selectedClass)}&term=${encodeURIComponent(selectedTerm)}&session=${encodeURIComponent(selectedSession)}&excludeMock=true`,
-          { headers: { Authorization: `Bearer ${authToken}` } }
-        );
-        if (res.ok) {
-          const text = await res.text();
-          let d: any = {};
-          try { d = JSON.parse(text); } catch (_) {}
-          const moreScores = d.results || d.scores || [];
-          if (Array.isArray(moreScores)) {
-            serverScores.push(...moreScores);
-          }
-        }
-      } catch (e) {
-        console.warn('Backend scores fetch note:', e);
-      }
-
-      // 3c. Query session-wide scores for this class across all terms
-      // to calculate cumulative CGPA across 1st-half and terminal exams
-      let allSessionServerScores: any[] = [];
-      try {
-        const resSess = await fetch(
+        ).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch(
           `/api/scores?class=${encodeURIComponent(selectedClass)}&session=${encodeURIComponent(selectedSession)}&excludeMock=true`,
           { headers: { Authorization: `Bearer ${authToken}` } }
-        );
-        if (resSess.ok) {
-          const textSess = await resSess.text();
-          let dSess: any = {};
-          try { dSess = JSON.parse(textSess); } catch (_) {}
-          const sessScores = dSess.results || dSess.scores || [];
-          if (Array.isArray(sessScores)) {
-            allSessionServerScores = sessScores;
+        ).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetchAllSubjectsUnified(token).catch(() => []),
+      ]);
+
+      const initialSubs = Array.isArray(subs) && subs.length > 0 ? subs : [];
+      setAvailableSubjects(initialSubs);
+
+      // 2. Resolve students
+      const serverScores: any[] = [];
+      const backendAttendanceMap: Record<string, any> = {};
+      let targetStudents: Student[] = [];
+
+      if (broadsheetRes && Array.isArray(broadsheetRes.students) && broadsheetRes.students.length > 0) {
+        targetStudents = broadsheetRes.students;
+        broadsheetRes.students.forEach((st: any) => {
+          if (st.attendance) {
+            const k1 = String(st.studentId || '').toUpperCase().trim();
+            const k2 = String(st.id || '').trim();
+            if (k1) backendAttendanceMap[k1] = st.attendance;
+            if (k2) backendAttendanceMap[k2] = st.attendance;
           }
-        }
-      } catch (e) {
-        console.warn('Backend session scores fetch note:', e);
+        });
+      } else {
+        const allStudents = await fetchAllStudentsUnified(token);
+        targetStudents = allStudents.filter((s) => isSameClass(s.currentClass, selectedClass));
       }
 
-      // 3d. Direct Supabase Cloud DB fallback & sync (excluding SS3 Mock scores)
-      try {
-        const { data: supaData } = await supabase
-          .from('assessments')
-          .select('*, students(id, student_id, first_name, surname, current_class), subjects(id, name, code)')
-          .eq('session', selectedSession)
-          .neq('assessment_type', 'SS3_MOCK');
-        if (Array.isArray(supaData) && supaData.length > 0) {
-          supaData.forEach((sc: any) => {
-            if (sc.assessment_type === 'SS3_MOCK') return;
-            const alreadyExists = serverScores.some(
-              (s) =>
-                String(s.id) === String(sc.id) ||
-                ((Number(s.studentDbId || s.studentId) === Number(sc.student_id) || (s.studentNumber && sc.students?.student_id && s.studentNumber === sc.students.student_id)) &&
-                 Number(s.subjectId) === Number(sc.subject_id) &&
-                 s.assessmentType === sc.assessment_type &&
-                 s.term === sc.term &&
-                 s.session === sc.session)
-            );
-            if (alreadyExists) return;
+      setClassStudents(targetStudents);
 
-            const mapped = {
-              id: sc.id,
-              studentDbId: sc.student_id,
-              studentId: sc.students?.student_id || String(sc.student_id),
-              studentNumber: sc.students?.student_id,
-              studentName: sc.students ? `${sc.students.first_name} ${sc.students.surname}` : '',
-              subjectId: sc.subject_id,
-              subjectName: sc.subjects?.name,
-              subjectCode: sc.subjects?.code,
-              assessmentType: sc.assessment_type,
-              assessmentTitle: sc.assessment_title,
-              score: sc.score,
-              maxScore: sc.max_score,
-              percentage: sc.percentage,
-              grade: sc.grade,
-              teacherComment: sc.teacher_comment,
-              term: sc.term,
-              session: sc.session,
-            };
-            serverScores.push(mapped);
-            allSessionServerScores.push(mapped);
+      // 3. Collect scores
+      if (broadsheetRes && Array.isArray(broadsheetRes.scores)) {
+        serverScores.push(...broadsheetRes.scores);
+      }
+
+      let allSessionServerScores: any[] = [];
+      if (sessScoresRes) {
+        const sessScores = sessScoresRes.results || sessScoresRes.scores || [];
+        if (Array.isArray(sessScores)) {
+          allSessionServerScores = sessScores;
+          // Add any scores that aren't already in serverScores
+          const existingIds = new Set(serverScores.map((s) => String(s.id)));
+          sessScores.forEach((sc: any) => {
+            if (sc && sc.id && !existingIds.has(String(sc.id))) {
+              serverScores.push(sc);
+              existingIds.add(String(sc.id));
+            }
           });
         }
-      } catch (err) {
-        console.warn('Supabase cloud broadsheet sync note:', err);
       }
 
       // 4. Merge with local storage cache (fis_broadsheet_scores_v2)
@@ -755,13 +669,8 @@ export const ClassBroadsheet: React.FC = () => {
         }
       } catch (_) {}
 
-      const isScoreDeleted = (id: any, studentId: any, subjectId: any) => {
+      const isScoreDeleted = (id: any) => {
         if (id && deletedIds.has(String(id))) return true;
-        if (studentId && subjectId) {
-          if (deletedIds.has(`key_${studentId}_${subjectId}`)) return true;
-          if (deletedIds.has(`key_${studentId}_${subjectId}_CA`)) return true;
-          if (deletedIds.has(`key_${studentId}_${subjectId}_Examination`)) return true;
-        }
         return false;
       };
 
@@ -776,13 +685,10 @@ export const ClassBroadsheet: React.FC = () => {
       };
 
       // Current exam stage order for cumulative calculations:
-      // Stage 1 = Term 1 1st Half, Stage 2 = Term 1 Terminal (cumulative of 1st half + terminal)
-      // Stage 3 = Term 2 1st Half, Stage 4 = Term 2 Terminal (cumulative of Terms 1 & 2)
-      // Stage 5 = Term 3 1st Half, Stage 6 = Term 3 Terminal (session cumulative: Terms 1, 2 & 3)
       const currentStage = getExamStageOrder(selectedTerm, effectiveExamPeriod);
 
       // Dynamically discover and register any subjects present in serverScores or localScores that are not yet in subs
-      const allUnifiedSubjects = [...subs];
+      const allUnifiedSubjects = [...initialSubs];
       const hasSubject = (candidate: { id?: any; name?: any; code?: any }) => {
         return allUnifiedSubjects.some((existing) => isSameAcademicSubject(existing, candidate));
       };
@@ -816,6 +722,42 @@ export const ClassBroadsheet: React.FC = () => {
       // Update availableSubjects state so all discovered subjects have broadsheet columns
       setAvailableSubjects(allUnifiedSubjects);
 
+      // Pre-index serverScores and localScores by student identifiers for instant O(1) cell evaluation
+      const scoresByStudent = new Map<string, any[]>();
+      serverScores.forEach((sc) => {
+        const keys = [
+          sc.studentDbId ? String(sc.studentDbId).trim() : null,
+          sc.studentId ? String(sc.studentId).toUpperCase().trim() : null,
+          sc.studentNumber ? String(sc.studentNumber).toUpperCase().trim() : null,
+          sc.studentName ? String(sc.studentName).toLowerCase().trim() : null,
+        ].filter(Boolean) as string[];
+        keys.forEach((k) => {
+          let arr = scoresByStudent.get(k);
+          if (!arr) {
+            arr = [];
+            scoresByStudent.set(k, arr);
+          }
+          arr.push(sc);
+        });
+      });
+
+      const localByStudent = new Map<string, any[]>();
+      localScores.forEach((loc) => {
+        const keys = [
+          loc.studentId ? String(loc.studentId).toUpperCase().trim() : null,
+          loc.studentNumber ? String(loc.studentNumber).toUpperCase().trim() : null,
+          loc.studentName ? String(loc.studentName).toLowerCase().trim() : null,
+        ].filter(Boolean) as string[];
+        keys.forEach((k) => {
+          let arr = localByStudent.get(k);
+          if (!arr) {
+            arr = [];
+            localByStudent.set(k, arr);
+          }
+          arr.push(loc);
+        });
+      });
+
       // Build broadsheet rows
       const rows: BroadsheetRow[] = targetStudents.map((st) => {
         const cleanStId = String(st.studentId || '').toUpperCase().trim();
@@ -841,27 +783,17 @@ export const ClassBroadsheet: React.FC = () => {
         let countedSubjects = 0;
         const currentStageScoresList: Array<{ subjectId: number | string; totalScore: number; units: number }> = [];
 
+        // Fast student score subset from pre-indexed Map
+        const candidateScores = scoresByStudent.get(cleanDbId) || scoresByStudent.get(cleanStId) || scoresByStudent.get(stFullName) || [];
+        const candidateLocals = localByStudent.get(cleanDbId) || localByStudent.get(cleanStId) || localByStudent.get(stFullName) || [];
+
         allUnifiedSubjects.forEach((sub) => {
           // Find assessments for this student and subject using canonical subject matching
-          const stScores = serverScores.filter((sc) => {
-            if (isScoreDeleted(sc.id, st.id, sub.id)) return false;
+          const stScores = candidateScores.filter((sc) => {
+            if (isScoreDeleted(sc.id)) return false;
             if (sc.assessmentType === 'SS3_MOCK') return false;
             if (sc.term && normalizeTerm(sc.term) !== normalizeTerm(selectedTerm)) return false;
 
-            const scDbId = String(sc.studentDbId || '').trim();
-            const scStId = String(sc.studentId || '').toUpperCase().trim();
-            const scStNum = String(sc.studentNumber || '').toUpperCase().trim();
-            const scStName = String(sc.studentName || '').toLowerCase().trim();
-
-            const matchesSt =
-              (scDbId && cleanDbId && scDbId === cleanDbId) ||
-              (scStId && cleanDbId && scStId === cleanDbId) ||
-              (scStId && cleanStId && scStId === cleanStId) ||
-              (scStNum && cleanStId && scStNum === cleanStId) ||
-              (scStName && stFullName && (scStName === stFullName || scStName.includes(stFullName) || stFullName.includes(scStName)));
-            if (!matchesSt) return false;
-
-            // Strict canonical subject match: resolves aliases (e.g. CRS, PHE, French) without colliding Economics & Home Economics
             const matchesSub = isSameAcademicSubject(
               { id: sub.id, code: sub.code, name: sub.name },
               { id: sc.subjectId, code: sc.subjectCode, name: sc.subjectName }
@@ -871,17 +803,8 @@ export const ClassBroadsheet: React.FC = () => {
 
           // Find local overrides with period check and fallback
           const findLoc = (strictPeriod: boolean) =>
-            localScores.find((l) => {
-              if (isScoreDeleted(l.id || l.testId || l.examId, st.id, sub.id)) return false;
-
-              const lStId = String(l.studentId || '').toUpperCase().trim();
-              const lStNum = String(l.studentNumber || '').toUpperCase().trim();
-              const matchesSt =
-                lStId === cleanDbId ||
-                lStId === cleanStId ||
-                lStNum === cleanStId ||
-                (l.studentName && stFullName && l.studentName.trim().toLowerCase() === stFullName);
-              if (!matchesSt) return false;
+            candidateLocals.find((l) => {
+              if (isScoreDeleted(l.id || l.testId || l.examId)) return false;
 
               const matchesSub = isSameAcademicSubject(
                 { id: sub.id, code: sub.code, name: sub.name },
@@ -2168,19 +2091,49 @@ export const ClassBroadsheet: React.FC = () => {
           />
         </div>
 
-        {/* 2. Student Name & Term Heading (Directly under name in Nigerian academic format) */}
-        <div className="text-center my-4 pb-3 border-b border-slate-300 print:my-1 print:pb-0.5">
-          <h1 className="text-xl sm:text-2xl print:text-[14px] font-black text-black tracking-tight uppercase print:leading-tight">
-            {row.student.firstName} {row.student.middleName ? row.student.middleName + ' ' : ''}{row.student.surname}
-          </h1>
-          <div className="text-xs sm:text-sm print:text-[10px] font-bold text-emerald-900 mt-0.5 uppercase tracking-wide">
-            {selectedTerm} {selectedSession} {selectedTerm}{' '}
-            {isSecondary ? (effectiveExamPeriod === 'first-half' ? 'First Half Exam' : 'Terminal Exam') : 'Terminal Exam'}
-          </div>
-          <div className="text-[11px] print:text-[8.5px] text-slate-600 font-mono mt-0.5 print:mt-0">
-            Admission Number: {row.student.studentId || row.student.id}
-          </div>
-        </div>
+        {/* 2. Student Name, Term Heading & Official Passport Photograph */}
+        {(() => {
+          const studentPhoto =
+            row.student.photoUrl ||
+            getCachedProfilePhoto(row.student.studentId || String(row.student.id)) ||
+            null;
+          return (
+            <div className="flex items-center justify-between my-4 pb-3 border-b border-slate-300 print:my-1 print:pb-0.5 gap-3">
+              <div className="flex-1 text-center sm:text-left print:text-left">
+                <h1 className="text-xl sm:text-2xl print:text-[14px] font-black text-black tracking-tight uppercase print:leading-tight">
+                  {row.student.firstName} {row.student.middleName ? row.student.middleName + ' ' : ''}{row.student.surname}
+                </h1>
+                <div className="text-xs sm:text-sm print:text-[10px] font-bold text-emerald-900 mt-0.5 uppercase tracking-wide">
+                  {selectedTerm} {selectedSession} {selectedTerm}{' '}
+                  {isSecondary ? (effectiveExamPeriod === 'first-half' ? 'First Half Exam' : 'Terminal Exam') : 'Terminal Exam'}
+                </div>
+                <div className="text-[11px] print:text-[8.5px] text-slate-600 font-mono mt-0.5 print:mt-0">
+                  Admission Number: {row.student.studentId || row.student.id}
+                </div>
+              </div>
+
+              {/* Official Passport Photograph Frame */}
+              <div className="flex flex-col items-center justify-center shrink-0">
+                <div className="w-16 h-20 sm:w-20 sm:h-24 print:w-14 print:h-18 rounded-lg border-2 border-black bg-white overflow-hidden shadow-sm flex items-center justify-center">
+                  {studentPhoto ? (
+                    <img
+                      src={studentPhoto}
+                      alt={`${row.student.firstName} Passport`}
+                      className="w-full h-full object-cover object-center"
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center justify-center p-1 text-center h-full w-full bg-slate-100 print:bg-white text-slate-400 print:text-black">
+                      <User className="w-6 h-6 print:w-5 print:h-5 text-slate-400 print:text-black stroke-[1.5]" />
+                      <span className="text-[7.5px] print:text-[6px] font-bold uppercase tracking-tight text-slate-600 print:text-black mt-0.5 leading-none">
+                        PASSPORT
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* 3. Details Grid */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 my-4 p-3.5 bg-slate-100 rounded-2xl border border-slate-300 text-xs print:my-1 print:p-1.5 print:gap-1 print:text-[8px] print:rounded-lg">

@@ -15,6 +15,7 @@ export interface User {
   parentPhone?: string | null;
   assignedClass?: string | null;
   isClassTeacher?: boolean;
+  photoUrl?: string | null;
 }
 
 export interface Student {
@@ -33,6 +34,7 @@ export interface Student {
   school: string;
   session: string;
   createdAt: string;
+  photoUrl?: string | null;
   feeLocked?: boolean;
   feeLockReason?: string | null;
   amountPaid?: number;
