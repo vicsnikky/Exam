@@ -530,5 +530,162 @@ export function computeCumulativeCgpaForStudent(params: {
   };
 }
 
+// Canonical curriculum subjects mapping by class level
+export function getClassCurriculumSubjects(
+  className?: string | null,
+  availableSubs: any[] = []
+): Array<{ id: number; name: string; code: string; status: string; isCompulsory?: boolean }> {
+  const normClass = normalizeClassName(className || '');
+  const c = normClass.toUpperCase();
+
+  const isEarlyYears = c.includes('CRECHE') || c.includes('KG') || c.includes('NUR');
+  const isPri = c.includes('PRIMARY') || c.includes('PRI') || c.includes('BASIC');
+  const isJss = c.includes('JSS') || c.includes('JS');
+  const isSs =
+    c.includes('SS ') ||
+    c.includes('SS1') ||
+    c.includes('SS2') ||
+    c.includes('SS3') ||
+    c.includes('SSS') ||
+    c.includes('SENIOR SECONDARY');
+
+  let standardSubjectNames: string[] = [];
+
+  if (isEarlyYears) {
+    standardSubjectNames = [
+      'Mathematics',
+      'English Language',
+      'Basic Science',
+      'Social Studies',
+      'Phonics',
+      'Hand Writing',
+      'Music',
+      'Cultural and Creative Art',
+      'Physical Health Education',
+      'French',
+      'Yoruba',
+      'CRS',
+      'Islamic Religious Studies',
+    ];
+  } else if (isPri) {
+    standardSubjectNames = [
+      'Mathematics',
+      'English Language',
+      'Basic Science',
+      'Social Studies',
+      'National Value Education',
+      'Quantitative Reasoning',
+      'Verbal Reasoning',
+      'Digital Technology',
+      'Agricultural Science',
+      'Home Economics',
+      'Physical Health Education',
+      'Cultural and Creative Art',
+      'French',
+      'Yoruba',
+      'Islamic Religious Studies',
+      'CRS',
+      'Hand Writing',
+      'Literature',
+    ];
+  } else if (isJss) {
+    // Junior Secondary (16 subjects standard in JSS 1 - 3):
+    standardSubjectNames = [
+      'English Language',
+      'Mathematics',
+      'Basic Science',
+      'Basic Technology',
+      'Business Studies',
+      'Digital Technology',
+      'National Value Education',
+      'Physical Health Education',
+      'Agricultural Science',
+      'Home Economics',
+      'French',
+      'Yoruba',
+      'History',
+      'Music',
+      'Islamic Religious Studies',
+      'CRS',
+      'Literature in English',
+      'Speech Work',
+    ];
+  } else if (isSs) {
+    // Senior Secondary (SS 1 - 3):
+    standardSubjectNames = [
+      'English Language',
+      'Mathematics',
+      'Civic Education',
+      'Economics',
+      'Biology',
+      'Physics',
+      'Chemistry',
+      'Agricultural Science',
+      'Literature in English',
+      'Government',
+      'Financial Accounting',
+      'Commerce',
+      'Marketing',
+      'Digital Technology',
+      'Islamic Religious Studies',
+      'CRS',
+      'Geography',
+      'Further Mathematics',
+      'Food and Nutrition',
+      'Garment Making',
+    ];
+  } else {
+    standardSubjectNames = [
+      'Mathematics',
+      'English Language',
+      'Basic Science',
+      'Digital Technology',
+      'Civic Education',
+      'Social Studies',
+      'Physical Health Education',
+      'Agricultural Science',
+    ];
+  }
+
+  const result: Array<{ id: number; name: string; code: string; status: string; isCompulsory?: boolean }> = [];
+  const seenNames = new Set<string>();
+
+  for (const name of standardSubjectNames) {
+    const cleanLower = name.trim().toLowerCase();
+    const found = availableSubs.find(
+      (s: any) =>
+        s &&
+        (s.name?.trim().toLowerCase() === cleanLower ||
+          (s.code && s.code.toUpperCase() === name.toUpperCase()))
+    );
+
+    if (found) {
+      if (!seenNames.has(cleanLower)) {
+        seenNames.add(cleanLower);
+        result.push({
+          id: Number(found.id) || result.length + 1,
+          name: found.name,
+          code: found.code || name.slice(0, 4).toUpperCase().trim(),
+          status: 'active',
+          isCompulsory: Boolean(found.isCompulsory),
+        });
+      }
+    } else {
+      if (!seenNames.has(cleanLower)) {
+        seenNames.add(cleanLower);
+        result.push({
+          id: result.length + 500,
+          name: name,
+          code: name.slice(0, 4).toUpperCase().trim(),
+          status: 'active',
+        });
+      }
+    }
+  }
+
+  return result;
+}
+
+
 
 

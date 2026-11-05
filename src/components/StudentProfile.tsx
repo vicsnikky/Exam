@@ -70,6 +70,7 @@ import {
   getExamStageOrder,
   getStageScopeLabel,
   computeCumulativeCgpaForStudent,
+  getClassCurriculumSubjects,
 } from '../constants/classes.ts';
 
 interface StudentProfileProps {
@@ -179,6 +180,8 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   // Report Card Term & Exam Period Selection
   const [selectedPrintTerm, setSelectedPrintTerm] = useState<'First Term' | 'Second Term' | 'Third Term'>('First Term');
   const [selectedExamType, setSelectedExamType] = useState<'terminal' | 'midterm'>('terminal');
+  // Assessment Ledger Screen Filter ('all' shows all terms without hiding any subjects)
+  const [ledgerTermFilter, setLedgerTermFilter] = useState<'all' | 'First Term' | 'Second Term' | 'Third Term'>('all');
 
   // Class Teacher & Principal Comment State
   const [assignedClassTeacher, setAssignedClassTeacher] = useState<{ teacherId: string | number; teacherName: string; className: string } | null>(null);
@@ -225,6 +228,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
       let realAssessments: AssessmentRecord[] = [];
       let realMockScores: any[] = [];
       let initialAttendance: any = null;
+      let apiSubjectPerformance: Record<string, any[]> | null = null;
 
       // 1. Try Backend student profile endpoint (returns student, assessments, attendance, stats, and subject performance in 1 roundtrip)
       try {
@@ -246,6 +250,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                 initialAttendance = data.attendance;
               }
               if (data.subjectPerformance && typeof data.subjectPerformance === 'object') {
+                apiSubjectPerformance = data.subjectPerformance;
                 setSubjectPerformance(data.subjectPerformance);
               }
             }
@@ -661,11 +666,38 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
         // Build subject performance map if not already populated
         const map: Record<string, any[]> = {};
+        if (apiSubjectPerformance) {
+          for (const [k, v] of Object.entries(apiSubjectPerformance)) {
+            if (Array.isArray(v) && v.length > 0) map[k] = [...v];
+          }
+        }
         realAssessments.forEach((a) => {
           const sName = a.subjectName || 'General';
           if (!map[sName]) map[sName] = [];
-          map[sName].push(a);
+          if (!map[sName].some((item: any) => String(item.id) === String(a.id))) {
+            map[sName].push(a);
+          }
         });
+        if (realMockScores && realMockScores.length > 0) {
+          realMockScores.forEach((m) => {
+            const sName = m.subjectName || 'General';
+            if (!map[sName]) map[sName] = [];
+            if (!map[sName].some((item: any) => String(item.id) === String(m.id))) {
+              map[sName].push({
+                id: m.id,
+                assessmentTitle: `SS3 Mock Week ${m.weekNumber}`,
+                assessmentType: 'SS3_MOCK',
+                score: m.score,
+                maxScore: 100,
+                percentage: m.score,
+                grade: m.grade,
+                remark: m.remark,
+                term: `Week ${m.weekNumber}`,
+                session: resolvedStudent?.session || '2026/2027',
+              });
+            }
+          });
+        }
         setSubjectPerformance(map);
       } else {
         setError('Student scholar record not found in system or active registry.');
@@ -1274,6 +1306,9 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     session: string;
     term: string;
     teacherComment: string;
+    hasScore?: boolean;
+    isPending?: boolean;
+    isMock?: boolean;
     caRecord?: AssessmentRecord;
     examRecord?: AssessmentRecord;
     primaryRecord?: AssessmentRecord;
@@ -1288,12 +1323,13 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     return s.trim();
   };
 
+  const effectiveTermFilter = profileTab === 'printable-slip' ? selectedPrintTerm : ledgerTermFilter;
+
   const groupedSubjectMap = new Map<string, GroupedSubjectRow>();
 
   assessments.forEach((a) => {
-    if (a.assessmentType === 'SS3_MOCK') return;
-    if (selectedPrintTerm) {
-      if (a.term && normalizeProfileTerm(a.term) !== normalizeProfileTerm(selectedPrintTerm)) {
+    if (effectiveTermFilter && effectiveTermFilter !== 'all') {
+      if (a.term && normalizeProfileTerm(a.term) !== normalizeProfileTerm(effectiveTermFilter)) {
         return;
       }
     }
@@ -1313,10 +1349,22 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
         qualityPoints: 0.0,
         remark: 'Satisfactory',
         session: a.session || student.session || '2026/2027',
-        term: a.term || 'First Term',
+        term: a.term || (effectiveTermFilter === 'all' ? (selectedPrintTerm || 'First Term') : effectiveTermFilter),
         teacherComment: '',
+        hasScore: false,
       };
       groupedSubjectMap.set(subKey, row);
+    }
+
+    if (a.assessmentType === 'SS3_MOCK') {
+      row.isMock = true;
+      if (row.examScore === null && row.caScore === null) {
+        row.examScore = Number(a.score) || 0;
+        row.totalScore = Number(a.score) || 0;
+        row.remark = (a as any).remark || 'SS3 Weekly Mock';
+        row.hasScore = true;
+      }
+      return;
     }
 
     let jsonCa: number | null = null;
@@ -1356,28 +1404,89 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     }
   });
 
-  const groupedSubjectRows: GroupedSubjectRow[] = Array.from(groupedSubjectMap.values()).map((r) => {
-    const ca = r.caScore !== null ? r.caScore : 0;
-    const exam = r.examScore !== null ? r.examScore : 0;
-    const total = (r.caScore !== null || r.examScore !== null) ? (ca + exam) : (r.totalScore || 0);
-    r.totalScore = total;
+  // Always incorporate all enrolled curriculum subjects for the student's class
+  const classCurriculum = getClassCurriculumSubjects(student.currentClass, availableSubjects);
 
-    if (isSenior) {
-      const gp = calculateGradePoint5(total, 2);
-      r.grade = gp.grade;
-      r.gradePoint = gp.gradePoint;
-      r.units = 2;
-      r.qualityPoints = gp.qualityPoints;
-      r.remark = gp.remark;
-    } else {
-      r.grade = calculateSubjectGrade(total);
-      r.units = 2;
-      r.gradePoint = 0;
-      r.qualityPoints = 0;
-      r.remark = total >= 70 ? 'Distinction' : total >= 60 ? 'Very Good' : total >= 50 ? 'Credit' : total >= 40 ? 'Pass' : 'Needs Improvement';
+  classCurriculum.forEach((cSub) => {
+    const cleanLower = cSub.name.trim().toLowerCase();
+    const existing = Array.from(groupedSubjectMap.values()).find(
+      (r) =>
+        (r.subjectId && cSub.id && Number(r.subjectId) === Number(cSub.id)) ||
+        (r.subjectName && r.subjectName.trim().toLowerCase() === cleanLower)
+    );
+    if (!existing) {
+      const pendingKey = `pending_${cSub.id}_${cleanLower}`;
+      groupedSubjectMap.set(pendingKey, {
+        subjectId: Number(cSub.id) || 0,
+        subjectName: cSub.name,
+        subjectCode: cSub.code || 'SUB',
+        caScore: null,
+        examScore: null,
+        totalScore: 0,
+        grade: 'Pending',
+        gradePoint: 0.0,
+        units: 2,
+        qualityPoints: 0.0,
+        remark: 'Awaiting Assessment Score',
+        session: student.session || '2026/2027',
+        term: effectiveTermFilter === 'all' ? (selectedPrintTerm || 'First Term') : effectiveTermFilter,
+        teacherComment: '',
+        hasScore: false,
+        isPending: true,
+      });
     }
-    return r;
   });
+
+  const groupedSubjectRows: GroupedSubjectRow[] = Array.from(groupedSubjectMap.values())
+    .map((r) => {
+      if (r.isPending) {
+        r.grade = 'Pending';
+        r.remark = 'Awaiting Assessment Score';
+        r.hasScore = false;
+        return r;
+      }
+      const ca = r.caScore !== null ? r.caScore : 0;
+      const exam = r.examScore !== null ? r.examScore : 0;
+      const total = r.caScore !== null || r.examScore !== null ? ca + exam : r.totalScore || 0;
+      r.totalScore = total;
+      r.hasScore = r.caScore !== null || r.examScore !== null || r.totalScore > 0;
+
+      if (isSenior) {
+        const gp = calculateGradePoint5(total, 2);
+        r.grade = gp.grade;
+        r.gradePoint = gp.gradePoint;
+        r.units = 2;
+        r.qualityPoints = gp.qualityPoints;
+        r.remark = gp.remark;
+      } else {
+        r.grade = calculateSubjectGrade(total);
+        r.units = 2;
+        r.gradePoint = 0;
+        r.qualityPoints = 0;
+        r.remark =
+          total >= 70
+            ? 'Distinction'
+            : total >= 60
+            ? 'Very Good'
+            : total >= 50
+            ? 'Credit'
+            : total >= 40
+            ? 'Pass'
+            : 'Needs Improvement';
+      }
+      return r;
+    })
+    .sort((a, b) => {
+      // Scored subjects first, then pending subjects; alphabetically within groups
+      if (a.hasScore && !b.hasScore) return -1;
+      if (!a.hasScore && b.hasScore) return 1;
+      return a.subjectName.localeCompare(b.subjectName);
+    });
+
+  // Scored rows strictly used for academic standings, CGPA, and class averages
+  const scoredSubjectRows = groupedSubjectRows.filter(
+    (r) => !r.isPending && (r.hasScore || r.totalScore > 0 || r.caScore !== null || r.examScore !== null)
+  );
 
   // Exam stage order for current report card view:
   // Stage 1 = Term 1 1st Half, Stage 2 = Term 1 Terminal (cumulative of 1st half + terminal)
@@ -1407,7 +1516,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     studentDbId: student.id,
     studentIdNumber: student.studentId,
     currentStage: reportCardStage,
-    currentStageScores: groupedSubjectRows.map((r) => ({
+    currentStageScores: scoredSubjectRows.map((r) => ({
       subjectId: r.subjectId,
       totalScore: r.totalScore,
       units: 2,
@@ -1418,12 +1527,12 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     deletedIds: deletedScoreIds,
   });
 
-  const cgpaSummary = calculateCgpa(groupedSubjectRows.map((r) => ({ totalScore: r.totalScore, units: 2 })));
-  const juniorAverageSummary = calculateJuniorAverage(groupedSubjectRows.map((r) => ({ totalScore: r.totalScore })));
-  const seniorAverageOver100 = groupedSubjectRows.length > 0
-    ? (groupedSubjectRows.reduce((acc, r) => acc + (Number(r.totalScore) || 0), 0) / groupedSubjectRows.length).toFixed(1)
+  const cgpaSummary = calculateCgpa(scoredSubjectRows.map((r) => ({ totalScore: r.totalScore, units: 2 })));
+  const juniorAverageSummary = calculateJuniorAverage(scoredSubjectRows.map((r) => ({ totalScore: r.totalScore })));
+  const seniorAverageOver100 = scoredSubjectRows.length > 0
+    ? (scoredSubjectRows.reduce((acc, r) => acc + (Number(r.totalScore) || 0), 0) / scoredSubjectRows.length).toFixed(1)
     : '0.0';
-  const highestSubjectScore = groupedSubjectRows.length > 0 ? Math.max(...groupedSubjectRows.map((r) => r.totalScore)) : stats.highestScore;
+  const highestSubjectScore = scoredSubjectRows.length > 0 ? Math.max(...scoredSubjectRows.map((r) => r.totalScore)) : stats.highestScore;
 
   // Handler to open Edit Modal for a grouped subject row
   const handleOpenEditSubjectRow = (row: GroupedSubjectRow) => {
@@ -1440,6 +1549,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
       assessmentType: 'Examination',
     } as any;
     setEditingAssessment(targetAssessment);
+    setEditSubjectId(row.subjectId);
     setEditCa(row.caScore !== null ? String(row.caScore) : '');
     setEditExam(row.examScore !== null ? String(row.examScore) : '');
     setEditComment(row.teacherComment || '');
@@ -2034,7 +2144,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
               {/* Assessment History Table with Edit & Delete actions */}
               <div className="bg-slate-800/80 border border-slate-700 rounded-2xl overflow-hidden shadow-xl">
-                <div className="p-4 sm:p-5 border-b border-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="p-4 sm:p-5 border-b border-slate-700 flex flex-col md:flex-row md:items-center justify-between gap-3">
                   <div>
                     <h3 className="font-bold text-white text-sm flex items-center gap-2">
                       <Clock className="w-4 h-4 text-emerald-400" />
@@ -2045,7 +2155,25 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                     </p>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-3">
+                    {/* Term Filter Bar */}
+                    <div className="flex items-center gap-1 bg-slate-900 border border-slate-700 rounded-xl p-1">
+                      {(['all', 'First Term', 'Second Term', 'Third Term'] as const).map((t) => (
+                        <button
+                          key={t}
+                          type="button"
+                          onClick={() => setLedgerTermFilter(t)}
+                          className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                            ledgerTermFilter === t
+                              ? 'bg-emerald-600 text-white shadow-sm'
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          {t === 'all' ? 'All Terms' : t}
+                        </button>
+                      ))}
+                    </div>
+
                     {isSenior ? (
                       <span className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 rounded-xl text-xs font-mono font-bold flex items-center gap-1.5">
                         <Award className="w-3.5 h-3.5 text-amber-300" />
@@ -2060,19 +2188,32 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                   </div>
                 </div>
 
-                {/* Grading standard banner */}
+                {/* Grading standard & Curriculum summary banner */}
                 <div className="px-5 py-3 bg-slate-900/90 border-b border-slate-800 flex flex-col md:flex-row md:items-center justify-between text-xs text-slate-300 gap-2">
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
                     {isSenior ? (
                       <span>
-                        <strong>Senior Secondary Scale (SS 1 - SS 3):</strong> All subjects carry <strong>2 Units</strong> each. Evaluated on the <strong>5.0 CGPA scale</strong> (70+=5.0, 60+=4.0, 50+=3.0, 45+=2.0, 40+=1.0, &lt;40=0.0). Quality Points = 2 × GP.
+                        <strong>Senior Secondary Scale (SS 1 - SS 3):</strong> All subjects carry <strong>2 Units</strong> each. Evaluated on the <strong>5.0 CGPA scale</strong>.
                       </span>
                     ) : (
                       <span>
-                        <strong>Junior / Primary Class Scale:</strong> Evaluated by overall <strong>Terminal Average Percentage</strong> across all enrolled subjects.
+                        <strong>Junior / Primary Class Scale:</strong> Evaluated by overall <strong>Terminal Average Percentage</strong> across enrolled subjects.
                       </span>
                     )}
+                    <span className="inline-flex items-center gap-1.5 ml-1">
+                      <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-300 text-[11px] font-semibold">
+                        Curriculum: <strong className="text-white">{groupedSubjectRows.length}</strong>
+                      </span>
+                      <span className="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[11px] font-semibold">
+                        Scored: <strong className="text-emerald-400">{scoredSubjectRows.length}</strong>
+                      </span>
+                      {groupedSubjectRows.length > scoredSubjectRows.length && (
+                        <span className="px-2 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[11px] font-semibold">
+                          Pending: <strong className="text-amber-400">{groupedSubjectRows.length - scoredSubjectRows.length}</strong>
+                        </span>
+                      )}
+                    </span>
                   </div>
                   <div className="flex items-center gap-3 shrink-0 text-slate-400">
                     <span>
@@ -2122,7 +2263,20 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                           <tr key={`${r.subjectId}_${idx}`} className="hover:bg-slate-700/30 transition">
                             <td className="py-3 px-3 text-center text-slate-500 font-mono">{idx + 1}</td>
                             <td className="py-3.5 px-4 font-semibold text-white">
-                              {r.subjectName} <span className="text-slate-400 font-normal">({r.subjectCode})</span>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span>{r.subjectName}</span>
+                                <span className="text-slate-400 font-normal text-xs">({r.subjectCode})</span>
+                                {r.isPending && (
+                                  <span className="text-[10px] font-bold text-amber-300 bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 rounded">
+                                    Curriculum Enrolled
+                                  </span>
+                                )}
+                                {r.isMock && (
+                                  <span className="text-[10px] font-bold text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 rounded">
+                                    SS3 Mock
+                                  </span>
+                                )}
+                              </div>
                             </td>
                             {isSenior && (
                               <td className="py-3 px-3 text-center font-mono font-bold text-amber-300">
@@ -2144,64 +2298,82 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                               )}
                             </td>
                             <td className="py-3.5 px-3 text-right font-mono font-black text-white text-sm bg-slate-900/40">
-                              {r.totalScore}
+                              {r.isPending ? <span className="text-slate-500 font-normal text-xs">—</span> : r.totalScore}
                             </td>
                             <td className="py-3.5 px-3 text-center">
-                              <span
-                                className={`inline-block px-2 py-0.5 rounded font-bold ${
-                                  r.grade === 'A' || r.grade === 'A1'
-                                    ? 'bg-emerald-500/20 text-emerald-400'
-                                    : r.grade === 'B' || r.grade === 'B2' || r.grade === 'B3'
-                                    ? 'bg-blue-500/20 text-blue-400'
-                                    : r.grade === 'C' || r.grade === 'C4' || r.grade === 'C5' || r.grade === 'C6'
-                                    ? 'bg-amber-500/20 text-amber-400'
-                                    : 'bg-rose-500/20 text-rose-400'
-                                }`}
-                              >
-                                {r.grade}
-                              </span>
+                              {r.isPending ? (
+                                <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700">
+                                  Pending
+                                </span>
+                              ) : (
+                                <span
+                                  className={`inline-block px-2 py-0.5 rounded font-bold ${
+                                    r.grade === 'A' || r.grade === 'A1'
+                                      ? 'bg-emerald-500/20 text-emerald-400'
+                                      : r.grade === 'B' || r.grade === 'B2' || r.grade === 'B3'
+                                      ? 'bg-blue-500/20 text-blue-400'
+                                      : r.grade === 'C' || r.grade === 'C4' || r.grade === 'C5' || r.grade === 'C6'
+                                      ? 'bg-amber-500/20 text-amber-400'
+                                      : 'bg-rose-500/20 text-rose-400'
+                                  }`}
+                                >
+                                  {r.grade}
+                                </span>
+                              )}
                             </td>
                             {isSenior && (
                               <>
                                 <td className="py-3.5 px-3 text-center font-mono font-bold text-amber-400">
-                                  {r.gradePoint.toFixed(1)}
+                                  {r.isPending ? <span className="text-slate-500 font-normal">—</span> : r.gradePoint.toFixed(1)}
                                 </td>
                                 <td className="py-3.5 px-3 text-right font-mono font-semibold text-emerald-300">
-                                  {r.qualityPoints.toFixed(1)}
+                                  {r.isPending ? <span className="text-slate-500 font-normal">—</span> : r.qualityPoints.toFixed(1)}
                                 </td>
                               </>
                             )}
                             {!isSenior && (
                               <td className="py-3.5 px-3 text-center text-[11px] text-slate-400 font-medium">
-                                {r.remark}
+                                {r.isPending ? <span className="text-slate-500">Pending</span> : r.remark}
                               </td>
                             )}
                             <td className="py-3.5 px-4 text-xs text-slate-400">
                               {r.session} • {r.term}
                             </td>
                             <td className="py-3.5 px-4 text-slate-400 italic max-w-xs truncate">
-                              {r.teacherComment || r.remark || 'Satisfactory'}
+                              {r.isPending ? 'Awaiting assessment score' : (r.teacherComment || r.remark || 'Satisfactory')}
                             </td>
                             {canManageScores && (
                               <td className="py-3.5 px-4 text-center">
-                                <div className="flex items-center justify-center gap-1.5">
+                                {r.isPending ? (
                                   <button
                                     type="button"
                                     onClick={() => handleOpenEditSubjectRow(r)}
-                                    className="p-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 hover:border-amber-400 transition cursor-pointer"
-                                    title="Edit this subject score (CA & Exam)"
+                                    className="px-2.5 py-1 bg-emerald-600/90 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 mx-auto cursor-pointer shadow-sm hover:shadow-emerald-950"
+                                    title={`Record score for ${r.subjectName}`}
                                   >
-                                    <Edit2 className="w-3.5 h-3.5" />
+                                    <PlusCircle className="w-3.5 h-3.5" />
+                                    Record Score
                                   </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleDeleteSubjectRow(r)}
-                                    className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 hover:border-rose-400 transition cursor-pointer"
-                                    title="Delete recorded score for this subject"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
+                                ) : (
+                                  <div className="flex items-center justify-center gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenEditSubjectRow(r)}
+                                      className="p-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 hover:border-amber-400 transition cursor-pointer"
+                                      title="Edit this subject score (CA & Exam)"
+                                    >
+                                      <Edit2 className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteSubjectRow(r)}
+                                      className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 hover:border-rose-400 transition cursor-pointer"
+                                      title="Delete recorded score for this subject"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                )}
                               </td>
                             )}
                           </tr>
@@ -2553,14 +2725,14 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-700 print:divide-black text-slate-200 print:text-black">
-                      {groupedSubjectRows.length === 0 ? (
+                      {scoredSubjectRows.length === 0 ? (
                         <tr>
                           <td colSpan={isSenior ? 9 : 8} className="py-8 print:py-2 text-center text-slate-400 print:text-slate-600">
                             No subject assessment scores recorded yet for this academic term.
                           </td>
                         </tr>
                       ) : (
-                        groupedSubjectRows.map((r, idx) => (
+                        scoredSubjectRows.map((r, idx) => (
                           <tr key={`grp_sub_${r.subjectId || r.subjectCode}_${idx}`} className="print:leading-tight">
                             <td className="py-2.5 px-3 print:py-0.5 print:px-1 text-center font-mono border border-slate-800 print:border-black">
                               {idx + 1}
