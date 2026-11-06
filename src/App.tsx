@@ -291,16 +291,25 @@ export default function App() {
             onAddScore={navigateToAddScoreForStudent}
           />
         );
-      case 'student-profile':
+      case 'student-profile': {
         const currentStudentData = selectedStudent || (user as any)?.studentProfile || (isStudent ? (user as any) : undefined);
+        const resolvedStudentIdent =
+          currentStudentData?.studentId ||
+          currentStudentData?.id ||
+          user?.studentId ||
+          (user as any)?.studentProfile?.studentId ||
+          (user as any)?.uid ||
+          '';
+
         return (
           <StudentProfile
-            studentIdOrId={currentStudentData?.id || currentStudentData?.studentId || user?.studentId || 'FIS-2026-000001'}
+            studentIdOrId={resolvedStudentIdent}
             initialStudent={currentStudentData || undefined}
             onBack={() => setActiveTab(isStudent ? (isSS3Student ? 'ss3-mock-student' : 'take-quiz') : (isBursar ? 'bursar-console' : 'students'))}
             onAddScoreForStudent={!isBursar ? navigateToAddScoreForStudent : undefined}
           />
         );
+      }
       case 'subjects':
         return isTeacher || isSuperAdmin ? <SubjectManager /> : null;
       case 'question-generator':
@@ -321,7 +330,7 @@ export default function App() {
         ) : null;
       case 'results':
         return canAccessBroadsheet ? (
-          <ResultsView />
+          <ResultsView onSelectStudent={navigateToStudentProfile} />
         ) : (
           <div className="max-w-2xl mx-auto my-12 p-8 bg-slate-900 border border-slate-800 rounded-3xl text-center space-y-4">
             <div className="w-14 h-14 mx-auto rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
@@ -352,9 +361,17 @@ export default function App() {
       default:
         if (isBursar) return <BursarDashboard />;
         if (isStudent) {
+          const studentIdent =
+            user?.studentId ||
+            (user as any)?.studentProfile?.studentId ||
+            (user as any)?.uid ||
+            (user as any)?.id ||
+            '';
+          const studentInit = (user as any)?.studentProfile || (user as any);
           return (
             <StudentProfile
-              studentIdOrId={user?.studentId || ''}
+              studentIdOrId={studentIdent}
+              initialStudent={studentInit}
               onBack={() => setActiveTab('take-quiz')}
             />
           );
@@ -944,7 +961,7 @@ export default function App() {
                   whileHover={{ x: 2 }}
                   whileTap={{ scale: 0.98 }}
                   onClick={() => {
-                    setSelectedStudent((user as any).studentProfile || null);
+                    setSelectedStudent((user as any).studentProfile || (isStudent ? (user as any) : null));
                     setActiveTab('student-profile');
                   }}
                   className={`w-full relative flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-colors cursor-pointer ${
@@ -1180,7 +1197,7 @@ export default function App() {
                     </button>
                     <button
                       onClick={() => {
-                        setSelectedStudent((user as any).studentProfile || null);
+                        setSelectedStudent((user as any).studentProfile || (isStudent ? (user as any) : null));
                         setActiveTab('student-profile');
                         setMobileMenuOpen(false);
                       }}

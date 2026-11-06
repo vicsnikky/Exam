@@ -231,33 +231,70 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
       let apiSubjectPerformance: Record<string, any[]> | null = null;
 
       // 1. Try Backend student profile endpoint (returns student, assessments, attendance, stats, and subject performance in 1 roundtrip)
-      try {
-        const res = await fetch(`/api/students/${encodeURIComponent(String(studentIdOrId))}`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-        if (res.ok) {
-          const text = await res.text();
-          if (text && (text.startsWith('{') || text.startsWith('['))) {
-            const data = JSON.parse(text);
-            if (data && data.student) {
-              resolvedStudent = data.student;
-              if (Array.isArray(data.assessments)) {
-                realAssessments = data.assessments;
-              }
-              if (data.attendance) {
-                initialAttendance = data.attendance;
-              }
-              if (data.subjectPerformance && typeof data.subjectPerformance === 'object') {
-                apiSubjectPerformance = data.subjectPerformance;
-                setSubjectPerformance(data.subjectPerformance);
+      const queryId =
+        (studentIdOrId && String(studentIdOrId).trim() !== '' ? String(studentIdOrId).trim() : null) ||
+        (initialStudent?.studentId ? String(initialStudent.studentId).trim() : null) ||
+        (initialStudent?.id ? String(initialStudent.id).trim() : null) ||
+        (user?.studentId ? String(user.studentId).trim() : null) ||
+        (user?.role === 'student' && (user as any)?.uid ? String((user as any).uid).trim() : null) ||
+        '';
+
+      if (queryId) {
+        try {
+          const res = await fetch(`/api/students/${encodeURIComponent(queryId)}`, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          });
+          if (res.ok) {
+            const text = await res.text();
+            if (text && (text.startsWith('{') || text.startsWith('['))) {
+              const data = JSON.parse(text);
+              if (data && data.student) {
+                resolvedStudent = data.student;
+                if (Array.isArray(data.assessments)) {
+                  realAssessments = data.assessments;
+                }
+                if (data.attendance) {
+                  initialAttendance = data.attendance;
+                }
+                if (data.subjectPerformance && typeof data.subjectPerformance === 'object') {
+                  apiSubjectPerformance = data.subjectPerformance;
+                  setSubjectPerformance(data.subjectPerformance);
+                }
               }
             }
           }
+        } catch (networkErr) {
+          console.warn('Backend student profile fetch fallback:', networkErr);
         }
-      } catch (networkErr) {
-        console.warn('Backend student profile fetch fallback:', networkErr);
+      }
+
+      // If still no student resolved and user is faculty/admin, fetch first student from roster instead of failing
+      if (!resolvedStudent && !queryId) {
+        try {
+          const listRes = await fetch('/api/students?limit=1', {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (listRes.ok) {
+            const listData = await listRes.json();
+            if (Array.isArray(listData.students) && listData.students.length > 0) {
+              const firstSt = listData.students[0];
+              const stRes = await fetch(`/api/students/${firstSt.id}`, {
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              if (stRes.ok) {
+                const data = await stRes.json();
+                if (data && data.student) {
+                  resolvedStudent = data.student;
+                  if (Array.isArray(data.assessments)) realAssessments = data.assessments;
+                  if (data.attendance) initialAttendance = data.attendance;
+                  if (data.subjectPerformance) setSubjectPerformance(data.subjectPerformance);
+                }
+              }
+            }
+          }
+        } catch (_) {}
       }
 
       // 2. If student still not resolved, check unified store & local vault
@@ -570,20 +607,22 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           }
         } catch (_) {}
 
-        // Filter out empty score items and deduplicate to ensure only the latest score per subject and test type is kept
+        // Filter out deleted scores and deduplicate to ensure only the latest score per subject and test type is kept
         const dedupMap = new Map<string, any>();
         realAssessments.forEach((a) => {
-          if (!(Number(a.score) > 0 || Number(a.percentage) > 0 || a.assessmentType === 'CA')) return;
+          if (a.score === null || a.score === undefined || isNaN(Number(a.score))) return;
           if (isScoreDeleted(a.id, a.subjectId, a.assessmentType)) return;
           const aTitle = (a.assessmentTitle || '').toLowerCase();
           const aComm = (a.teacherComment || '').toLowerCase();
           const isFirstHalf = aTitle.includes('first half') || aTitle.includes('1st half') || aTitle.includes('mid') || aComm.includes('first-half');
           const pKey = isFirstHalf ? 'first-half' : 'terminal';
-          const subKey = `${a.subjectId || a.subjectName}_${(a.assessmentType || 'CA').toUpperCase()}_${a.term || 'First Term'}_${a.session || '2026/2027'}_${pKey}`;
+          const cleanSub = (a.subjectName || '').trim().toLowerCase();
+          const normTerm = normalizeProfileTerm(a.term);
+          const subKey = `${a.subjectId || cleanSub}_${(a.assessmentType || 'CA').toUpperCase()}_${normTerm}_${a.session || '2026/2027'}_${pKey}`;
           dedupMap.set(subKey, a);
         });
         realAssessments = Array.from(dedupMap.values());
-        realMockScores = realMockScores.filter((m) => Number(m.score) > 0 || Number(m.percentage) > 0);
+        realMockScores = realMockScores.filter((m) => m.score !== null && m.score !== undefined && !isNaN(Number(m.score)));
 
         setAssessments(realAssessments);
         setMockScores(realMockScores);
@@ -729,7 +768,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
       window.removeEventListener('fis:attendance-updated', handleDataUpdated);
       window.removeEventListener('storage', handleDataUpdated);
     };
-  }, [studentIdOrId, token]);
+  }, [studentIdOrId, initialStudent?.id, initialStudent?.studentId, token]);
 
   // Open Edit Assessment Modal
   const handleOpenEdit = (a: AssessmentRecord) => {
@@ -1333,8 +1372,20 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
         return;
       }
     }
-    const subKey = `${a.subjectId || a.subjectName}_${a.term || 'First Term'}_${a.session || '2026/2027'}`;
+    const cleanSub = (a.subjectName || '').trim().toLowerCase();
+    const normTerm = normalizeProfileTerm(a.term);
+    const subKey = `${a.subjectId || cleanSub}_${normTerm}_${a.session || student.session || '2026/2027'}`;
     let row = groupedSubjectMap.get(subKey);
+    if (!row) {
+      row = Array.from(groupedSubjectMap.values()).find((existing) =>
+        ((existing.subjectId && a.subjectId && Number(existing.subjectId) === Number(a.subjectId)) ||
+         (existing.subjectName && cleanSub && existing.subjectName.trim().toLowerCase() === cleanSub)) &&
+        normalizeProfileTerm(existing.term) === normTerm
+      );
+      if (row) {
+        groupedSubjectMap.set(subKey, row);
+      }
+    }
     if (!row) {
       row = {
         subjectId: Number(a.subjectId) || 0,
@@ -1382,8 +1433,8 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     if (jsonNote) row.teacherComment = jsonNote;
     else if (a.teacherComment && !a.teacherComment.trim().startsWith('{')) row.teacherComment = a.teacherComment;
 
-    if (jsonCa !== null && row.caScore === null) row.caScore = jsonCa;
-    if (jsonExam !== null && row.examScore === null) row.examScore = jsonExam;
+    if (jsonCa !== null && (row.caScore === null || jsonCa > 0)) row.caScore = jsonCa;
+    if (jsonExam !== null && (row.examScore === null || jsonExam > 0)) row.examScore = jsonExam;
 
     const title = (a.assessmentTitle || '').toLowerCase();
     const type = (a.assessmentType || '').toUpperCase();
@@ -1391,10 +1442,10 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     const sc = Number(a.score) || 0;
 
     if (type === 'CA' || type === 'TEST' || title.includes('ca') || title.includes('test') || maxS === 40) {
-      if (row.caScore === null) row.caScore = sc;
+      if (row.caScore === null || sc > 0) row.caScore = sc;
       row.caRecord = a;
     } else if (type === 'EXAMINATION' || type === 'EXAM' || title.includes('exam') || maxS === 60) {
-      if (row.examScore === null) row.examScore = sc;
+      if (row.examScore === null || sc > 0) row.examScore = sc;
       row.examRecord = a;
     } else {
       if (row.caScore === null && row.examScore === null && maxS === 100) {

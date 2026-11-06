@@ -603,9 +603,31 @@ app.get('/api/auth/me', authenticate, async (req: AuthRequest, res) => {
     } catch (_) {}
   }
 
+  const studentId =
+    (req.appUser as any).studentId ||
+    req.appUser.studentProfile?.studentId ||
+    (req.appUser.role === 'student' ? req.appUser.uid : undefined);
+  const currentClass =
+    (req.appUser as any).currentClass ||
+    req.appUser.studentProfile?.currentClass ||
+    undefined;
+  const surname =
+    (req.appUser as any).surname ||
+    req.appUser.studentProfile?.surname ||
+    req.appUser.lastName ||
+    undefined;
+  const session =
+    (req.appUser as any).session ||
+    req.appUser.studentProfile?.session ||
+    '2026/2027';
+
   return res.json({
     user: {
       ...req.appUser,
+      studentId,
+      currentClass,
+      surname,
+      session,
       assignedClass,
       isClassTeacher: Boolean(assignedClass),
       photoUrl,

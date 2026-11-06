@@ -13,6 +13,10 @@ export interface AppUser {
   lastName: string;
   role: string;
   schoolId: number | null;
+  studentId?: string;
+  currentClass?: string;
+  surname?: string;
+  session?: string;
   teacherProfile?: any;
   studentProfile?: any;
 }
@@ -294,6 +298,10 @@ export const authenticate = async (
             req.appUser = {
               id: studentRec[0].id,
               uid: studentRec[0].studentId,
+              studentId: studentRec[0].studentId,
+              currentClass: studentRec[0].currentClass,
+              surname: studentRec[0].surname,
+              session: studentRec[0].session || '2026/2027',
               email: studentRec[0].email || `${studentRec[0].studentId}@school.edu`,
               firstName: studentRec[0].firstName,
               lastName: studentRec[0].surname,
@@ -320,12 +328,16 @@ export const authenticate = async (
         req.appUser = {
           id: matchedSt?.id || 1,
           uid: matchedSt?.studentId || stNum.toUpperCase(),
+          studentId: matchedSt?.studentId || stNum.toUpperCase(),
+          currentClass: matchedSt?.currentClass || 'JSS 3',
+          surname: matchedSt?.surname || 'Student',
+          session: matchedSt?.session || '2026/2027',
           email: matchedSt?.email || `${stNum.toLowerCase()}@school.edu`,
           firstName: matchedSt?.firstName || 'Scholar',
           lastName: matchedSt?.surname || 'Student',
           role: 'student',
           schoolId: 1,
-          studentProfile: matchedSt || { id: 1, studentId: stNum.toUpperCase(), currentClass: 'SS 2' },
+          studentProfile: matchedSt || { id: 1, studentId: stNum.toUpperCase(), currentClass: 'JSS 3' },
         };
         return next();
       }

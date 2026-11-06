@@ -27,7 +27,11 @@ import { SCHOOL_CLASSES } from '../constants/classes.ts';
 import { ClassBroadsheet } from './ClassBroadsheet.tsx';
 import { fetchStudentComments, saveStudentComments } from '../lib/schoolStore.ts';
 
-export const ResultsView: React.FC = () => {
+export interface ResultsViewProps {
+  onSelectStudent?: (student: any) => void;
+}
+
+export const ResultsView: React.FC<ResultsViewProps> = ({ onSelectStudent }) => {
   const { token, user } = useAuth();
 
   const isVictorSuperAdmin = user?.role === 'super_admin' || user?.email?.toLowerCase() === 'victoralo1862@gmail.com';
@@ -586,7 +590,19 @@ export const ResultsView: React.FC = () => {
                     {results.map((r, idx) => (
                       <tr key={`rv_res_${r.id}_${idx}`} className="hover:bg-slate-700/30 transition">
                         <td className="py-3.5 px-4">
-                          <span className="font-semibold text-white block">{r.studentName}</span>
+                          <span
+                            onClick={() => onSelectStudent?.({
+                              id: r.studentDbId || r.studentId,
+                              studentId: r.studentId,
+                              firstName: r.studentName?.split(' ')[0] || r.studentName,
+                              surname: r.studentName?.split(' ').slice(1).join(' ') || '',
+                              currentClass: r.class,
+                            })}
+                            className={`font-semibold text-white block ${onSelectStudent ? 'cursor-pointer hover:text-emerald-400 hover:underline transition' : ''}`}
+                            title={onSelectStudent ? `Click to view ${r.studentName}'s complete student profile` : undefined}
+                          >
+                            {r.studentName}
+                          </span>
                           <span className="font-mono text-emerald-400 text-[11px]">{r.studentId}</span>
                           {(r.parentName || r.parentPhone) && (
                             <span className="text-[10px] text-slate-400 block mt-0.5">
