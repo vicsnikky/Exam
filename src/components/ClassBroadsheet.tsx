@@ -593,7 +593,7 @@ export const ClassBroadsheet: React.FC = () => {
           { headers: { Authorization: `Bearer ${authToken}` } }
         ).then(r => r.ok ? r.json() : null).catch(() => null),
         fetch(
-          `/api/scores?class=${encodeURIComponent(selectedClass)}&session=${encodeURIComponent(selectedSession)}&excludeMock=true`,
+          `/api/scores?class=${encodeURIComponent(selectedClass)}&session=${encodeURIComponent(selectedSession)}&excludeMock=${isSenior && selectedClass.replace(/\s+/g, '').toLowerCase().includes('ss3') ? 'false' : 'true'}`,
           { headers: { Authorization: `Bearer ${authToken}` } }
         ).then(r => r.ok ? r.json() : null).catch(() => null),
         fetchAllSubjectsUnified(token).catch(() => []),
@@ -677,7 +677,8 @@ export const ClassBroadsheet: React.FC = () => {
       // Helper: Term normalizer
       const normalizeTerm = (t?: string) => {
         if (!t) return '';
-        const s = t.toLowerCase();
+        const s = t.toLowerCase().trim();
+        if (s.startsWith('week') || s.includes('mock')) return 'first';
         if (s.includes('1') || s.includes('first')) return 'first';
         if (s.includes('2') || s.includes('second')) return 'second';
         if (s.includes('3') || s.includes('third')) return 'third';
@@ -783,16 +784,26 @@ export const ClassBroadsheet: React.FC = () => {
         let countedSubjects = 0;
         const currentStageScoresList: Array<{ subjectId: number | string; totalScore: number; units: number }> = [];
 
-        // Fast student score subset from pre-indexed Map
-        const candidateScores = scoresByStudent.get(cleanDbId) || scoresByStudent.get(cleanStId) || scoresByStudent.get(stFullName) || [];
-        const candidateLocals = localByStudent.get(cleanDbId) || localByStudent.get(cleanStId) || localByStudent.get(stFullName) || [];
+        // Fast student score subset from pre-indexed Map (combine all keys to guarantee complete score capture)
+        const candidateScores = Array.from(new Set([
+          ...(scoresByStudent.get(cleanDbId) || []),
+          ...(scoresByStudent.get(cleanStId) || []),
+          ...(scoresByStudent.get(stFullName) || [])
+        ]));
+        const candidateLocals = Array.from(new Set([
+          ...(localByStudent.get(cleanDbId) || []),
+          ...(localByStudent.get(cleanStId) || []),
+          ...(localByStudent.get(stFullName) || [])
+        ]));
+
+        const isSS3Class = isSenior && selectedClass.replace(/\s+/g, '').toLowerCase().includes('ss3');
 
         allUnifiedSubjects.forEach((sub) => {
           // Find assessments for this student and subject using canonical subject matching
           const stScores = candidateScores.filter((sc) => {
             if (isScoreDeleted(sc.id)) return false;
-            if (sc.assessmentType === 'SS3_MOCK') return false;
-            if (sc.term && normalizeTerm(sc.term) !== normalizeTerm(selectedTerm)) return false;
+            if (!isSS3Class && sc.assessmentType === 'SS3_MOCK') return false;
+            if (sc.term && !String(sc.term).toLowerCase().startsWith('week') && normalizeTerm(sc.term) !== normalizeTerm(selectedTerm)) return false;
 
             const matchesSub = isSameAcademicSubject(
               { id: sub.id, code: sub.code, name: sub.name },
@@ -933,6 +944,15 @@ export const ClassBroadsheet: React.FC = () => {
                   }
                 } catch (_) {}
               }
+            }
+
+            // Check for SS3 Mock assessment or scaled mock record
+            const mockRec = stScores.find((s) => s.assessmentType === 'SS3_MOCK' || (s.assessmentTitle || '').toLowerCase().includes('mock'));
+            if (mockRec && (test === null || exam === null)) {
+              generalId = mockRec.id;
+              const mScore = Number(mockRec.score) || 0;
+              test = Math.round((mScore * 40) / 100);
+              exam = Math.round((mScore * 60) / 100);
             }
 
             // Fallback for single assessment record

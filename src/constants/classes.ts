@@ -314,10 +314,11 @@ export function getExamStageOrder(
   title?: string,
   comment?: string
 ): number {
-  const normTerm = (term || '').toLowerCase();
-  const is1st = normTerm.includes('1') || normTerm.includes('first');
-  const is2nd = normTerm.includes('2') || normTerm.includes('second');
-  const is3rd = normTerm.includes('3') || normTerm.includes('third');
+  const normTerm = (term || '').toLowerCase().trim();
+  const isWeekMock = normTerm.startsWith('week') || normTerm.includes('mock');
+  const is1st = isWeekMock || normTerm.includes('first') || normTerm.includes('1st') || normTerm === '1';
+  const is2nd = !isWeekMock && (normTerm.includes('second') || normTerm.includes('2nd') || normTerm === '2');
+  const is3rd = !isWeekMock && (normTerm.includes('third') || normTerm.includes('3rd') || normTerm === '3');
 
   let period = (examPeriod || '').toLowerCase();
   if (!period && (title || comment)) {
@@ -460,6 +461,7 @@ export function computeCumulativeCgpaForStudent(params: {
     const sDbId = String(s.studentDbId || s.studentId || '').trim();
     const sNum = String(s.studentNumber || s.studentId || '').toUpperCase().trim();
     const matchesStudent =
+      (!sDbId && !sNum) ||
       (sDbId && (sDbId === cleanDbId || sDbId === cleanStId)) ||
       (sNum && (sNum === cleanStId || sNum === cleanDbId));
     if (!matchesStudent) return;
@@ -472,27 +474,48 @@ export function computeCumulativeCgpaForStudent(params: {
 
     const sStage = getExamStageOrder(s.term, s.examPeriod, s.assessmentTitle, s.teacherComment);
     if (sStage <= currentStage) {
-      const sId = String(s.subjectId);
+      const sId = String(s.subjectId || s.subjectName || '');
       const key = `${sStage}_${sId}`;
-      if (!stageSubjectScores.has(key)) {
-        let tot = 0;
-        if (s.teacherComment && s.teacherComment.trim().startsWith('{')) {
-          try {
-            const p = JSON.parse(s.teacherComment);
-            if (p.totalScore !== undefined && p.totalScore !== null) tot = Number(p.totalScore);
-            else if (p.caScore !== undefined || p.examScore !== undefined) {
-              tot = (Number(p.caScore) || 0) + (Number(p.examScore) || 0);
-            }
-          } catch (_) {}
+
+      let tot = 0;
+      if (s.teacherComment && s.teacherComment.trim().startsWith('{')) {
+        try {
+          const p = JSON.parse(s.teacherComment);
+          if (p.totalScore !== undefined && p.totalScore !== null) tot = Number(p.totalScore);
+          else if (p.caScore !== undefined || p.examScore !== undefined) {
+            tot = (Number(p.caScore) || 0) + (Number(p.examScore) || 0);
+          }
+        } catch (_) {}
+      }
+
+      if (!tot && (s.assessmentType === 'SS3_MOCK' || Number(s.maxScore) === 100)) {
+        tot = Number(s.score) || 0;
+      }
+
+      if (tot > 0) {
+        if (!stageSubjectScores.has(key)) {
+          stageSubjectScores.set(key, { totalScore: Math.min(100, tot), units: 2 });
         }
-        if (!tot && s.score !== undefined && s.score !== null) {
-          const numS = Number(s.score);
-          const maxS = Number(s.maxScore) || 100;
-          if (maxS === 100) tot = numS;
-          else tot = Math.round((numS / maxS) * 100);
+      } else {
+        const scNum = Number(s.score) || 0;
+        const maxS = Number(s.maxScore) || 100;
+        const isCA = s.assessmentType === 'CA' || maxS === 40 || (s.assessmentTitle || '').toLowerCase().includes('ca');
+        const isExam = s.assessmentType === 'Examination' || maxS === 60 || (s.assessmentTitle || '').toLowerCase().includes('exam');
+
+        let existing = stageSubjectScores.get(key) as any;
+        if (!existing) {
+          existing = { totalScore: 0, units: 2, ca: null, exam: null };
+          stageSubjectScores.set(key, existing);
         }
-        if (!isNaN(tot) && tot > 0) {
-          stageSubjectScores.set(key, { totalScore: tot, units: 2 });
+        if (isCA && existing.ca === null) {
+          existing.ca = scNum;
+        } else if (isExam && existing.exam === null) {
+          existing.exam = scNum;
+        } else if (maxS === 100 && existing.totalScore === 0) {
+          existing.totalScore = scNum;
+        }
+        if (existing.ca !== null || existing.exam !== null) {
+          existing.totalScore = Math.min(100, (existing.ca || 0) + (existing.exam || 0));
         }
       }
     }

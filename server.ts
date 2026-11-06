@@ -1162,6 +1162,9 @@ app.get('/api/students/:id', authenticate, async (req: AuthRequest, res) => {
     const assessmentRecords = await db
       .select({
         id: assessments.id,
+        studentDbId: assessments.studentId,
+        studentId: sql<string>`COALESCE(${students.studentId}, ${student.studentId})`,
+        studentNumber: sql<string>`COALESCE(${students.studentId}, ${student.studentId})`,
         assessmentTitle: assessments.assessmentTitle,
         assessmentType: assessments.assessmentType,
         score: assessments.score,
@@ -1178,6 +1181,7 @@ app.get('/api/students/:id', authenticate, async (req: AuthRequest, res) => {
         teacherName: sql<string>`COALESCE(${users.firstName} || ' ' || ${users.lastName}, 'Faculty Teacher')`,
       })
       .from(assessments)
+      .leftJoin(students, eq(assessments.studentId, students.id))
       .leftJoin(subjects, eq(assessments.subjectId, subjects.id))
       .leftJoin(teachers, eq(assessments.teacherId, teachers.id))
       .leftJoin(users, eq(teachers.userId, users.id))
@@ -2852,7 +2856,10 @@ app.get('/api/scores', authenticate, async (req: AuthRequest, res) => {
     }
 
     if (req.query.excludeMock === 'true' || req.query.excludeMock === '1') {
-      conditions.push(sql`${assessments.assessmentType} != 'SS3_MOCK'`);
+      const isSS3Query = Boolean(classFilter && /^s{2,3}3$/i.test(classFilter.replace(/\s+/g, '')));
+      if (!isSS3Query) {
+        conditions.push(sql`${assessments.assessmentType} != 'SS3_MOCK'`);
+      }
     }
 
     if (session && session !== 'all') {
@@ -4011,7 +4018,19 @@ app.get('/api/broadsheet/class', authenticate, async (req: AuthRequest, res) => 
     if (term && term !== 'all') {
       const termLower = term.toLowerCase();
       if (termLower.includes('first') || termLower.includes('1st') || termLower === '1') {
-        conditions.push(or(ilike(assessments.term, '%first%'), ilike(assessments.term, '%1st%'), eq(assessments.term, 'First Term'))!);
+        if (isSS3) {
+          conditions.push(
+            or(
+              ilike(assessments.term, '%first%'),
+              ilike(assessments.term, '%1st%'),
+              eq(assessments.term, 'First Term'),
+              ilike(assessments.term, 'week%'),
+              eq(assessments.assessmentType, 'SS3_MOCK')
+            )!
+          );
+        } else {
+          conditions.push(or(ilike(assessments.term, '%first%'), ilike(assessments.term, '%1st%'), eq(assessments.term, 'First Term'))!);
+        }
       } else if (termLower.includes('second') || termLower.includes('2nd') || termLower === '2') {
         conditions.push(or(ilike(assessments.term, '%second%'), ilike(assessments.term, '%2nd%'), eq(assessments.term, 'Second Term'))!);
       } else if (termLower.includes('third') || termLower.includes('3rd') || termLower === '3') {
@@ -4020,8 +4039,10 @@ app.get('/api/broadsheet/class', authenticate, async (req: AuthRequest, res) => 
         conditions.push(or(eq(assessments.term, term), ilike(assessments.term, `%${term}%`))!);
       }
     }
-    // Broadsheet is for regular academic terms; exclude SS3 Mock examinations
-    conditions.push(sql`${assessments.assessmentType} != 'SS3_MOCK'`);
+    // Broadsheet excludes SS3 Mock examinations ONLY for non-SS3 classes
+    if (!isSS3) {
+      conditions.push(sql`${assessments.assessmentType} != 'SS3_MOCK'`);
+    }
 
     if (session && session !== 'all') {
       conditions.push(or(eq(assessments.session, session), ilike(assessments.session, `%${session}%`)));

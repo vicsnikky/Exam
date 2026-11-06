@@ -87,6 +87,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   onAddScoreForStudent,
 }) => {
   const { token, user } = useAuth();
+  const authToken = token || sessionStorage.getItem('sqams_token') || '';
   const isStudent = user?.role === 'student' || Boolean(user?.studentId) || Boolean((user as any)?.studentProfile);
   const isBursar = user?.role === 'bursar';
   const hasAdminPrivileges =
@@ -243,7 +244,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
         try {
           const res = await fetch(`/api/students/${encodeURIComponent(queryId)}`, {
             headers: {
-              Authorization: `Bearer ${token}`,
+              Authorization: `Bearer ${authToken}`,
             },
           });
           if (res.ok) {
@@ -274,14 +275,14 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
       if (!resolvedStudent && !queryId) {
         try {
           const listRes = await fetch('/api/students?limit=1', {
-            headers: { Authorization: `Bearer ${token}` },
+            headers: { Authorization: `Bearer ${authToken}` },
           });
           if (listRes.ok) {
             const listData = await listRes.json();
             if (Array.isArray(listData.students) && listData.students.length > 0) {
               const firstSt = listData.students[0];
               const stRes = await fetch(`/api/students/${firstSt.id}`, {
-                headers: { Authorization: `Bearer ${token}` },
+                headers: { Authorization: `Bearer ${authToken}` },
               });
               if (stRes.ok) {
                 const data = await stRes.json();
@@ -393,7 +394,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           if (!loadedAtt) {
             try {
               const attRes = await fetch(`/api/students/${encodeURIComponent(String(targetId))}/attendance`, {
-                headers: { Authorization: `Bearer ${token}` },
+                headers: { Authorization: `Bearer ${authToken}` },
               });
               if (attRes.ok) {
                 const attData = await attRes.json();
@@ -426,7 +427,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
         if (realAssessments.length === 0) {
           try {
             const res = await fetch(`/api/scores?student=${encodeURIComponent(resolvedStudent.studentId)}`, {
-              headers: { Authorization: `Bearer ${token}` },
+              headers: { Authorization: `Bearer ${authToken}` },
             });
             if (res.ok) {
               const text = await res.text();
@@ -621,11 +622,27 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           const subKey = `${a.subjectId || cleanSub}_${(a.assessmentType || 'CA').toUpperCase()}_${normTerm}_${a.session || '2026/2027'}_${pKey}`;
           dedupMap.set(subKey, a);
         });
-        realAssessments = Array.from(dedupMap.values());
+        realAssessments = Array.from(dedupMap.values()).map((a) => ({
+          ...a,
+          studentDbId: a.studentDbId || resolvedStudent?.id,
+          studentId: a.studentId || resolvedStudent?.studentId,
+          studentNumber: a.studentNumber || resolvedStudent?.studentId,
+        }));
         realMockScores = realMockScores.filter((m) => m.score !== null && m.score !== undefined && !isNaN(Number(m.score)));
 
         setAssessments(realAssessments);
         setMockScores(realMockScores);
+
+        // Always guarantee subjectPerformance summary map is populated with recorded assessments
+        if (realAssessments.length > 0) {
+          const sMap: Record<string, any[]> = {};
+          realAssessments.forEach((a) => {
+            const sub = a.subjectName || 'Subject';
+            if (!sMap[sub]) sMap[sub] = [];
+            sMap[sub].push(a);
+          });
+          setSubjectPerformance(sMap);
+        }
 
         // Auto-synchronize Term and Exam Period from the student's recorded assessments
         // 1. Check broadsheet cache for the student's most recently recorded score
@@ -1355,7 +1372,8 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
   const normalizeProfileTerm = (t?: string) => {
     if (!t) return '';
-    const s = t.toLowerCase();
+    const s = t.toLowerCase().trim();
+    if (s.startsWith('week') || s.includes('mock')) return 'first';
     if (s.includes('first') || s.includes('1st') || s === '1') return 'first';
     if (s.includes('second') || s.includes('2nd') || s === '2') return 'second';
     if (s.includes('third') || s.includes('3rd') || s === '3') return 'third';
@@ -1409,9 +1427,11 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
     if (a.assessmentType === 'SS3_MOCK') {
       row.isMock = true;
-      if (row.examScore === null && row.caScore === null) {
-        row.examScore = Number(a.score) || 0;
-        row.totalScore = Number(a.score) || 0;
+      const sVal = Number(a.score) || 0;
+      if (row.totalScore === 0 || sVal > 0) {
+        row.totalScore = sVal;
+        row.caScore = Math.round((sVal * 40) / 100);
+        row.examScore = Math.round((sVal * 60) / 100);
         row.remark = (a as any).remark || 'SS3 Weekly Mock';
         row.hasScore = true;
       }
