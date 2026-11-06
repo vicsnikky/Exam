@@ -436,8 +436,6 @@ export function computeCumulativeCgpaForStudent(params: {
     if (l.id && deletedIds.has(String(l.id))) return;
     if (l.testId && deletedIds.has(String(l.testId))) return;
     if (l.examId && deletedIds.has(String(l.examId))) return;
-    if (deletedIds.has(`key_${cleanDbId}_${l.subjectId}`)) return;
-    if (deletedIds.has(`key_${cleanStId}_${l.subjectId}`)) return;
 
     // Check session
     if (l.session && targetSession && l.session.trim() !== targetSession.trim()) return;
@@ -467,8 +465,6 @@ export function computeCumulativeCgpaForStudent(params: {
     if (!matchesStudent) return;
 
     if (s.id && deletedIds.has(String(s.id))) return;
-    if (deletedIds.has(`key_${cleanDbId}_${s.subjectId}`)) return;
-    if (deletedIds.has(`key_${cleanStId}_${s.subjectId}`)) return;
 
     if (s.session && targetSession && s.session.trim() !== targetSession.trim()) return;
 

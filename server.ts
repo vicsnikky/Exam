@@ -70,11 +70,9 @@ if (!process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
   ensureDbReady();
 }
 
-app.use(async (req, _res, next) => {
+app.use((req, _res, next) => {
   if (req.path.startsWith('/api')) {
-    try {
-      await ensureDbReady();
-    } catch (_) {}
+    ensureDbReady().catch(() => {});
   }
   next();
 });

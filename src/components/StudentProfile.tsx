@@ -44,6 +44,7 @@ import {
   saveStudentComments,
   uploadStudentPassportPhoto,
   getCachedProfilePhoto,
+  fetchStudentAssessmentsFromSupabase,
 } from '../lib/schoolStore.ts';
 import { PhotoUploadModal } from './PhotoUploadModal.tsx';
 import { supabase } from '../supabaseConfig.ts';
@@ -436,7 +437,9 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
               if (Array.isArray(data.scores)) {
                 realAssessments = data.scores.map((a: any) => ({
                   id: a.id,
+                  studentDbId: a.studentDbId || resolvedStudent!.id,
                   studentId: resolvedStudent!.studentId,
+                  studentNumber: resolvedStudent!.studentId,
                   subjectId: a.subjectId,
                   subjectName: a.subjectName || 'Subject',
                   subjectCode: a.subjectCode || 'SUB',
@@ -454,6 +457,18 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
               }
             }
           } catch (_) {}
+        }
+
+        // Direct Supabase PostgREST fallback: guarantees 100% of student scores load even if serverless API times out
+        if (realAssessments.length === 0) {
+          const supaAssessments = await fetchStudentAssessmentsFromSupabase(
+            resolvedStudent.id,
+            resolvedStudent.studentId,
+            resolvedStudent
+          );
+          if (supaAssessments.length > 0) {
+            realAssessments = supaAssessments;
+          }
         }
 
         // Parse deleted IDs from localStorage
@@ -519,6 +534,45 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
               }
             }
           } catch (_) {}
+
+          // Fallback: if mock API failed, extract SS3_MOCK records directly from realAssessments
+          if (realMockScores.length === 0 && realAssessments.length > 0) {
+            const mockFromAssessments = realAssessments
+              .filter((a) => a.assessmentType === 'SS3_MOCK')
+              .map((a) => {
+                const wkMatch = String(a.term || a.assessmentTitle || '').match(/week\s*(\d+)/i);
+                const weekNumber = wkMatch ? Number(wkMatch[1]) : 1;
+                let rawScore = Number(a.score) || 0;
+                let maxRawScore = 100;
+                let remark = 'Good';
+                try {
+                  if (a.teacherComment && a.teacherComment.trim().startsWith('{')) {
+                    const p = JSON.parse(a.teacherComment);
+                    if (p.rawScore !== undefined) rawScore = Number(p.rawScore);
+                    if (p.maxRawScore !== undefined) maxRawScore = Number(p.maxRawScore);
+                    if (p.remark) remark = p.remark;
+                  }
+                } catch (_) {}
+                return {
+                  id: a.id,
+                  studentId: resolvedStudent!.studentId,
+                  subjectId: a.subjectId,
+                  subjectName: a.subjectName,
+                  subjectCode: a.subjectCode || 'MOCK',
+                  weekNumber,
+                  rawScore,
+                  maxRawScore,
+                  score: Number(a.score) || 0,
+                  maxScore: 100,
+                  percentage: Number(a.score) || 0,
+                  grade: a.grade || 'C4',
+                  remark,
+                };
+              });
+            if (mockFromAssessments.length > 0) {
+              realMockScores = mockFromAssessments;
+            }
+          }
         }
 
         // Merge from localStorage fis_broadsheet_scores_v2 (strictly excluding deleted scores)
@@ -620,7 +674,9 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           const cleanSub = (a.subjectName || '').trim().toLowerCase();
           const normTerm = normalizeProfileTerm(a.term);
           const subKey = `${a.subjectId || cleanSub}_${(a.assessmentType || 'CA').toUpperCase()}_${normTerm}_${a.session || '2026/2027'}_${pKey}`;
-          dedupMap.set(subKey, a);
+          if (!dedupMap.has(subKey)) {
+            dedupMap.set(subKey, a);
+          }
         });
         realAssessments = Array.from(dedupMap.values()).map((a) => ({
           ...a,

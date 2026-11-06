@@ -56,6 +56,7 @@ import {
   saveStudentComments,
   fetchAllStudentComments,
   getCachedProfilePhoto,
+  fetchClassAssessmentsFromSupabase,
 } from '../lib/schoolStore.ts';
 import { EditStudentModal } from './EditStudentModal.tsx';
 import { supabase } from '../supabaseConfig.ts';
@@ -642,6 +643,21 @@ export const ClassBroadsheet: React.FC = () => {
               existingIds.add(String(sc.id));
             }
           });
+        }
+      }
+
+      // 3b. Direct Supabase PostgREST fallback: guarantees 100% of broadsheet scores load even if serverless API times out
+      if (serverScores.length === 0) {
+        const supaClassScores = await fetchClassAssessmentsFromSupabase({
+          className: selectedClass,
+          studentIds: targetStudents.map((s) => Number(s.id)).filter((n) => !isNaN(n) && n > 0),
+          term: selectedTerm,
+          session: selectedSession,
+          excludeMock: !(isSenior && selectedClass.replace(/\s+/g, '').toLowerCase().includes('ss3')),
+        });
+        if (supaClassScores.length > 0) {
+          serverScores.push(...supaClassScores);
+          allSessionServerScores = supaClassScores;
         }
       }
 

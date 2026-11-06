@@ -25,7 +25,8 @@ import {
 import { Subject } from '../types/index.ts';
 import { SCHOOL_CLASSES } from '../constants/classes.ts';
 import { ClassBroadsheet } from './ClassBroadsheet.tsx';
-import { fetchStudentComments, saveStudentComments } from '../lib/schoolStore.ts';
+import { fetchStudentComments, saveStudentComments, fetchClassAssessmentsFromSupabase } from '../lib/schoolStore.ts';
+import { fetchAllSubjectsUnified } from '../lib/subjectStore.ts';
 
 export interface ResultsViewProps {
   onSelectStudent?: (student: any) => void;
@@ -155,21 +156,42 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ onSelectStudent }) => 
       if (selectedTerm && selectedTerm !== 'all') params.set('term', selectedTerm);
       if (selectedSession && selectedSession !== 'all') params.set('session', selectedSession);
 
-      const res = await fetch(`/api/scores?${params.toString()}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const text = await res.text();
-      let data: any = {};
-      try { data = JSON.parse(text); } catch (_) {}
-      const rawList = data.results || [];
+      let rawList: any[] = [];
+      try {
+        const res = await fetch(`/api/scores?${params.toString()}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const text = await res.text();
+          let data: any = {};
+          try { data = JSON.parse(text); } catch (_) {}
+          rawList = data.results || data.scores || [];
+        }
+      } catch (_) {}
+
+      if (rawList.length === 0) {
+        const supaList = await fetchClassAssessmentsFromSupabase({
+          className: selectedClass,
+          term: selectedTerm,
+          session: selectedSession,
+        });
+        rawList = supaList.filter((r: any) => {
+          if (selectedSubjectId && String(r.subjectId) !== String(selectedSubjectId)) return false;
+          if (studentQuery) {
+            const q = studentQuery.toLowerCase().trim();
+            const matchName = (r.studentName || '').toLowerCase().includes(q);
+            const matchId = (r.studentId || '').toLowerCase().includes(q);
+            if (!matchName && !matchId) return false;
+          }
+          return true;
+        });
+      }
 
       const deletedRaw = localStorage.getItem('fis_deleted_score_ids_v1');
       const deletedIds = new Set<string>(deletedRaw ? JSON.parse(deletedRaw) : []);
 
       const filtered = rawList.filter((r: any) => {
-        if (deletedIds.has(String(r.id))) return false;
-        if (r.studentDbId && r.subjectId && deletedIds.has(`key_${r.studentDbId}_${r.subjectId}`)) return false;
-        if (r.studentId && r.subjectId && deletedIds.has(`key_${r.studentId}_${r.subjectId}`)) return false;
+        if (r.id && deletedIds.has(String(r.id))) return false;
         return true;
       });
 
@@ -182,13 +204,9 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ onSelectStudent }) => 
   };
 
   useEffect(() => {
-    fetch('/api/subjects', { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => r.text())
-      .then((text) => {
-        try {
-          const d = JSON.parse(text);
-          setSubjects(d.subjects || []);
-        } catch (_) {}
+    fetchAllSubjectsUnified(token)
+      .then((list) => {
+        if (list && list.length > 0) setSubjects(list);
       })
       .catch(() => {});
 

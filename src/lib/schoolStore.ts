@@ -2381,3 +2381,147 @@ export async function uploadStaffProfilePhoto(
     message: 'Profile photo updated successfully',
   };
 }
+
+// ----------------------------------------------------
+// DIRECT SUPABASE ASSESSMENT SYNCHRONIZATION
+// ----------------------------------------------------
+export function mapSupabaseAssessmentRow(row: any, fallbackStudent?: { id?: number; studentId?: string; firstName?: string; surname?: string; currentClass?: string; session?: string }) {
+  const st = row.students || {};
+  const sub = row.subjects || {};
+  const stCode = st.student_id || fallbackStudent?.studentId || 'STUDENT';
+  const stDbId = row.student_id || st.id || fallbackStudent?.id || 0;
+  const firstName = st.first_name || fallbackStudent?.firstName || '';
+  const surname = st.surname || fallbackStudent?.surname || '';
+  const fullName = `${firstName} ${surname}`.trim() || 'Student Scholar';
+
+  return {
+    id: row.id,
+    studentDbId: Number(stDbId) || stDbId,
+    studentId: stCode,
+    studentNumber: stCode,
+    studentName: fullName,
+    class: st.current_class || fallbackStudent?.currentClass || 'General',
+    subjectId: Number(row.subject_id || sub.id || 0),
+    subjectName: sub.name || row.subject_name || 'Subject',
+    subjectCode: sub.code || row.subject_code || 'SUB',
+    assessmentTitle: row.assessment_title || 'Continuous Assessment',
+    assessmentType: row.assessment_type || 'CA',
+    score: Number(row.score ?? 0),
+    maxScore: Number(row.max_score ?? 100),
+    percentage: Number(row.percentage ?? row.score ?? 0),
+    grade: row.grade || 'C',
+    session: row.session || fallbackStudent?.session || '2026/2027',
+    term: row.term || 'First Term',
+    teacherComment: row.teacher_comment || '',
+    parentName: st.parent_name || '',
+    parentPhone: st.parent_phone || '',
+    createdAt: row.created_at || new Date().toISOString(),
+  };
+}
+
+export async function fetchStudentAssessmentsFromSupabase(
+  studentDbId?: number | string | null,
+  studentCode?: string | null,
+  fallbackStudent?: { id?: number; studentId?: string; firstName?: string; surname?: string; currentClass?: string; session?: string }
+): Promise<any[]> {
+  try {
+    let targetDbId: number | null =
+      studentDbId !== undefined && studentDbId !== null && !isNaN(Number(studentDbId)) && Number(studentDbId) > 0 && Number(studentDbId) <= 2147483647
+        ? Number(studentDbId)
+        : null;
+
+    if (!targetDbId && studentCode) {
+      const cleanCode = String(studentCode).toUpperCase().trim();
+      const { data: stRows } = await supabase
+        .from('students')
+        .select('id, student_id, first_name, surname, current_class, session')
+        .eq('student_id', cleanCode)
+        .limit(1);
+      if (stRows && stRows.length > 0) {
+        targetDbId = Number(stRows[0].id);
+        if (!fallbackStudent) {
+          fallbackStudent = {
+            id: stRows[0].id,
+            studentId: stRows[0].student_id,
+            firstName: stRows[0].first_name,
+            surname: stRows[0].surname,
+            currentClass: stRows[0].current_class,
+            session: stRows[0].session,
+          };
+        }
+      }
+    }
+
+    if (!targetDbId) return [];
+
+    const { data, error } = await supabase
+      .from('assessments')
+      .select('*, students(id, student_id, first_name, surname, current_class, parent_name, parent_phone), subjects(id, name, code)')
+      .eq('student_id', targetDbId)
+      .order('created_at', { ascending: false })
+      .limit(500);
+
+    if (error || !Array.isArray(data)) return [];
+    return data.map((r) => mapSupabaseAssessmentRow(r, fallbackStudent));
+  } catch (err) {
+    console.warn('Supabase direct student assessments lookup error:', err);
+    return [];
+  }
+}
+
+export async function fetchClassAssessmentsFromSupabase(params: {
+  className?: string | null;
+  studentIds?: number[];
+  term?: string | null;
+  session?: string | null;
+  excludeMock?: boolean;
+}): Promise<any[]> {
+  try {
+    const { className, studentIds, excludeMock } = params;
+    const validIds = (studentIds || []).filter((id) => !isNaN(Number(id)) && Number(id) > 0 && Number(id) <= 2147483647);
+
+    let targetStudentIds = validIds;
+    if (targetStudentIds.length === 0 && className && className !== 'all') {
+      const cleanFilter = className.replace(/\s+/g, '').toLowerCase();
+      const { data: allSt } = await supabase.from('students').select('id, current_class');
+      if (Array.isArray(allSt)) {
+        targetStudentIds = allSt
+          .filter((s) => {
+            const sc = String(s.current_class || '').replace(/\s+/g, '').toLowerCase();
+            if (!sc) return false;
+            if (cleanFilter === 'ss1' || cleanFilter === 'sss1') return sc === 'ss1' || sc === 'sss1';
+            if (cleanFilter === 'ss2' || cleanFilter === 'sss2') return sc === 'ss2' || sc === 'sss2';
+            if (cleanFilter === 'ss3' || cleanFilter === 'sss3') return sc === 'ss3' || sc === 'sss3';
+            return sc === cleanFilter || sc.includes(cleanFilter);
+          })
+          .map((s) => Number(s.id));
+      }
+    }
+
+    if (className && className !== 'all' && targetStudentIds.length === 0) {
+      return [];
+    }
+
+    let query = supabase
+      .from('assessments')
+      .select('*, students(id, student_id, first_name, surname, current_class, parent_name, parent_phone), subjects(id, name, code)')
+      .order('created_at', { ascending: false });
+
+    if (targetStudentIds.length > 0) {
+      query = query.in('student_id', targetStudentIds);
+    }
+
+    const isSS3Query = Boolean(className && /^s{2,3}3$/i.test(className.replace(/\s+/g, '')));
+    if (excludeMock && !isSS3Query) {
+      query = query.neq('assessment_type', 'SS3_MOCK');
+    }
+
+    const { data, error } = await query.limit(2000);
+    if (error || !Array.isArray(data)) return [];
+    return data.map((r) => mapSupabaseAssessmentRow(r));
+  } catch (err) {
+    console.warn('Supabase direct class assessments lookup error:', err);
+    return [];
+  }
+}
+

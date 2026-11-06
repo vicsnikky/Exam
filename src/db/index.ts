@@ -10,7 +10,14 @@ declare global {
 function sanitizePostgresUrl(url: string | undefined): string | undefined {
   if (!url) return undefined;
   // Clean accidental square brackets like postgres:[password]@host -> postgres:password@host
-  return url.replace(/:(?:\[([^\]]+)\])(@)/, ':$1$2');
+  let cleaned = url.replace(/:(?:\[([^\]]+)\])(@)/, ':$1$2');
+  // Automatically upgrade IPv6-only direct host db.nynaetekcxplzfuworal.supabase.co to IPv4 Supavisor pooler for Vercel & IPv4 runtimes
+  if (cleaned.includes('db.nynaetekcxplzfuworal.supabase.co')) {
+    cleaned = cleaned
+      .replace('://postgres:', '://postgres.nynaetekcxplzfuworal:')
+      .replace('@db.nynaetekcxplzfuworal.supabase.co', '@aws-1-eu-west-1.pooler.supabase.com');
+  }
+  return cleaned;
 }
 
 export const createPool = (): Pool => {

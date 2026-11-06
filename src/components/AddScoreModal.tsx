@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import { Subject, Student } from '../types/index.ts';
 import { fetchAllSubjectsUnified } from '../lib/subjectStore.ts';
-import { fetchAllStudentsUnified } from '../lib/schoolStore.ts';
+import { fetchAllStudentsUnified, fetchStudentAssessmentsFromSupabase } from '../lib/schoolStore.ts';
 import { isSecondaryClass, calculateSubjectGrade } from '../constants/classes.ts';
 import { supabase } from '../supabaseConfig.ts';
 
@@ -219,6 +219,27 @@ export const AddScoreModal: React.FC<AddScoreModalProps> = ({
           }
         }
       } catch (_) {}
+
+      // 1c. Direct Supabase fallback if backend API calls returned empty
+      if (combined.length === 0) {
+        try {
+          const supaAssessments = await fetchStudentAssessmentsFromSupabase(st.id, st.studentId);
+          for (const a of supaAssessments) {
+            if (isScoreDeleted(a.id, a.subjectId, a.assessmentType)) continue;
+            const key = `${a.subjectId}_${a.assessmentType}_${a.term}_${a.session}`;
+            if (!seenKeys.has(key)) {
+              seenKeys.add(key);
+              combined.push({
+                ...a,
+                studentId: st.studentId,
+                studentDbId: st.id,
+                studentName: `${st.firstName} ${st.surname}`,
+                class: st.currentClass,
+              });
+            }
+          }
+        } catch (_) {}
+      }
 
       // 2. Merge local broadsheet scores cache (fis_broadsheet_scores_v2)
       try {
