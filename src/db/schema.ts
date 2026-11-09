@@ -63,6 +63,19 @@ export const profilePhotos = pgTable('profile_photos', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
+// Official Student Comments (Class Teacher Comment & Principal Comment) table for multi-device sync
+export const studentComments = pgTable('student_comments', {
+  id: serial('id').primaryKey(),
+  studentId: text('student_id').notNull(),
+  classTeacherComment: text('class_teacher_comment').default(''),
+  principalComment: text('principal_comment').default(''),
+  term: text('term').default('First Term'),
+  session: text('session').default('2026/2027'),
+  teacherName: text('teacher_name').default('Class Teacher'),
+  principalName: text('principal_name').default('School Principal'),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 // Academic sessions & terms
 export const academicSessions = pgTable('academic_sessions', {
   id: serial('id').primaryKey(),

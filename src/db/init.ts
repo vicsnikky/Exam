@@ -247,6 +247,21 @@ export async function ensureTablesExist(pool: Pool) {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_profile_photos_identifier ON profile_photos(identifier);
+
+    CREATE TABLE IF NOT EXISTS student_comments (
+      id SERIAL PRIMARY KEY,
+      student_id TEXT NOT NULL,
+      class_teacher_comment TEXT DEFAULT '',
+      principal_comment TEXT DEFAULT '',
+      term TEXT DEFAULT 'First Term',
+      session TEXT DEFAULT '2026/2027',
+      teacher_name TEXT DEFAULT 'Class Teacher',
+      principal_name TEXT DEFAULT 'School Principal',
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT uq_student_comments UNIQUE (student_id, term, session)
+    );
+    CREATE INDEX IF NOT EXISTS idx_student_comments_student_id ON student_comments(student_id);
+    CREATE INDEX IF NOT EXISTS idx_student_comments_term_session ON student_comments(term, session);
   `;
 
   try {

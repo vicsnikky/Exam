@@ -2312,8 +2312,44 @@ app.post('/api/students/:id/class-teacher-remark', authenticate, async (req: Aut
     existingComments.classTeacherComment = record.remark;
     existingComments.teacherName = record.teacherName;
     existingComments.updatedAt = new Date().toISOString();
-    inMemoryStudentComments[key] = existingComments;
-    inMemoryStudentComments[cleanId] = existingComments;
+
+    const stKeys = await resolveStudentKeys(cleanId);
+    for (const k of stKeys) {
+      inMemoryStudentComments[`${k}_${term}_${session}`] = { ...existingComments, studentId: k };
+      inMemoryStudentComments[k] = { ...existingComments, studentId: k };
+    }
+
+    try {
+      const p = createPool();
+      for (const k of stKeys) {
+        const q = `
+          INSERT INTO student_comments (
+            student_id, class_teacher_comment, principal_comment, term, session, teacher_name, principal_name, updated_at
+          ) VALUES (
+            ${sqlEscape(k)}, ${sqlEscape(existingComments.classTeacherComment)}, ${sqlEscape(existingComments.principalComment)},
+            ${sqlEscape(term)}, ${sqlEscape(session)}, ${sqlEscape(existingComments.teacherName)}, ${sqlEscape(existingComments.principalName)}, NOW()
+          )
+          ON CONFLICT (student_id, term, session)
+          DO UPDATE SET
+            class_teacher_comment = CASE WHEN EXCLUDED.class_teacher_comment != '' THEN EXCLUDED.class_teacher_comment ELSE student_comments.class_teacher_comment END,
+            teacher_name = CASE WHEN EXCLUDED.teacher_name != '' THEN EXCLUDED.teacher_name ELSE student_comments.teacher_name END,
+            updated_at = NOW();
+        `;
+        await p.query(q);
+      }
+    } catch (_) {}
+
+    try {
+      const supaPayloads = stKeys.map((k) => ({
+        student_id: k,
+        class_teacher_comment: existingComments.classTeacherComment,
+        term: String(term),
+        session: String(session),
+        teacher_name: existingComments.teacherName || 'Class Teacher',
+        updated_at: new Date().toISOString(),
+      }));
+      await supabase.from('student_comments').upsert(supaPayloads, { onConflict: 'student_id,term,session' });
+    } catch (_) {}
 
     persistClassTeachersData();
     return res.json({ success: true, record, comments: existingComments });
@@ -2321,6 +2357,31 @@ app.post('/api/students/:id/class-teacher-remark', authenticate, async (req: Aut
     return res.status(500).json({ error: err.message });
   }
 });
+
+function sqlEscape(val: any): string {
+  if (val === null || val === undefined) return 'NULL';
+  return "'" + String(val).replace(/'/g, "''") + "'";
+}
+
+async function resolveStudentKeys(identifier: string): Promise<string[]> {
+  const raw = String(identifier).trim().toUpperCase();
+  const keys = new Set<string>([raw]);
+  try {
+    const p = createPool();
+    const cleanStr = raw.replace(/[^A-Za-z0-9_-]/g, '');
+    const num = parseInt(raw, 10);
+    const isValidNum = !isNaN(num) && String(num) === raw && num > 0 && num <= 2147483647;
+    const cond = isValidNum
+      ? `id = ${num} OR UPPER(student_id) = '${cleanStr}'`
+      : `UPPER(student_id) = '${cleanStr}'`;
+    const res = await p.query(`SELECT id, student_id FROM students WHERE ${cond} LIMIT 1`);
+    if (res.rows.length > 0) {
+      if (res.rows[0].id) keys.add(String(res.rows[0].id));
+      if (res.rows[0].student_id) keys.add(String(res.rows[0].student_id).toUpperCase());
+    }
+  } catch (_) {}
+  return Array.from(keys);
+}
 
 // GET Dedicated Principal's Comment and Class Teacher's Comment for a student
 app.get('/api/students/:id/comments', authenticate, async (req: AuthRequest, res) => {
@@ -2332,7 +2393,79 @@ app.get('/api/students/:id/comments', authenticate, async (req: AuthRequest, res
     const key = `${cleanId}_${term}_${session}`;
     const fallbackKey = `${cleanId}`;
 
-    const stored = inMemoryStudentComments[key] || inMemoryStudentComments[fallbackKey];
+    let stored = inMemoryStudentComments[key] || inMemoryStudentComments[fallbackKey];
+
+    // Query PostgreSQL student_comments table
+    try {
+      const p = createPool();
+      const stKeys = await resolveStudentKeys(cleanId);
+      const inClause = stKeys.map((k) => sqlEscape(k)).join(', ');
+      const dbRes = await p.query(
+        `SELECT student_id, class_teacher_comment, principal_comment, term, session, teacher_name, principal_name, updated_at 
+         FROM student_comments 
+         WHERE student_id IN (${inClause}) AND term = ${sqlEscape(term)} AND session = ${sqlEscape(session)} 
+         ORDER BY updated_at DESC LIMIT 1`
+      );
+      if (dbRes.rows.length > 0) {
+        const row = dbRes.rows[0];
+        const loaded: StudentCommentsRecord = {
+          studentId: cleanId,
+          classTeacherComment: row.class_teacher_comment || '',
+          principalComment: row.principal_comment || '',
+          term: row.term || term,
+          session: row.session || session,
+          teacherName: row.teacher_name || 'Class Teacher',
+          principalName: row.principal_name || 'School Principal',
+          updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString(),
+        };
+        // Merge with any in-memory additions
+        stored = {
+          ...loaded,
+          classTeacherComment: loaded.classTeacherComment || stored?.classTeacherComment || '',
+          principalComment: loaded.principalComment || stored?.principalComment || '',
+        };
+        for (const k of stKeys) {
+          inMemoryStudentComments[`${k}_${term}_${session}`] = stored;
+          inMemoryStudentComments[k] = stored;
+        }
+      }
+    } catch (err) {
+      console.warn('DB student_comments read fallback:', err);
+    }
+
+    // Direct Supabase fallback
+    if (!stored || (!stored.classTeacherComment && !stored.principalComment)) {
+      try {
+        const stKeys = await resolveStudentKeys(cleanId);
+        const { data: supaRows } = await supabase
+          .from('student_comments')
+          .select('*')
+          .in('student_id', stKeys)
+          .eq('term', term)
+          .eq('session', session)
+          .order('updated_at', { ascending: false })
+          .limit(1);
+
+        if (Array.isArray(supaRows) && supaRows.length > 0) {
+          const row = supaRows[0];
+          stored = {
+            studentId: cleanId,
+            classTeacherComment: row.class_teacher_comment || '',
+            principalComment: row.principal_comment || '',
+            term: row.term || term,
+            session: row.session || session,
+            teacherName: row.teacher_name || 'Class Teacher',
+            principalName: row.principal_name || 'School Principal',
+            updatedAt: row.updated_at || new Date().toISOString(),
+          };
+          for (const k of stKeys) {
+            inMemoryStudentComments[`${k}_${term}_${session}`] = stored;
+            inMemoryStudentComments[k] = stored;
+          }
+        }
+      } catch (_) {}
+    }
+
     const legacyRemark = inMemoryClassTeacherRemarks[key] || inMemoryClassTeacherRemarks[fallbackKey];
 
     const comments: StudentCommentsRecord = stored
@@ -2359,6 +2492,53 @@ app.get('/api/students/:id/comments', authenticate, async (req: AuthRequest, res
 
 // GET All Student Comments and Remarks Map (for Broadsheets and Reports)
 app.get('/api/students-comments', authenticate, async (_req: AuthRequest, res) => {
+  try {
+    const p = createPool();
+    const dbRes = await p.query(
+      `SELECT student_id, class_teacher_comment, principal_comment, term, session, teacher_name, principal_name, updated_at FROM student_comments`
+    );
+    for (const row of dbRes.rows) {
+      if (row.student_id) {
+        const item: StudentCommentsRecord = {
+          studentId: row.student_id,
+          classTeacherComment: row.class_teacher_comment || '',
+          principalComment: row.principal_comment || '',
+          term: row.term || 'First Term',
+          session: row.session || '2026/2027',
+          teacherName: row.teacher_name || 'Class Teacher',
+          principalName: row.principal_name || 'School Principal',
+          updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString(),
+        };
+        const k = `${row.student_id}_${item.term}_${item.session}`;
+        inMemoryStudentComments[k] = item;
+        inMemoryStudentComments[row.student_id] = item;
+      }
+    }
+  } catch (_) {}
+
+  try {
+    const { data: supaRows } = await supabase.from('student_comments').select('*');
+    if (Array.isArray(supaRows)) {
+      for (const row of supaRows) {
+        if (row.student_id) {
+          const item: StudentCommentsRecord = {
+            studentId: row.student_id,
+            classTeacherComment: row.class_teacher_comment || '',
+            principalComment: row.principal_comment || '',
+            term: row.term || 'First Term',
+            session: row.session || '2026/2027',
+            teacherName: row.teacher_name || 'Class Teacher',
+            principalName: row.principal_name || 'School Principal',
+            updatedAt: row.updated_at || new Date().toISOString(),
+          };
+          const k = `${row.student_id}_${item.term}_${item.session}`;
+          inMemoryStudentComments[k] = item;
+          inMemoryStudentComments[row.student_id] = item;
+        }
+      }
+    }
+  } catch (_) {}
+
   return res.json({
     success: true,
     comments: inMemoryStudentComments,
@@ -2447,8 +2627,51 @@ app.post('/api/students/:id/comments', authenticate, async (req: AuthRequest, re
     existing.session = String(session);
     existing.updatedAt = new Date().toISOString();
 
-    inMemoryStudentComments[key] = existing;
-    inMemoryStudentComments[cleanId] = existing;
+    const stKeys = await resolveStudentKeys(cleanId);
+    for (const k of stKeys) {
+      inMemoryStudentComments[`${k}_${term}_${session}`] = { ...existing, studentId: k };
+      inMemoryStudentComments[k] = { ...existing, studentId: k };
+    }
+
+    // 1. Atomic PostgreSQL upsert for multi-device cross-network persistence
+    try {
+      const p = createPool();
+      for (const k of stKeys) {
+        const q = `
+          INSERT INTO student_comments (
+            student_id, class_teacher_comment, principal_comment, term, session, teacher_name, principal_name, updated_at
+          ) VALUES (
+            ${sqlEscape(k)}, ${sqlEscape(existing.classTeacherComment)}, ${sqlEscape(existing.principalComment)},
+            ${sqlEscape(term)}, ${sqlEscape(session)}, ${sqlEscape(existing.teacherName)}, ${sqlEscape(existing.principalName)}, NOW()
+          )
+          ON CONFLICT (student_id, term, session)
+          DO UPDATE SET
+            class_teacher_comment = CASE WHEN EXCLUDED.class_teacher_comment != '' THEN EXCLUDED.class_teacher_comment ELSE student_comments.class_teacher_comment END,
+            principal_comment = CASE WHEN EXCLUDED.principal_comment != '' THEN EXCLUDED.principal_comment ELSE student_comments.principal_comment END,
+            teacher_name = CASE WHEN EXCLUDED.teacher_name != '' THEN EXCLUDED.teacher_name ELSE student_comments.teacher_name END,
+            principal_name = CASE WHEN EXCLUDED.principal_name != '' THEN EXCLUDED.principal_name ELSE student_comments.principal_name END,
+            updated_at = NOW();
+        `;
+        await p.query(q);
+      }
+    } catch (err) {
+      console.warn('DB student_comments upsert warning:', err);
+    }
+
+    // 2. Direct Supabase PostgREST upsert fallback
+    try {
+      const supaPayloads = stKeys.map((k) => ({
+        student_id: k,
+        class_teacher_comment: existing.classTeacherComment,
+        principal_comment: existing.principalComment,
+        term: String(term),
+        session: String(session),
+        teacher_name: existing.teacherName || 'Class Teacher',
+        principal_name: existing.principalName || 'School Principal',
+        updated_at: new Date().toISOString(),
+      }));
+      await supabase.from('student_comments').upsert(supaPayloads, { onConflict: 'student_id,term,session' });
+    } catch (_) {}
 
     persistClassTeachersData();
     return res.json({ success: true, comments: existing });
@@ -2489,8 +2712,50 @@ app.post('/api/students/:id/principal-comment', authenticate, async (req: AuthRe
     existing.session = String(session);
     existing.updatedAt = new Date().toISOString();
 
-    inMemoryStudentComments[key] = existing;
-    inMemoryStudentComments[cleanId] = existing;
+    const stKeys = await resolveStudentKeys(cleanId);
+    for (const k of stKeys) {
+      inMemoryStudentComments[`${k}_${term}_${session}`] = { ...existing, studentId: k };
+      inMemoryStudentComments[k] = { ...existing, studentId: k };
+    }
+
+    // Persist to PostgreSQL
+    try {
+      const p = createPool();
+      for (const k of stKeys) {
+        const q = `
+          INSERT INTO student_comments (
+            student_id, class_teacher_comment, principal_comment, term, session, teacher_name, principal_name, updated_at
+          ) VALUES (
+            ${sqlEscape(k)}, ${sqlEscape(existing.classTeacherComment)}, ${sqlEscape(existing.principalComment)},
+            ${sqlEscape(term)}, ${sqlEscape(session)}, ${sqlEscape(existing.teacherName)}, ${sqlEscape(existing.principalName)}, NOW()
+          )
+          ON CONFLICT (student_id, term, session)
+          DO UPDATE SET
+            principal_comment = CASE WHEN EXCLUDED.principal_comment != '' THEN EXCLUDED.principal_comment ELSE student_comments.principal_comment END,
+            principal_name = CASE WHEN EXCLUDED.principal_name != '' THEN EXCLUDED.principal_name ELSE student_comments.principal_name END,
+            updated_at = NOW();
+        `;
+        await p.query(q);
+      }
+    } catch (err) {
+      console.warn('DB student_comments principal upsert warning:', err);
+    }
+
+    // Persist to Supabase
+    try {
+      const supaPayloads = stKeys.map((k) => ({
+        student_id: k,
+        class_teacher_comment: existing.classTeacherComment,
+        principal_comment: existing.principalComment,
+        term: String(term),
+        session: String(session),
+        teacher_name: existing.teacherName || 'Class Teacher',
+        principal_name: existing.principalName || 'School Principal',
+        updated_at: new Date().toISOString(),
+      }));
+      await supabase.from('student_comments').upsert(supaPayloads, { onConflict: 'student_id,term,session' });
+    } catch (_) {}
+
     persistClassTeachersData();
 
     return res.json({ success: true, comments: existing });

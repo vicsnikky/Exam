@@ -2073,6 +2073,54 @@ export async function fetchStudentComments(
     console.warn('Deferred student comments fetch:', err);
   }
 
+  // Direct Supabase PostgREST fallback for cross-device synchronization
+  try {
+    const queryIds = new Set<string>([cleanId, String(studentId).trim().toUpperCase()]);
+    // Resolve student record to get both numeric ID and student admission number
+    const num = parseInt(cleanId, 10);
+    const filter = !isNaN(num) && String(num) === cleanId
+      ? `id.eq.${num},student_id.eq.${cleanId}`
+      : `student_id.eq.${cleanId}`;
+    const { data: stRow } = await supabase.from('students').select('id, student_id').or(filter).limit(1);
+    if (Array.isArray(stRow) && stRow.length > 0) {
+      if (stRow[0].id) queryIds.add(String(stRow[0].id));
+      if (stRow[0].student_id) queryIds.add(String(stRow[0].student_id).toUpperCase());
+    }
+
+    const { data: supaRows } = await supabase
+      .from('student_comments')
+      .select('*')
+      .in('student_id', Array.from(queryIds))
+      .eq('term', term)
+      .eq('session', session)
+      .order('updated_at', { ascending: false })
+      .limit(1);
+
+    if (Array.isArray(supaRows) && supaRows.length > 0) {
+      const row = supaRows[0];
+      const supaComments: StudentCommentsData = {
+        studentId: cleanId,
+        classTeacherComment: row.class_teacher_comment || '',
+        principalComment: row.principal_comment || '',
+        term: row.term || term,
+        session: row.session || session,
+        teacherName: row.teacher_name || 'Class Teacher',
+        principalName: row.principal_name || 'School Principal',
+        updatedAt: row.updated_at || new Date().toISOString(),
+      };
+      try {
+        const raw = localStorage.getItem(STUDENT_COMMENTS_CACHE_KEY);
+        const all = raw ? JSON.parse(raw) : {};
+        for (const qId of queryIds) {
+          all[`${qId}_${term}_${session}`] = supaComments;
+          all[qId] = supaComments;
+        }
+        localStorage.setItem(STUDENT_COMMENTS_CACHE_KEY, JSON.stringify(all));
+      } catch (_) {}
+      return supaComments;
+    }
+  } catch (_) {}
+
   return (
     cached || {
       studentId: cleanId,
@@ -2091,6 +2139,8 @@ export async function fetchAllStudentComments(token?: string | null): Promise<{
   comments: Record<string, StudentCommentsData>;
   remarks: Record<string, any>;
 }> {
+  const resultComments: Record<string, StudentCommentsData> = {};
+
   try {
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -2098,21 +2148,47 @@ export async function fetchAllStudentComments(token?: string | null): Promise<{
     if (res.ok) {
       const data = await res.json();
       if (data && data.comments) {
-        try {
-          const raw = typeof window !== 'undefined' ? localStorage.getItem(STUDENT_COMMENTS_CACHE_KEY) : null;
-          const current = raw ? JSON.parse(raw) : {};
-          const merged = { ...current, ...data.comments };
-          if (typeof window !== 'undefined') {
-            localStorage.setItem(STUDENT_COMMENTS_CACHE_KEY, JSON.stringify(merged));
-          }
-        } catch (_) {}
+        Object.assign(resultComments, data.comments);
       }
-      return data;
     }
   } catch (err) {
     console.warn('Deferred all student comments fetch:', err);
   }
-  return { comments: {}, remarks: {} };
+
+  // Cross-device Supabase PostgREST sync
+  try {
+    const { data: supaRows } = await supabase.from('student_comments').select('*');
+    if (Array.isArray(supaRows)) {
+      for (const row of supaRows) {
+        if (row.student_id) {
+          const item: StudentCommentsData = {
+            studentId: row.student_id,
+            classTeacherComment: row.class_teacher_comment || '',
+            principalComment: row.principal_comment || '',
+            term: row.term || 'First Term',
+            session: row.session || '2026/2027',
+            teacherName: row.teacher_name || 'Class Teacher',
+            principalName: row.principal_name || 'School Principal',
+            updatedAt: row.updated_at || new Date().toISOString(),
+          };
+          const k = `${row.student_id}_${item.term}_${item.session}`;
+          resultComments[k] = item;
+          resultComments[row.student_id] = item;
+        }
+      }
+    }
+  } catch (_) {}
+
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(STUDENT_COMMENTS_CACHE_KEY) : null;
+    const current = raw ? JSON.parse(raw) : {};
+    const merged = { ...current, ...resultComments };
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(STUDENT_COMMENTS_CACHE_KEY, JSON.stringify(merged));
+    }
+  } catch (_) {}
+
+  return { comments: resultComments, remarks: {} };
 }
 
 export async function saveStudentComments(
@@ -2192,7 +2268,7 @@ export async function saveStudentComments(
     window.dispatchEvent(new CustomEvent('fis:comments-updated', { detail: existing }));
   }
 
-  // Network call
+  // Network call to server API
   try {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -2204,6 +2280,33 @@ export async function saveStudentComments(
   } catch (err) {
     console.warn('Backend student comments deferred:', err);
   }
+
+  // Direct Supabase PostgREST sync to ensure instant visibility on all devices
+  try {
+    const saveKeys = new Set<string>([cleanId, String(studentId).trim().toUpperCase()]);
+    const num = parseInt(cleanId, 10);
+    const filter = !isNaN(num) && String(num) === cleanId
+      ? `id.eq.${num},student_id.eq.${cleanId}`
+      : `student_id.eq.${cleanId}`;
+    const { data: stRow } = await supabase.from('students').select('id, student_id').or(filter).limit(1);
+    if (Array.isArray(stRow) && stRow.length > 0) {
+      if (stRow[0].id) saveKeys.add(String(stRow[0].id));
+      if (stRow[0].student_id) saveKeys.add(String(stRow[0].student_id).toUpperCase());
+    }
+
+    const supaPayloads = Array.from(saveKeys).map((k) => ({
+      student_id: k,
+      class_teacher_comment: existing.classTeacherComment,
+      principal_comment: existing.principalComment,
+      term,
+      session,
+      teacher_name: existing.teacherName || 'Class Teacher',
+      principal_name: existing.principalName || 'School Principal',
+      updated_at: new Date().toISOString(),
+    }));
+
+    await supabase.from('student_comments').upsert(supaPayloads, { onConflict: 'student_id,term,session' });
+  } catch (_) {}
 
   return existing;
 }

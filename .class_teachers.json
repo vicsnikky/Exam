@@ -16,6 +16,22 @@
       "session": "2026/2027",
       "teacherName": "Faculty Teacher",
       "updatedAt": "2026-10-17T06:28:08.383Z"
+    },
+    "FEN-2026-325603_First Term_2026/2027": {
+      "studentId": "FEN-2026-325603",
+      "remark": "Consistent performance and active in class.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Mrs. Ogechi Adeyeye",
+      "updatedAt": "2026-11-09T07:47:34.225Z"
+    },
+    "FEN-2026-325603": {
+      "studentId": "FEN-2026-325603",
+      "remark": "Consistent performance and active in class.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Mrs. Ogechi Adeyeye",
+      "updatedAt": "2026-11-09T07:47:34.225Z"
     }
   },
   "studentComments": {
@@ -29,6 +45,16 @@
       "principalName": "School Principal",
       "updatedAt": "2026-10-17T06:28:08.383Z"
     },
+    "10": {
+      "studentId": "10",
+      "classTeacherComment": "Consistent performance and active in class.",
+      "principalComment": "A commendable outcome. Keep up the high standards.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Mrs. Ogechi Adeyeye",
+      "principalName": "Principal Victor Alo",
+      "updatedAt": "2026-11-09T07:47:34.499Z"
+    },
     "1_First Term_2026/2027": {
       "studentId": "1",
       "classTeacherComment": "An exceptionally dedicated scholar with consistent academic excellence.",
@@ -38,6 +64,36 @@
       "teacherName": "Faculty Teacher",
       "principalName": "School Principal",
       "updatedAt": "2026-10-17T06:28:08.383Z"
+    },
+    "FEN-2026-325603_First Term_2026/2027": {
+      "studentId": "FEN-2026-325603",
+      "classTeacherComment": "Consistent performance and active in class.",
+      "principalComment": "A commendable outcome. Keep up the high standards.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Mrs. Ogechi Adeyeye",
+      "principalName": "Principal Victor Alo",
+      "updatedAt": "2026-11-09T07:47:34.499Z"
+    },
+    "FEN-2026-325603": {
+      "studentId": "FEN-2026-325603",
+      "classTeacherComment": "Consistent performance and active in class.",
+      "principalComment": "A commendable outcome. Keep up the high standards.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Mrs. Ogechi Adeyeye",
+      "principalName": "Principal Victor Alo",
+      "updatedAt": "2026-11-09T07:47:34.499Z"
+    },
+    "10_First Term_2026/2027": {
+      "studentId": "10",
+      "classTeacherComment": "Consistent performance and active in class.",
+      "principalComment": "A commendable outcome. Keep up the high standards.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Mrs. Ogechi Adeyeye",
+      "principalName": "Principal Victor Alo",
+      "updatedAt": "2026-11-09T07:47:34.499Z"
     }
   }
 }
