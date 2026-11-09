@@ -2492,48 +2492,113 @@ app.get('/api/students/:id/comments', authenticate, async (req: AuthRequest, res
 
 // GET All Student Comments and Remarks Map (for Broadsheets and Reports)
 app.get('/api/students-comments', authenticate, async (_req: AuthRequest, res) => {
+  const mergedComments: Record<string, StudentCommentsRecord> = {};
+
   try {
     const p = createPool();
+
+    // 1. Build bidirectional student ID <-> admission number map
+    const idToAdm: Record<string, string> = {};
+    const admToId: Record<string, string> = {};
+    try {
+      const stRes = await p.query(`SELECT id, student_id FROM students`);
+      for (const s of stRes.rows) {
+        if (s.id && s.student_id) {
+          const sid = String(s.id);
+          const adm = String(s.student_id).toUpperCase();
+          idToAdm[sid] = adm;
+          admToId[adm] = sid;
+        }
+      }
+    } catch (_) {}
+
+    // 2. Query all comments from PostgreSQL
     const dbRes = await p.query(
       `SELECT student_id, class_teacher_comment, principal_comment, term, session, teacher_name, principal_name, updated_at FROM student_comments`
     );
     for (const row of dbRes.rows) {
       if (row.student_id) {
-        const item: StudentCommentsRecord = {
-          studentId: row.student_id,
-          classTeacherComment: row.class_teacher_comment || '',
-          principalComment: row.principal_comment || '',
-          term: row.term || 'First Term',
-          session: row.session || '2026/2027',
-          teacherName: row.teacher_name || 'Class Teacher',
-          principalName: row.principal_name || 'School Principal',
-          updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString(),
+        const rawId = String(row.student_id).trim().toUpperCase();
+        const term = row.term || 'First Term';
+        const session = row.session || '2026/2027';
+
+        const mappedAdm = idToAdm[rawId] || (rawId.startsWith('FEN-') || rawId.startsWith('FIS-') ? rawId : undefined);
+        const mappedNum = admToId[rawId] || (!rawId.startsWith('FEN-') && !rawId.startsWith('FIS-') ? rawId : undefined);
+
+        const keys = new Set<string>([rawId]);
+        if (mappedAdm) keys.add(mappedAdm);
+        if (mappedNum) keys.add(mappedNum);
+
+        // Find existing record to merge comments non-destructively
+        let current: StudentCommentsRecord | undefined;
+        for (const k of keys) {
+          const compKey = `${k}_${term}_${session}`;
+          if (mergedComments[compKey]) {
+            current = mergedComments[compKey];
+            break;
+          }
+          if (mergedComments[k]) {
+            current = mergedComments[k];
+            break;
+          }
+        }
+
+        const classTeacherComment = String(row.class_teacher_comment || '').trim() || current?.classTeacherComment || '';
+        const principalComment = String(row.principal_comment || '').trim() || current?.principalComment || '';
+        const teacherName = row.teacher_name || current?.teacherName || 'Class Teacher';
+        const principalName = row.principal_name || current?.principalName || 'School Principal';
+        const updatedAt = row.updated_at ? new Date(row.updated_at).toISOString() : (current?.updatedAt || new Date().toISOString());
+
+        const merged: StudentCommentsRecord = {
+          studentId: mappedAdm || mappedNum || rawId,
+          classTeacherComment,
+          principalComment,
+          term,
+          session,
+          teacherName,
+          principalName,
+          updatedAt,
         };
-        const k = `${row.student_id}_${item.term}_${item.session}`;
-        inMemoryStudentComments[k] = item;
-        inMemoryStudentComments[row.student_id] = item;
+
+        for (const k of keys) {
+          mergedComments[`${k}_${term}_${session}`] = merged;
+          mergedComments[k] = merged;
+          inMemoryStudentComments[`${k}_${term}_${session}`] = merged;
+          inMemoryStudentComments[k] = merged;
+        }
       }
     }
   } catch (_) {}
 
+  // 3. Direct Supabase PostgREST sync fallback
   try {
     const { data: supaRows } = await supabase.from('student_comments').select('*');
     if (Array.isArray(supaRows)) {
       for (const row of supaRows) {
         if (row.student_id) {
+          const rawId = String(row.student_id).trim().toUpperCase();
+          const term = row.term || 'First Term';
+          const session = row.session || '2026/2027';
+          const k = `${rawId}_${term}_${session}`;
+
+          const current = mergedComments[k] || mergedComments[rawId];
+          const classTeacherComment = String(row.class_teacher_comment || '').trim() || current?.classTeacherComment || '';
+          const principalComment = String(row.principal_comment || '').trim() || current?.principalComment || '';
+
           const item: StudentCommentsRecord = {
-            studentId: row.student_id,
-            classTeacherComment: row.class_teacher_comment || '',
-            principalComment: row.principal_comment || '',
-            term: row.term || 'First Term',
-            session: row.session || '2026/2027',
-            teacherName: row.teacher_name || 'Class Teacher',
-            principalName: row.principal_name || 'School Principal',
-            updatedAt: row.updated_at || new Date().toISOString(),
+            studentId: rawId,
+            classTeacherComment,
+            principalComment,
+            term,
+            session,
+            teacherName: row.teacher_name || current?.teacherName || 'Class Teacher',
+            principalName: row.principal_name || current?.principalName || 'School Principal',
+            updatedAt: row.updated_at || current?.updatedAt || new Date().toISOString(),
           };
-          const k = `${row.student_id}_${item.term}_${item.session}`;
+          mergedComments[k] = item;
+          mergedComments[rawId] = item;
           inMemoryStudentComments[k] = item;
-          inMemoryStudentComments[row.student_id] = item;
+          inMemoryStudentComments[rawId] = item;
         }
       }
     }
@@ -2541,7 +2606,7 @@ app.get('/api/students-comments', authenticate, async (_req: AuthRequest, res) =
 
   return res.json({
     success: true,
-    comments: inMemoryStudentComments,
+    comments: mergedComments,
     remarks: inMemoryClassTeacherRemarks,
   });
 });
@@ -2576,22 +2641,34 @@ app.post('/api/students/:id/comments', authenticate, async (req: AuthRequest, re
       principalName,
     } = req.body;
 
+    const stKeys = await resolveStudentKeys(cleanId);
     const key = `${cleanId}_${term}_${session}`;
     const fallbackKey = `${cleanId}`;
-    const existing = inMemoryStudentComments[key] || inMemoryStudentComments[fallbackKey] || {
-      studentId: cleanId,
-      classTeacherComment: inMemoryClassTeacherRemarks[key]?.remark || inMemoryClassTeacherRemarks[fallbackKey]?.remark || '',
-      principalComment: '',
-      term: String(term),
-      session: String(session),
-      teacherName: teacherName || `${req.appUser?.firstName || 'Class'} ${req.appUser?.lastName || 'Teacher'}`.trim(),
-      principalName: principalName || 'School Principal',
-      updatedAt: new Date().toISOString(),
-    };
+
+    // Read existing comments from PostgreSQL / Supabase first to prevent overwriting
+    let dbTeacherComment = '';
+    let dbPrincipalComment = '';
+    let dbTeacherName = '';
+    let dbPrincipalName = '';
+    try {
+      const p = createPool();
+      const inClause = stKeys.map((k) => sqlEscape(k)).join(', ');
+      const dbRes = await p.query(
+        `SELECT class_teacher_comment, principal_comment, teacher_name, principal_name FROM student_comments WHERE student_id IN (${inClause}) AND term = ${sqlEscape(term)} AND session = ${sqlEscape(session)} ORDER BY updated_at DESC`
+      );
+      for (const r of dbRes.rows) {
+        if (!dbTeacherComment && r.class_teacher_comment) dbTeacherComment = String(r.class_teacher_comment).trim();
+        if (!dbPrincipalComment && r.principal_comment) dbPrincipalComment = String(r.principal_comment).trim();
+        if (!dbTeacherName && r.teacher_name) dbTeacherName = r.teacher_name;
+        if (!dbPrincipalName && r.principal_name) dbPrincipalName = r.principal_name;
+      }
+    } catch (_) {}
+
+    const existingInMemory = inMemoryStudentComments[key] || inMemoryStudentComments[fallbackKey];
 
     // Check permission for Principal comment: only principal, director, admin, super admin
     if (principalComment !== undefined && !isExecOrAdmin) {
-      const currentP = existing?.principalComment || '';
+      const currentP = dbPrincipalComment || existingInMemory?.principalComment || '';
       if (String(principalComment).trim() !== currentP.trim()) {
         return res.status(403).json({ error: 'Permission denied: Only the Principal, Director, and School Administrators can author the Principal’s comment.' });
       }
@@ -2602,35 +2679,55 @@ app.post('/api/students/:id/comments', authenticate, async (req: AuthRequest, re
       return res.status(403).json({ error: 'Permission denied: Faculty Teachers and School Administrators can author the Class Teacher’s comment.' });
     }
 
-    if (classTeacherComment !== undefined) {
-      existing.classTeacherComment = String(classTeacherComment || '').trim();
-      if (teacherName) existing.teacherName = teacherName;
-      // Mirror in legacy remarks
-      const legacyRecord = {
-        studentId: cleanId,
-        remark: existing.classTeacherComment,
-        term: String(term),
-        session: String(session),
-        teacherName: existing.teacherName || `${req.appUser?.firstName || 'Class'} ${req.appUser?.lastName || 'Teacher'}`.trim(),
-        updatedAt: new Date().toISOString(),
-      };
-      inMemoryClassTeacherRemarks[key] = legacyRecord;
-      inMemoryClassTeacherRemarks[cleanId] = legacyRecord;
-    }
+    const finalTeacherComment =
+      classTeacherComment !== undefined
+        ? String(classTeacherComment || '').trim()
+        : (dbTeacherComment || existingInMemory?.classTeacherComment || inMemoryClassTeacherRemarks[key]?.remark || '');
 
-    if (principalComment !== undefined) {
-      existing.principalComment = String(principalComment || '').trim();
-      if (principalName) existing.principalName = principalName;
-    }
+    const finalPrincipalComment =
+      principalComment !== undefined
+        ? String(principalComment || '').trim()
+        : (dbPrincipalComment || existingInMemory?.principalComment || '');
 
-    existing.term = String(term);
-    existing.session = String(session);
-    existing.updatedAt = new Date().toISOString();
+    const finalTeacherName =
+      teacherName ||
+      dbTeacherName ||
+      existingInMemory?.teacherName ||
+      `${req.appUser?.firstName || 'Class'} ${req.appUser?.lastName || 'Teacher'}`.trim();
 
-    const stKeys = await resolveStudentKeys(cleanId);
+    const finalPrincipalName =
+      principalName ||
+      dbPrincipalName ||
+      existingInMemory?.principalName ||
+      'School Principal';
+
+    const mergedRecord: StudentCommentsRecord = {
+      studentId: cleanId,
+      classTeacherComment: finalTeacherComment,
+      principalComment: finalPrincipalComment,
+      term: String(term),
+      session: String(session),
+      teacherName: finalTeacherName,
+      principalName: finalPrincipalName,
+      updatedAt: new Date().toISOString(),
+    };
+
+    // Update in-memory stores under all aliases
     for (const k of stKeys) {
-      inMemoryStudentComments[`${k}_${term}_${session}`] = { ...existing, studentId: k };
-      inMemoryStudentComments[k] = { ...existing, studentId: k };
+      inMemoryStudentComments[`${k}_${term}_${session}`] = { ...mergedRecord, studentId: k };
+      inMemoryStudentComments[k] = { ...mergedRecord, studentId: k };
+      if (finalTeacherComment) {
+        const legacyRecord = {
+          studentId: k,
+          remark: finalTeacherComment,
+          term: String(term),
+          session: String(session),
+          teacherName: finalTeacherName,
+          updatedAt: mergedRecord.updatedAt,
+        };
+        inMemoryClassTeacherRemarks[`${k}_${term}_${session}`] = legacyRecord;
+        inMemoryClassTeacherRemarks[k] = legacyRecord;
+      }
     }
 
     // 1. Atomic PostgreSQL upsert for multi-device cross-network persistence
@@ -2641,15 +2738,15 @@ app.post('/api/students/:id/comments', authenticate, async (req: AuthRequest, re
           INSERT INTO student_comments (
             student_id, class_teacher_comment, principal_comment, term, session, teacher_name, principal_name, updated_at
           ) VALUES (
-            ${sqlEscape(k)}, ${sqlEscape(existing.classTeacherComment)}, ${sqlEscape(existing.principalComment)},
-            ${sqlEscape(term)}, ${sqlEscape(session)}, ${sqlEscape(existing.teacherName)}, ${sqlEscape(existing.principalName)}, NOW()
+            ${sqlEscape(k)}, ${sqlEscape(finalTeacherComment)}, ${sqlEscape(finalPrincipalComment)},
+            ${sqlEscape(term)}, ${sqlEscape(session)}, ${sqlEscape(finalTeacherName)}, ${sqlEscape(finalPrincipalName)}, NOW()
           )
           ON CONFLICT (student_id, term, session)
           DO UPDATE SET
-            class_teacher_comment = CASE WHEN EXCLUDED.class_teacher_comment != '' THEN EXCLUDED.class_teacher_comment ELSE student_comments.class_teacher_comment END,
-            principal_comment = CASE WHEN EXCLUDED.principal_comment != '' THEN EXCLUDED.principal_comment ELSE student_comments.principal_comment END,
-            teacher_name = CASE WHEN EXCLUDED.teacher_name != '' THEN EXCLUDED.teacher_name ELSE student_comments.teacher_name END,
-            principal_name = CASE WHEN EXCLUDED.principal_name != '' THEN EXCLUDED.principal_name ELSE student_comments.principal_name END,
+            class_teacher_comment = EXCLUDED.class_teacher_comment,
+            principal_comment = EXCLUDED.principal_comment,
+            teacher_name = EXCLUDED.teacher_name,
+            principal_name = EXCLUDED.principal_name,
             updated_at = NOW();
         `;
         await p.query(q);
@@ -2658,23 +2755,23 @@ app.post('/api/students/:id/comments', authenticate, async (req: AuthRequest, re
       console.warn('DB student_comments upsert warning:', err);
     }
 
-    // 2. Direct Supabase PostgREST upsert fallback
+    // 2. Direct Supabase PostgREST upsert fallback with FULL merged comments
     try {
       const supaPayloads = stKeys.map((k) => ({
         student_id: k,
-        class_teacher_comment: existing.classTeacherComment,
-        principal_comment: existing.principalComment,
+        class_teacher_comment: finalTeacherComment,
+        principal_comment: finalPrincipalComment,
         term: String(term),
         session: String(session),
-        teacher_name: existing.teacherName || 'Class Teacher',
-        principal_name: existing.principalName || 'School Principal',
+        teacher_name: finalTeacherName,
+        principal_name: finalPrincipalName,
         updated_at: new Date().toISOString(),
       }));
       await supabase.from('student_comments').upsert(supaPayloads, { onConflict: 'student_id,term,session' });
     } catch (_) {}
 
     persistClassTeachersData();
-    return res.json({ success: true, comments: existing });
+    return res.json({ success: true, comments: mergedRecord });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
@@ -2692,30 +2789,46 @@ app.post('/api/students/:id/principal-comment', authenticate, async (req: AuthRe
     const rawId = req.params.id;
     const cleanId = String(rawId).trim().toUpperCase();
     const { comment, term = 'First Term', session = '2026/2027', principalName } = req.body;
+    const stKeys = await resolveStudentKeys(cleanId);
     const key = `${cleanId}_${term}_${session}`;
     const fallbackKey = `${cleanId}`;
 
-    const existing = inMemoryStudentComments[key] || inMemoryStudentComments[fallbackKey] || {
+    // Read existing comments from PostgreSQL first to preserve teacher comment
+    let dbTeacherComment = '';
+    let dbTeacherName = '';
+    try {
+      const p = createPool();
+      const inClause = stKeys.map((k) => sqlEscape(k)).join(', ');
+      const dbRes = await p.query(
+        `SELECT class_teacher_comment, teacher_name FROM student_comments WHERE student_id IN (${inClause}) AND term = ${sqlEscape(term)} AND session = ${sqlEscape(session)} ORDER BY updated_at DESC`
+      );
+      for (const r of dbRes.rows) {
+        if (!dbTeacherComment && r.class_teacher_comment) dbTeacherComment = String(r.class_teacher_comment).trim();
+        if (!dbTeacherName && r.teacher_name) dbTeacherName = r.teacher_name;
+      }
+    } catch (_) {}
+
+    const existingInMemory = inMemoryStudentComments[key] || inMemoryStudentComments[fallbackKey];
+
+    const finalTeacherComment = dbTeacherComment || existingInMemory?.classTeacherComment || inMemoryClassTeacherRemarks[key]?.remark || '';
+    const finalTeacherName = dbTeacherName || existingInMemory?.teacherName || 'Class Teacher';
+    const finalPrincipalComment = String(comment || '').trim();
+    const finalPrincipalName = principalName || existingInMemory?.principalName || 'School Principal';
+
+    const mergedRecord: StudentCommentsRecord = {
       studentId: cleanId,
-      classTeacherComment: inMemoryClassTeacherRemarks[key]?.remark || inMemoryClassTeacherRemarks[fallbackKey]?.remark || '',
-      principalComment: '',
+      classTeacherComment: finalTeacherComment,
+      principalComment: finalPrincipalComment,
       term: String(term),
       session: String(session),
-      teacherName: 'Class Teacher',
-      principalName: principalName || 'School Principal',
+      teacherName: finalTeacherName,
+      principalName: finalPrincipalName,
       updatedAt: new Date().toISOString(),
     };
 
-    existing.principalComment = String(comment || '').trim();
-    if (principalName) existing.principalName = principalName;
-    existing.term = String(term);
-    existing.session = String(session);
-    existing.updatedAt = new Date().toISOString();
-
-    const stKeys = await resolveStudentKeys(cleanId);
     for (const k of stKeys) {
-      inMemoryStudentComments[`${k}_${term}_${session}`] = { ...existing, studentId: k };
-      inMemoryStudentComments[k] = { ...existing, studentId: k };
+      inMemoryStudentComments[`${k}_${term}_${session}`] = { ...mergedRecord, studentId: k };
+      inMemoryStudentComments[k] = { ...mergedRecord, studentId: k };
     }
 
     // Persist to PostgreSQL
@@ -2726,13 +2839,15 @@ app.post('/api/students/:id/principal-comment', authenticate, async (req: AuthRe
           INSERT INTO student_comments (
             student_id, class_teacher_comment, principal_comment, term, session, teacher_name, principal_name, updated_at
           ) VALUES (
-            ${sqlEscape(k)}, ${sqlEscape(existing.classTeacherComment)}, ${sqlEscape(existing.principalComment)},
-            ${sqlEscape(term)}, ${sqlEscape(session)}, ${sqlEscape(existing.teacherName)}, ${sqlEscape(existing.principalName)}, NOW()
+            ${sqlEscape(k)}, ${sqlEscape(finalTeacherComment)}, ${sqlEscape(finalPrincipalComment)},
+            ${sqlEscape(term)}, ${sqlEscape(session)}, ${sqlEscape(finalTeacherName)}, ${sqlEscape(finalPrincipalName)}, NOW()
           )
           ON CONFLICT (student_id, term, session)
           DO UPDATE SET
-            principal_comment = CASE WHEN EXCLUDED.principal_comment != '' THEN EXCLUDED.principal_comment ELSE student_comments.principal_comment END,
-            principal_name = CASE WHEN EXCLUDED.principal_name != '' THEN EXCLUDED.principal_name ELSE student_comments.principal_name END,
+            class_teacher_comment = EXCLUDED.class_teacher_comment,
+            principal_comment = EXCLUDED.principal_comment,
+            teacher_name = EXCLUDED.teacher_name,
+            principal_name = EXCLUDED.principal_name,
             updated_at = NOW();
         `;
         await p.query(q);
@@ -2745,12 +2860,12 @@ app.post('/api/students/:id/principal-comment', authenticate, async (req: AuthRe
     try {
       const supaPayloads = stKeys.map((k) => ({
         student_id: k,
-        class_teacher_comment: existing.classTeacherComment,
-        principal_comment: existing.principalComment,
+        class_teacher_comment: finalTeacherComment,
+        principal_comment: finalPrincipalComment,
         term: String(term),
         session: String(session),
-        teacher_name: existing.teacherName || 'Class Teacher',
-        principal_name: existing.principalName || 'School Principal',
+        teacher_name: finalTeacherName,
+        principal_name: finalPrincipalName,
         updated_at: new Date().toISOString(),
       }));
       await supabase.from('student_comments').upsert(supaPayloads, { onConflict: 'student_id,term,session' });
@@ -2758,7 +2873,7 @@ app.post('/api/students/:id/principal-comment', authenticate, async (req: AuthRe
 
     persistClassTeachersData();
 
-    return res.json({ success: true, comments: existing });
+    return res.json({ success: true, comments: mergedRecord });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }

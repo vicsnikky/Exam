@@ -112,8 +112,9 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
         }
       })());
 
+  const isTeacherUser = Boolean(user && user.role !== 'student' && user.role !== 'bursar');
   const isClassTeacher = !isExecutive && Boolean(effectiveAssignedClass || user?.isClassTeacher);
-  const canAccessBroadsheet = isExecutive || isClassTeacher;
+  const canAccessBroadsheet = isExecutive || isClassTeacher || isTeacherUser;
 
 
   const [stats, setStats] = useState({

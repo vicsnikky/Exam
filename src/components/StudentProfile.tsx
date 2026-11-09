@@ -1164,18 +1164,21 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   };
 
   useEffect(() => {
-    if (student) {
-      const sId = student.studentId || String(student.id);
-      const cName = student.currentClass;
-      fetchClassTeacherAssignments(token).then((assignments) => {
-        if (cName) {
-          const matched = getClassTeacherForClass(cName, assignments);
-          if (matched) {
-            setAssignedClassTeacher(matched);
-          }
-        }
-      }).catch(() => {});
+    if (!student) return;
 
+    const sId = student.studentId || String(student.id);
+    const cName = student.currentClass;
+
+    fetchClassTeacherAssignments(token).then((assignments) => {
+      if (cName) {
+        const matched = getClassTeacherForClass(cName, assignments);
+        if (matched) {
+          setAssignedClassTeacher(matched);
+        }
+      }
+    }).catch(() => {});
+
+    const refreshComments = () => {
       fetchStudentComments(sId, selectedPrintTerm, student.session || '2026/2027', token).then((comments) => {
         if (comments) {
           const tRem = comments.classTeacherComment || (isSenior
@@ -1189,7 +1192,48 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           setPrincipalDraft(pRem);
         }
       }).catch(() => {});
-    }
+    };
+
+    refreshComments();
+
+    const handleCommentsUpdate = () => {
+      refreshComments();
+    };
+    const handleWindowFocus = () => {
+      refreshComments();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        refreshComments();
+      }
+    };
+
+    window.addEventListener('fis:comments-updated', handleCommentsUpdate);
+    window.addEventListener('fis:student-comments-updated', handleCommentsUpdate);
+    window.addEventListener('focus', handleWindowFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    let bc: BroadcastChannel | null = null;
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        bc = new BroadcastChannel('fis_student_comments_sync');
+        bc.onmessage = () => {
+          refreshComments();
+        };
+      }
+    } catch (_) {}
+
+    return () => {
+      window.removeEventListener('fis:comments-updated', handleCommentsUpdate);
+      window.removeEventListener('fis:student-comments-updated', handleCommentsUpdate);
+      window.removeEventListener('focus', handleWindowFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (bc) {
+        try {
+          bc.close();
+        } catch (_) {}
+      }
+    };
   }, [student, selectedPrintTerm, token]);
 
   const handleDeleteScore = async (scoreId: number | string, subjectTitle: string, targetAssessment?: any) => {

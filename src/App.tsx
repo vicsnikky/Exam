@@ -153,10 +153,10 @@ export default function App() {
       }
     })();
 
-  // Broadsheet permissions: Only Class Teachers, Admins, and Super Admins can access broadsheets.
-  // Regular subject teachers are strictly limited to entering student scores.
+  // Broadsheet permissions: All academic faculty teachers, Class Teachers, Admins, and Super Admins can access broadsheets and view report cards and comments.
+  const isTeacherUser = Boolean(user && user.role !== 'student' && user.role !== 'bursar');
   const isClassTeacher = Boolean(effectiveAssignedClass || user?.isClassTeacher);
-  const canAccessBroadsheet = isSuperAdmin || isAdminOnly || isClassTeacher;
+  const canAccessBroadsheet = isSuperAdmin || isAdminOnly || isClassTeacher || isTeacherUser;
 
 
   const adminConsoleTitle = isVictorSuperAdmin

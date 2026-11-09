@@ -9,6 +9,14 @@
       "teacherName": "Faculty Teacher",
       "updatedAt": "2026-10-17T06:28:08.383Z"
     },
+    "10": {
+      "studentId": "10",
+      "remark": "Consistent performance and active in class. Truly wonderful progress!",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Mrs. Ogechi Adeyeye",
+      "updatedAt": "2026-11-09T13:38:46.637Z"
+    },
     "1_First Term_2026/2027": {
       "studentId": "1",
       "remark": "An exceptionally dedicated scholar with consistent academic excellence.",
@@ -32,6 +40,14 @@
       "session": "2026/2027",
       "teacherName": "Mrs. Ogechi Adeyeye",
       "updatedAt": "2026-11-09T07:47:34.225Z"
+    },
+    "10_First Term_2026/2027": {
+      "studentId": "10",
+      "remark": "Consistent performance and active in class. Truly wonderful progress!",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Mrs. Ogechi Adeyeye",
+      "updatedAt": "2026-11-09T13:38:46.637Z"
     }
   },
   "studentComments": {
@@ -47,13 +63,463 @@
     },
     "10": {
       "studentId": "10",
-      "classTeacherComment": "Consistent performance and active in class.",
-      "principalComment": "A commendable outcome. Keep up the high standards.",
+      "classTeacherComment": "Consistent performance and active in class. Truly wonderful progress!",
+      "principalComment": "A commendable outcome. Keep up the high standards. Very proud of you!",
       "term": "First Term",
       "session": "2026/2027",
       "teacherName": "Mrs. Ogechi Adeyeye",
       "principalName": "Principal Victor Alo",
-      "updatedAt": "2026-11-09T07:47:34.499Z"
+      "updatedAt": "2026-11-09T13:39:14.436Z"
+    },
+    "35": {
+      "studentId": "35",
+      "classTeacherComment": "",
+      "principalComment": "Brilliant performance, keep working hard and don't relent.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.330183+00:00"
+    },
+    "47": {
+      "studentId": "47",
+      "classTeacherComment": "He has improved tremendously, keep it up",
+      "principalComment": "Brilliant performance, keep it up.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.36359+00:00"
+    },
+    "48": {
+      "studentId": "48",
+      "classTeacherComment": "She's very attentive and hardworking",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Monsuru Raji",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.393898+00:00"
+    },
+    "49": {
+      "studentId": "49",
+      "classTeacherComment": "",
+      "principalComment": "Excellent performance, keep working hard and don't relent.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.424676+00:00"
+    },
+    "54": {
+      "studentId": "54",
+      "classTeacherComment": "Donald is a promising student. Keep working hard for better result",
+      "principalComment": "There is room for tremendous improvement, keep working hard.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Ogechi Adeyeye",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.454946+00:00"
+    },
+    "58": {
+      "studentId": "58",
+      "classTeacherComment": "An exemplary and disciplined scholar whose commitment to academic excellence and moral conduct is highly commendable. You can do better, keep pushing till you get there.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Abosede Alabi",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.485701+00:00"
+    },
+    "63": {
+      "studentId": "63",
+      "classTeacherComment": "A very good performance, do not relent, keep the ball rolling.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Abosede Alabi",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.521825+00:00"
+    },
+    "65": {
+      "studentId": "65",
+      "classTeacherComment": "Enoch has indeed improved in his academic performance, his commitment to academic excellence and moral conduct is highly commendable, keep the ball rolling, you are getting there!.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Abosede Alabi",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.584833+00:00"
+    },
+    "68": {
+      "studentId": "68",
+      "classTeacherComment": "A good result, you can do better in the next exams.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Abosede Alabi",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.554176+00:00"
+    },
+    "69": {
+      "studentId": "69",
+      "classTeacherComment": "",
+      "principalComment": "Such a brilliant scholar. Keep working hard and don't relent.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.615922+00:00"
+    },
+    "71": {
+      "studentId": "71",
+      "classTeacherComment": "An average result but can surpass this result",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Monsuru Raji",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.646588+00:00"
+    },
+    "72": {
+      "studentId": "72",
+      "classTeacherComment": "She's very attentive and willing to know",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Monsuru Raji",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.676758+00:00"
+    },
+    "74": {
+      "studentId": "74",
+      "classTeacherComment": "She's calm and focus",
+      "principalComment": "Keep working hard and stay focused. Good performance.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.707261+00:00"
+    },
+    "76": {
+      "studentId": "76",
+      "classTeacherComment": "She's a good girl but needs to work hard",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Monsuru Raji",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.108357+00:00"
+    },
+    "77": {
+      "studentId": "77",
+      "classTeacherComment": "He's active in the class but needs to put more effort",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Monsuru Raji",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.738457+00:00"
+    },
+    "78": {
+      "studentId": "78",
+      "classTeacherComment": "His calmed and focused in class",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Monsuru Raji",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.77017+00:00"
+    },
+    "80": {
+      "studentId": "80",
+      "classTeacherComment": "She's very attentive but needs to improve",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Monsuru Raji",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.800655+00:00"
+    },
+    "82": {
+      "studentId": "82",
+      "classTeacherComment": "He's calm but needs to inprove academically",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Fatai Tijani",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.832305+00:00"
+    },
+    "86": {
+      "studentId": "86",
+      "classTeacherComment": "",
+      "principalComment": "Brilliant performance, keep working hard, don't relent.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.565506+00:00"
+    },
+    "87": {
+      "studentId": "87",
+      "classTeacherComment": "",
+      "principalComment": "Average performance but you can definitely do better. keep working hard.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.862812+00:00"
+    },
+    "88": {
+      "studentId": "88",
+      "classTeacherComment": "",
+      "principalComment": "keep working hard and don't relent.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.893272+00:00"
+    },
+    "89": {
+      "studentId": "89",
+      "classTeacherComment": "",
+      "principalComment": "Average performance but you can do much better, keep working hard.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.139531+00:00"
+    },
+    "90": {
+      "studentId": "90",
+      "classTeacherComment": "",
+      "principalComment": "Stay focused and avoid distractions, you can do much better.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.923413+00:00"
+    },
+    "91": {
+      "studentId": "91",
+      "classTeacherComment": "",
+      "principalComment": "Brilliant performance, keep working hard and don't relent.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.95435+00:00"
+    },
+    "93": {
+      "studentId": "93",
+      "classTeacherComment": "",
+      "principalComment": "Very good performance, keep working hard and don't relent",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.985795+00:00"
+    },
+    "94": {
+      "studentId": "94",
+      "classTeacherComment": "Peter is a promising student....keep working hard for better results",
+      "principalComment": "There is room for massive improvement, don't relent.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.016123+00:00"
+    },
+    "95": {
+      "studentId": "95",
+      "classTeacherComment": "Chikasiemobi is a good student who is encouraged to keep up the effort",
+      "principalComment": "Brilliant performance, keep it up and don't relent.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Ogechi Adeyeye",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.046737+00:00"
+    },
+    "96": {
+      "studentId": "96",
+      "classTeacherComment": "Mercy has the ability to do better and should put in more effort",
+      "principalComment": "keep working hard, you can do much better.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Ogechi Adeyeye",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.077522+00:00"
+    },
+    "103": {
+      "studentId": "103",
+      "classTeacherComment": "He is well behaved and hard-working.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Oluwapelumi Ismaila",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.169592+00:00"
+    },
+    "104": {
+      "studentId": "104",
+      "classTeacherComment": "He is well-behaved and hardworking",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Oluwapelumi Ismaila",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.353913+00:00"
+    },
+    "108": {
+      "studentId": "108",
+      "classTeacherComment": "She is quiet good and attentive.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Oluwapelumi Ismaila",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.199868+00:00"
+    },
+    "110": {
+      "studentId": "110",
+      "classTeacherComment": "He is focus and  ready to learn",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Oluwapelumi Ismaila",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.230665+00:00"
+    },
+    "111": {
+      "studentId": "111",
+      "classTeacherComment": "He is focus and hardworking",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Oluwapelumi Ismaila",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.261101+00:00"
+    },
+    "113": {
+      "studentId": "113",
+      "classTeacherComment": "He is very attentive in the class",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Oluwapelumi Ismaila",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.292874+00:00"
+    },
+    "114": {
+      "studentId": "114",
+      "classTeacherComment": "He is attentive to learning",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Oluwapelumi Ismaila",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.323031+00:00"
+    },
+    "126": {
+      "studentId": "126",
+      "classTeacherComment": "She is well behave and hardworking",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Oluwapelumi Ismaila",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.384232+00:00"
+    },
+    "130": {
+      "studentId": "130",
+      "classTeacherComment": "A brilliant and reserved student who always strives for excellence. Keep up the good work.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Ojo Adebimpe",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.414038+00:00"
+    },
+    "132": {
+      "studentId": "132",
+      "classTeacherComment": "A cheerful and enthusiastic student who should continue to maintain a positive attitude.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Ojo Adebimpe",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.444019+00:00"
+    },
+    "134": {
+      "studentId": "134",
+      "classTeacherComment": "A brilliant,reserved and hardworking student who always strives for excellence. Keep up the excellent work.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Ojo Adebimpe",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.473897+00:00"
+    },
+    "139": {
+      "studentId": "139",
+      "classTeacherComment": "A cheerful and enthusiastic student who should continue to maintain a positive attitude. Keep it up.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Ojo Adebimpe",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.504397+00:00"
+    },
+    "140": {
+      "studentId": "140",
+      "classTeacherComment": "A brilliant and hardworking student who always strives for excellence. Keep the ball rolling.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Ojo Adebimpe",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.534604+00:00"
+    },
+    "189": {
+      "studentId": "189",
+      "classTeacherComment": "Juwon has shown improvement...keep working working hard",
+      "principalComment": "Keep working hard and stay focused",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.595845+00:00"
+    },
+    "190": {
+      "studentId": "190",
+      "classTeacherComment": "",
+      "principalComment": "Stay focused and keep working hard. Good performance.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.62613+00:00"
+    },
+    "191": {
+      "studentId": "191",
+      "classTeacherComment": "",
+      "principalComment": "Keep working hard and don't relent.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.655936+00:00"
+    },
+    "277": {
+      "studentId": "277",
+      "classTeacherComment": "She is well behaved and attentive.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Oluwapelumi Ismaila",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.686911+00:00"
     },
     "1_First Term_2026/2027": {
       "studentId": "1",
@@ -67,33 +533,1383 @@
     },
     "FEN-2026-325603_First Term_2026/2027": {
       "studentId": "FEN-2026-325603",
-      "classTeacherComment": "Consistent performance and active in class.",
-      "principalComment": "A commendable outcome. Keep up the high standards.",
+      "classTeacherComment": "Consistent performance and active in class. Truly wonderful progress!",
+      "principalComment": "A commendable outcome. Keep up the high standards. Very proud of you!",
       "term": "First Term",
       "session": "2026/2027",
       "teacherName": "Mrs. Ogechi Adeyeye",
       "principalName": "Principal Victor Alo",
-      "updatedAt": "2026-11-09T07:47:34.499Z"
+      "updatedAt": "2026-11-09T13:39:14.436Z"
     },
     "FEN-2026-325603": {
       "studentId": "FEN-2026-325603",
-      "classTeacherComment": "Consistent performance and active in class.",
-      "principalComment": "A commendable outcome. Keep up the high standards.",
+      "classTeacherComment": "Consistent performance and active in class. Truly wonderful progress!",
+      "principalComment": "A commendable outcome. Keep up the high standards. Very proud of you!",
       "term": "First Term",
       "session": "2026/2027",
       "teacherName": "Mrs. Ogechi Adeyeye",
       "principalName": "Principal Victor Alo",
-      "updatedAt": "2026-11-09T07:47:34.499Z"
+      "updatedAt": "2026-11-09T13:39:14.436Z"
     },
     "10_First Term_2026/2027": {
       "studentId": "10",
-      "classTeacherComment": "Consistent performance and active in class.",
-      "principalComment": "A commendable outcome. Keep up the high standards.",
+      "classTeacherComment": "Consistent performance and active in class. Truly wonderful progress!",
+      "principalComment": "A commendable outcome. Keep up the high standards. Very proud of you!",
       "term": "First Term",
       "session": "2026/2027",
       "teacherName": "Mrs. Ogechi Adeyeye",
       "principalName": "Principal Victor Alo",
-      "updatedAt": "2026-11-09T07:47:34.499Z"
+      "updatedAt": "2026-11-09T13:39:14.436Z"
+    },
+    "96_First Term_2026/2027": {
+      "studentId": "96",
+      "classTeacherComment": "Mercy has the ability to do better and should put in more effort",
+      "principalComment": "keep working hard, you can do much better.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Ogechi Adeyeye",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.077522+00:00"
+    },
+    "89_First Term_2026/2027": {
+      "studentId": "89",
+      "classTeacherComment": "",
+      "principalComment": "Average performance but you can do much better, keep working hard.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.139531+00:00"
+    },
+    "FEN-2026-649881_First Term_2026/2027": {
+      "studentId": "FEN-2026-649881",
+      "classTeacherComment": "Mercy has the ability to do better and should put in more effort",
+      "principalComment": "keep working hard, you can do much better.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Ogechi Adeyeye",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.092828+00:00"
+    },
+    "FEN-2026-649881": {
+      "studentId": "FEN-2026-649881",
+      "classTeacherComment": "Mercy has the ability to do better and should put in more effort",
+      "principalComment": "keep working hard, you can do much better.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Ogechi Adeyeye",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.092828+00:00"
+    },
+    "87_First Term_2026/2027": {
+      "studentId": "87",
+      "classTeacherComment": "",
+      "principalComment": "Average performance but you can definitely do better. keep working hard.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.862812+00:00"
+    },
+    "FEN-2026-531640_First Term_2026/2027": {
+      "studentId": "FEN-2026-531640",
+      "classTeacherComment": "",
+      "principalComment": "Average performance but you can definitely do better. keep working hard.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.878028+00:00"
+    },
+    "FEN-2026-531640": {
+      "studentId": "FEN-2026-531640",
+      "classTeacherComment": "",
+      "principalComment": "Average performance but you can definitely do better. keep working hard.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.878028+00:00"
+    },
+    "88_First Term_2026/2027": {
+      "studentId": "88",
+      "classTeacherComment": "",
+      "principalComment": "keep working hard and don't relent.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.893272+00:00"
+    },
+    "FEN-2026-744835_First Term_2026/2027": {
+      "studentId": "FEN-2026-744835",
+      "classTeacherComment": "",
+      "principalComment": "keep working hard and don't relent.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.908111+00:00"
+    },
+    "FEN-2026-744835": {
+      "studentId": "FEN-2026-744835",
+      "classTeacherComment": "",
+      "principalComment": "keep working hard and don't relent.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.908111+00:00"
+    },
+    "90_First Term_2026/2027": {
+      "studentId": "90",
+      "classTeacherComment": "",
+      "principalComment": "Stay focused and avoid distractions, you can do much better.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.923413+00:00"
+    },
+    "FEN-2026-327834_First Term_2026/2027": {
+      "studentId": "FEN-2026-327834",
+      "classTeacherComment": "",
+      "principalComment": "Stay focused and avoid distractions, you can do much better.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.938682+00:00"
+    },
+    "FEN-2026-327834": {
+      "studentId": "FEN-2026-327834",
+      "classTeacherComment": "",
+      "principalComment": "Stay focused and avoid distractions, you can do much better.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.938682+00:00"
+    },
+    "91_First Term_2026/2027": {
+      "studentId": "91",
+      "classTeacherComment": "",
+      "principalComment": "Brilliant performance, keep working hard and don't relent.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.95435+00:00"
+    },
+    "FEN-2026-435228_First Term_2026/2027": {
+      "studentId": "FEN-2026-435228",
+      "classTeacherComment": "",
+      "principalComment": "Brilliant performance, keep working hard and don't relent.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.970298+00:00"
+    },
+    "FEN-2026-435228": {
+      "studentId": "FEN-2026-435228",
+      "classTeacherComment": "",
+      "principalComment": "Brilliant performance, keep working hard and don't relent.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.970298+00:00"
+    },
+    "93_First Term_2026/2027": {
+      "studentId": "93",
+      "classTeacherComment": "",
+      "principalComment": "Very good performance, keep working hard and don't relent",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.985795+00:00"
+    },
+    "FEN-2026-387790_First Term_2026/2027": {
+      "studentId": "FEN-2026-387790",
+      "classTeacherComment": "",
+      "principalComment": "Very good performance, keep working hard and don't relent",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.000901+00:00"
+    },
+    "FEN-2026-387790": {
+      "studentId": "FEN-2026-387790",
+      "classTeacherComment": "",
+      "principalComment": "Very good performance, keep working hard and don't relent",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.000901+00:00"
+    },
+    "FEN-2026-287695_First Term_2026/2027": {
+      "studentId": "FEN-2026-287695",
+      "classTeacherComment": "Chikasiemobi is a good student who is encouraged to keep up the effort",
+      "principalComment": "Brilliant performance, keep it up and don't relent.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Ogechi Adeyeye",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.062299+00:00"
+    },
+    "FEN-2026-287695": {
+      "studentId": "FEN-2026-287695",
+      "classTeacherComment": "Chikasiemobi is a good student who is encouraged to keep up the effort",
+      "principalComment": "Brilliant performance, keep it up and don't relent.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Ogechi Adeyeye",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.062299+00:00"
+    },
+    "FEN-2026-189084_First Term_2026/2027": {
+      "studentId": "FEN-2026-189084",
+      "classTeacherComment": "",
+      "principalComment": "Average performance but you can do much better, keep working hard.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.154442+00:00"
+    },
+    "FEN-2026-189084": {
+      "studentId": "FEN-2026-189084",
+      "classTeacherComment": "",
+      "principalComment": "Average performance but you can do much better, keep working hard.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.154442+00:00"
+    },
+    "103_First Term_2026/2027": {
+      "studentId": "103",
+      "classTeacherComment": "He is well behaved and hard-working.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Oluwapelumi Ismaila",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.169592+00:00"
+    },
+    "FEN-2026-164651_First Term_2026/2027": {
+      "studentId": "FEN-2026-164651",
+      "classTeacherComment": "He is well behaved and hard-working.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Oluwapelumi Ismaila",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.184693+00:00"
+    },
+    "FEN-2026-164651": {
+      "studentId": "FEN-2026-164651",
+      "classTeacherComment": "He is well behaved and hard-working.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Oluwapelumi Ismaila",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.184693+00:00"
+    },
+    "108_First Term_2026/2027": {
+      "studentId": "108",
+      "classTeacherComment": "She is quiet good and attentive.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Oluwapelumi Ismaila",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.199868+00:00"
+    },
+    "FEN-2026-485430_First Term_2026/2027": {
+      "studentId": "FEN-2026-485430",
+      "classTeacherComment": "She is quiet good and attentive.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Oluwapelumi Ismaila",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.215127+00:00"
+    },
+    "FEN-2026-485430": {
+      "studentId": "FEN-2026-485430",
+      "classTeacherComment": "She is quiet good and attentive.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Oluwapelumi Ismaila",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.215127+00:00"
+    },
+    "110_First Term_2026/2027": {
+      "studentId": "110",
+      "classTeacherComment": "He is focus and  ready to learn",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Oluwapelumi Ismaila",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.230665+00:00"
+    },
+    "FEN-2026-102298_First Term_2026/2027": {
+      "studentId": "FEN-2026-102298",
+      "classTeacherComment": "He is focus and  ready to learn",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Oluwapelumi Ismaila",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.24609+00:00"
+    },
+    "FEN-2026-102298": {
+      "studentId": "FEN-2026-102298",
+      "classTeacherComment": "He is focus and  ready to learn",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Oluwapelumi Ismaila",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.24609+00:00"
+    },
+    "111_First Term_2026/2027": {
+      "studentId": "111",
+      "classTeacherComment": "He is focus and hardworking",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Oluwapelumi Ismaila",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.261101+00:00"
+    },
+    "FEN-2026-585189_First Term_2026/2027": {
+      "studentId": "FEN-2026-585189",
+      "classTeacherComment": "He is focus and hardworking",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Oluwapelumi Ismaila",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.27752+00:00"
+    },
+    "FEN-2026-585189": {
+      "studentId": "FEN-2026-585189",
+      "classTeacherComment": "He is focus and hardworking",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Oluwapelumi Ismaila",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.27752+00:00"
+    },
+    "113_First Term_2026/2027": {
+      "studentId": "113",
+      "classTeacherComment": "He is very attentive in the class",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Oluwapelumi Ismaila",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.292874+00:00"
+    },
+    "FEN-2026-635078_First Term_2026/2027": {
+      "studentId": "FEN-2026-635078",
+      "classTeacherComment": "He is very attentive in the class",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Oluwapelumi Ismaila",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.308001+00:00"
+    },
+    "FEN-2026-635078": {
+      "studentId": "FEN-2026-635078",
+      "classTeacherComment": "He is very attentive in the class",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Oluwapelumi Ismaila",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.308001+00:00"
+    },
+    "114_First Term_2026/2027": {
+      "studentId": "114",
+      "classTeacherComment": "He is attentive to learning",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Oluwapelumi Ismaila",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.323031+00:00"
+    },
+    "FEN-2026-599891_First Term_2026/2027": {
+      "studentId": "FEN-2026-599891",
+      "classTeacherComment": "He is attentive to learning",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Oluwapelumi Ismaila",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.338845+00:00"
+    },
+    "FEN-2026-599891": {
+      "studentId": "FEN-2026-599891",
+      "classTeacherComment": "He is attentive to learning",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Oluwapelumi Ismaila",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.338845+00:00"
+    },
+    "104_First Term_2026/2027": {
+      "studentId": "104",
+      "classTeacherComment": "He is well-behaved and hardworking",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Oluwapelumi Ismaila",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.353913+00:00"
+    },
+    "FEN-2026-498743_First Term_2026/2027": {
+      "studentId": "FEN-2026-498743",
+      "classTeacherComment": "He is well-behaved and hardworking",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Oluwapelumi Ismaila",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.369125+00:00"
+    },
+    "FEN-2026-498743": {
+      "studentId": "FEN-2026-498743",
+      "classTeacherComment": "He is well-behaved and hardworking",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Oluwapelumi Ismaila",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.369125+00:00"
+    },
+    "126_First Term_2026/2027": {
+      "studentId": "126",
+      "classTeacherComment": "She is well behave and hardworking",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Oluwapelumi Ismaila",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.384232+00:00"
+    },
+    "FEN-2026-807822_First Term_2026/2027": {
+      "studentId": "FEN-2026-807822",
+      "classTeacherComment": "She is well behave and hardworking",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Oluwapelumi Ismaila",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.399046+00:00"
+    },
+    "FEN-2026-807822": {
+      "studentId": "FEN-2026-807822",
+      "classTeacherComment": "She is well behave and hardworking",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Oluwapelumi Ismaila",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.399046+00:00"
+    },
+    "130_First Term_2026/2027": {
+      "studentId": "130",
+      "classTeacherComment": "A brilliant and reserved student who always strives for excellence. Keep up the good work.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Ojo Adebimpe",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.414038+00:00"
+    },
+    "132_First Term_2026/2027": {
+      "studentId": "132",
+      "classTeacherComment": "A cheerful and enthusiastic student who should continue to maintain a positive attitude.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Ojo Adebimpe",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.444019+00:00"
+    },
+    "FEN-2026-173485_First Term_2026/2027": {
+      "studentId": "FEN-2026-173485",
+      "classTeacherComment": "A cheerful and enthusiastic student who should continue to maintain a positive attitude.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Ojo Adebimpe",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.458937+00:00"
+    },
+    "FEN-2026-173485": {
+      "studentId": "FEN-2026-173485",
+      "classTeacherComment": "A cheerful and enthusiastic student who should continue to maintain a positive attitude.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Ojo Adebimpe",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.458937+00:00"
+    },
+    "139_First Term_2026/2027": {
+      "studentId": "139",
+      "classTeacherComment": "A cheerful and enthusiastic student who should continue to maintain a positive attitude. Keep it up.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Ojo Adebimpe",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.504397+00:00"
+    },
+    "FEN-2026-745953_First Term_2026/2027": {
+      "studentId": "FEN-2026-745953",
+      "classTeacherComment": "A cheerful and enthusiastic student who should continue to maintain a positive attitude. Keep it up.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Ojo Adebimpe",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.519525+00:00"
+    },
+    "FEN-2026-745953": {
+      "studentId": "FEN-2026-745953",
+      "classTeacherComment": "A cheerful and enthusiastic student who should continue to maintain a positive attitude. Keep it up.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Ojo Adebimpe",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.519525+00:00"
+    },
+    "140_First Term_2026/2027": {
+      "studentId": "140",
+      "classTeacherComment": "A brilliant and hardworking student who always strives for excellence. Keep the ball rolling.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Ojo Adebimpe",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.534604+00:00"
+    },
+    "FEN-2026-812635_First Term_2026/2027": {
+      "studentId": "FEN-2026-812635",
+      "classTeacherComment": "A brilliant and hardworking student who always strives for excellence. Keep the ball rolling.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Ojo Adebimpe",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.549794+00:00"
+    },
+    "FEN-2026-812635": {
+      "studentId": "FEN-2026-812635",
+      "classTeacherComment": "A brilliant and hardworking student who always strives for excellence. Keep the ball rolling.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Ojo Adebimpe",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.549794+00:00"
+    },
+    "86_First Term_2026/2027": {
+      "studentId": "86",
+      "classTeacherComment": "",
+      "principalComment": "Brilliant performance, keep working hard, don't relent.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.565506+00:00"
+    },
+    "FEN-2026-691800_First Term_2026/2027": {
+      "studentId": "FEN-2026-691800",
+      "classTeacherComment": "",
+      "principalComment": "Brilliant performance, keep working hard, don't relent.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.580526+00:00"
+    },
+    "FEN-2026-691800": {
+      "studentId": "FEN-2026-691800",
+      "classTeacherComment": "",
+      "principalComment": "Brilliant performance, keep working hard, don't relent.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.580526+00:00"
+    },
+    "190_First Term_2026/2027": {
+      "studentId": "190",
+      "classTeacherComment": "",
+      "principalComment": "Stay focused and keep working hard. Good performance.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.62613+00:00"
+    },
+    "FEN-2026-773704_First Term_2026/2027": {
+      "studentId": "FEN-2026-773704",
+      "classTeacherComment": "",
+      "principalComment": "Stay focused and keep working hard. Good performance.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.641022+00:00"
+    },
+    "FEN-2026-773704": {
+      "studentId": "FEN-2026-773704",
+      "classTeacherComment": "",
+      "principalComment": "Stay focused and keep working hard. Good performance.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.641022+00:00"
+    },
+    "191_First Term_2026/2027": {
+      "studentId": "191",
+      "classTeacherComment": "",
+      "principalComment": "Keep working hard and don't relent.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.655936+00:00"
+    },
+    "FEN-2026-299233_First Term_2026/2027": {
+      "studentId": "FEN-2026-299233",
+      "classTeacherComment": "",
+      "principalComment": "Keep working hard and don't relent.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.671114+00:00"
+    },
+    "FEN-2026-299233": {
+      "studentId": "FEN-2026-299233",
+      "classTeacherComment": "",
+      "principalComment": "Keep working hard and don't relent.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.671114+00:00"
+    },
+    "277_First Term_2026/2027": {
+      "studentId": "277",
+      "classTeacherComment": "She is well behaved and attentive.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Oluwapelumi Ismaila",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.686911+00:00"
+    },
+    "FEN-2026-270078_First Term_2026/2027": {
+      "studentId": "FEN-2026-270078",
+      "classTeacherComment": "She is well behaved and attentive.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Oluwapelumi Ismaila",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.702124+00:00"
+    },
+    "FEN-2026-270078": {
+      "studentId": "FEN-2026-270078",
+      "classTeacherComment": "She is well behaved and attentive.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Oluwapelumi Ismaila",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.702124+00:00"
+    },
+    "FEN-2026-872985_First Term_2026/2027": {
+      "studentId": "FEN-2026-872985",
+      "classTeacherComment": "Juwon has shown improvement...keep working working hard",
+      "principalComment": "Keep working hard and stay focused",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.610987+00:00"
+    },
+    "FEN-2026-872985": {
+      "studentId": "FEN-2026-872985",
+      "classTeacherComment": "Juwon has shown improvement...keep working working hard",
+      "principalComment": "Keep working hard and stay focused",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.610987+00:00"
+    },
+    "95_First Term_2026/2027": {
+      "studentId": "95",
+      "classTeacherComment": "Chikasiemobi is a good student who is encouraged to keep up the effort",
+      "principalComment": "Brilliant performance, keep it up and don't relent.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Ogechi Adeyeye",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.046737+00:00"
+    },
+    "FEN-2026-181411_First Term_2026/2027": {
+      "studentId": "FEN-2026-181411",
+      "classTeacherComment": "Peter is a promising student....keep working hard for better results",
+      "principalComment": "There is room for massive improvement, don't relent.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.031246+00:00"
+    },
+    "FEN-2026-181411": {
+      "studentId": "FEN-2026-181411",
+      "classTeacherComment": "Peter is a promising student....keep working hard for better results",
+      "principalComment": "There is room for massive improvement, don't relent.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.031246+00:00"
+    },
+    "48_First Term_2026/2027": {
+      "studentId": "48",
+      "classTeacherComment": "She's very attentive and hardworking",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Monsuru Raji",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.393898+00:00"
+    },
+    "FEN-2026-103658_First Term_2026/2027": {
+      "studentId": "FEN-2026-103658",
+      "classTeacherComment": "He has improved tremendously, keep it up",
+      "principalComment": "Brilliant performance, keep it up.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.378744+00:00"
+    },
+    "FEN-2026-103658": {
+      "studentId": "FEN-2026-103658",
+      "classTeacherComment": "He has improved tremendously, keep it up",
+      "principalComment": "Brilliant performance, keep it up.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.378744+00:00"
+    },
+    "77_First Term_2026/2027": {
+      "studentId": "77",
+      "classTeacherComment": "He's active in the class but needs to put more effort",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Monsuru Raji",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.738457+00:00"
+    },
+    "FEN-2026-781338_First Term_2026/2027": {
+      "studentId": "FEN-2026-781338",
+      "classTeacherComment": "She's calm and focus",
+      "principalComment": "Keep working hard and stay focused. Good performance.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.72255+00:00"
+    },
+    "FEN-2026-781338": {
+      "studentId": "FEN-2026-781338",
+      "classTeacherComment": "She's calm and focus",
+      "principalComment": "Keep working hard and stay focused. Good performance.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.72255+00:00"
+    },
+    "35_First Term_2026/2027": {
+      "studentId": "35",
+      "classTeacherComment": "",
+      "principalComment": "Brilliant performance, keep working hard and don't relent.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.330183+00:00"
+    },
+    "FEN-2026-810932_First Term_2026/2027": {
+      "studentId": "FEN-2026-810932",
+      "classTeacherComment": "",
+      "principalComment": "Brilliant performance, keep working hard and don't relent.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.347281+00:00"
+    },
+    "FEN-2026-810932": {
+      "studentId": "FEN-2026-810932",
+      "classTeacherComment": "",
+      "principalComment": "Brilliant performance, keep working hard and don't relent.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.347281+00:00"
+    },
+    "47_First Term_2026/2027": {
+      "studentId": "47",
+      "classTeacherComment": "He has improved tremendously, keep it up",
+      "principalComment": "Brilliant performance, keep it up.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.36359+00:00"
+    },
+    "FEN-2026-126828_First Term_2026/2027": {
+      "studentId": "FEN-2026-126828",
+      "classTeacherComment": "She's very attentive and hardworking",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Monsuru Raji",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.409008+00:00"
+    },
+    "FEN-2026-126828": {
+      "studentId": "FEN-2026-126828",
+      "classTeacherComment": "She's very attentive and hardworking",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Monsuru Raji",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.409008+00:00"
+    },
+    "49_First Term_2026/2027": {
+      "studentId": "49",
+      "classTeacherComment": "",
+      "principalComment": "Excellent performance, keep working hard and don't relent.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.424676+00:00"
+    },
+    "FEN-2026-422123_First Term_2026/2027": {
+      "studentId": "FEN-2026-422123",
+      "classTeacherComment": "",
+      "principalComment": "Excellent performance, keep working hard and don't relent.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.440001+00:00"
+    },
+    "FEN-2026-422123": {
+      "studentId": "FEN-2026-422123",
+      "classTeacherComment": "",
+      "principalComment": "Excellent performance, keep working hard and don't relent.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.440001+00:00"
+    },
+    "54_First Term_2026/2027": {
+      "studentId": "54",
+      "classTeacherComment": "Donald is a promising student. Keep working hard for better result",
+      "principalComment": "There is room for tremendous improvement, keep working hard.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Ogechi Adeyeye",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.454946+00:00"
+    },
+    "FEN-2026-474740_First Term_2026/2027": {
+      "studentId": "FEN-2026-474740",
+      "classTeacherComment": "Donald is a promising student. Keep working hard for better result",
+      "principalComment": "There is room for tremendous improvement, keep working hard.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Ogechi Adeyeye",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.47069+00:00"
+    },
+    "FEN-2026-474740": {
+      "studentId": "FEN-2026-474740",
+      "classTeacherComment": "Donald is a promising student. Keep working hard for better result",
+      "principalComment": "There is room for tremendous improvement, keep working hard.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Ogechi Adeyeye",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.47069+00:00"
+    },
+    "58_First Term_2026/2027": {
+      "studentId": "58",
+      "classTeacherComment": "An exemplary and disciplined scholar whose commitment to academic excellence and moral conduct is highly commendable. You can do better, keep pushing till you get there.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Abosede Alabi",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.485701+00:00"
+    },
+    "63_First Term_2026/2027": {
+      "studentId": "63",
+      "classTeacherComment": "A very good performance, do not relent, keep the ball rolling.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Abosede Alabi",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.521825+00:00"
+    },
+    "FEN-2026-320408_First Term_2026/2027": {
+      "studentId": "FEN-2026-320408",
+      "classTeacherComment": "A very good performance, do not relent, keep the ball rolling.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Abosede Alabi",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.537599+00:00"
+    },
+    "FEN-2026-320408": {
+      "studentId": "FEN-2026-320408",
+      "classTeacherComment": "A very good performance, do not relent, keep the ball rolling.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Abosede Alabi",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.537599+00:00"
+    },
+    "68_First Term_2026/2027": {
+      "studentId": "68",
+      "classTeacherComment": "A good result, you can do better in the next exams.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Abosede Alabi",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.554176+00:00"
+    },
+    "FEN-2026-738199_First Term_2026/2027": {
+      "studentId": "FEN-2026-738199",
+      "classTeacherComment": "A good result, you can do better in the next exams.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Abosede Alabi",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.569429+00:00"
+    },
+    "FEN-2026-738199": {
+      "studentId": "FEN-2026-738199",
+      "classTeacherComment": "A good result, you can do better in the next exams.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Abosede Alabi",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.569429+00:00"
+    },
+    "65_First Term_2026/2027": {
+      "studentId": "65",
+      "classTeacherComment": "Enoch has indeed improved in his academic performance, his commitment to academic excellence and moral conduct is highly commendable, keep the ball rolling, you are getting there!.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Abosede Alabi",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.584833+00:00"
+    },
+    "FEN-2026-414776_First Term_2026/2027": {
+      "studentId": "FEN-2026-414776",
+      "classTeacherComment": "Enoch has indeed improved in his academic performance, his commitment to academic excellence and moral conduct is highly commendable, keep the ball rolling, you are getting there!.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Abosede Alabi",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.601018+00:00"
+    },
+    "FEN-2026-414776": {
+      "studentId": "FEN-2026-414776",
+      "classTeacherComment": "Enoch has indeed improved in his academic performance, his commitment to academic excellence and moral conduct is highly commendable, keep the ball rolling, you are getting there!.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Abosede Alabi",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.601018+00:00"
+    },
+    "69_First Term_2026/2027": {
+      "studentId": "69",
+      "classTeacherComment": "",
+      "principalComment": "Such a brilliant scholar. Keep working hard and don't relent.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.615922+00:00"
+    },
+    "FEN-2026-257460_First Term_2026/2027": {
+      "studentId": "FEN-2026-257460",
+      "classTeacherComment": "",
+      "principalComment": "Such a brilliant scholar. Keep working hard and don't relent.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.631131+00:00"
+    },
+    "FEN-2026-257460": {
+      "studentId": "FEN-2026-257460",
+      "classTeacherComment": "",
+      "principalComment": "Such a brilliant scholar. Keep working hard and don't relent.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.631131+00:00"
+    },
+    "71_First Term_2026/2027": {
+      "studentId": "71",
+      "classTeacherComment": "An average result but can surpass this result",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Monsuru Raji",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.646588+00:00"
+    },
+    "FEN-2026-836065_First Term_2026/2027": {
+      "studentId": "FEN-2026-836065",
+      "classTeacherComment": "An average result but can surpass this result",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Monsuru Raji",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.661601+00:00"
+    },
+    "FEN-2026-836065": {
+      "studentId": "FEN-2026-836065",
+      "classTeacherComment": "An average result but can surpass this result",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Monsuru Raji",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.661601+00:00"
+    },
+    "72_First Term_2026/2027": {
+      "studentId": "72",
+      "classTeacherComment": "She's very attentive and willing to know",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Monsuru Raji",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.676758+00:00"
+    },
+    "FEN-2026-427477_First Term_2026/2027": {
+      "studentId": "FEN-2026-427477",
+      "classTeacherComment": "She's very attentive and willing to know",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Monsuru Raji",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.691977+00:00"
+    },
+    "FEN-2026-427477": {
+      "studentId": "FEN-2026-427477",
+      "classTeacherComment": "She's very attentive and willing to know",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Monsuru Raji",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.691977+00:00"
+    },
+    "74_First Term_2026/2027": {
+      "studentId": "74",
+      "classTeacherComment": "She's calm and focus",
+      "principalComment": "Keep working hard and stay focused. Good performance.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.707261+00:00"
+    },
+    "FEN-2026-413404_First Term_2026/2027": {
+      "studentId": "FEN-2026-413404",
+      "classTeacherComment": "He's active in the class but needs to put more effort",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Monsuru Raji",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.753589+00:00"
+    },
+    "FEN-2026-413404": {
+      "studentId": "FEN-2026-413404",
+      "classTeacherComment": "He's active in the class but needs to put more effort",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Monsuru Raji",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.753589+00:00"
+    },
+    "78_First Term_2026/2027": {
+      "studentId": "78",
+      "classTeacherComment": "His calmed and focused in class",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Monsuru Raji",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.77017+00:00"
+    },
+    "FEN-2026-353563_First Term_2026/2027": {
+      "studentId": "FEN-2026-353563",
+      "classTeacherComment": "His calmed and focused in class",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Monsuru Raji",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.785553+00:00"
+    },
+    "FEN-2026-353563": {
+      "studentId": "FEN-2026-353563",
+      "classTeacherComment": "His calmed and focused in class",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Monsuru Raji",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.785553+00:00"
+    },
+    "80_First Term_2026/2027": {
+      "studentId": "80",
+      "classTeacherComment": "She's very attentive but needs to improve",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Monsuru Raji",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.800655+00:00"
+    },
+    "FEN-2026-358511_First Term_2026/2027": {
+      "studentId": "FEN-2026-358511",
+      "classTeacherComment": "She's very attentive but needs to improve",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Monsuru Raji",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.817026+00:00"
+    },
+    "FEN-2026-358511": {
+      "studentId": "FEN-2026-358511",
+      "classTeacherComment": "She's very attentive but needs to improve",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Monsuru Raji",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.817026+00:00"
+    },
+    "82_First Term_2026/2027": {
+      "studentId": "82",
+      "classTeacherComment": "He's calm but needs to inprove academically",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Fatai Tijani",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.832305+00:00"
+    },
+    "FEN-2026-565871_First Term_2026/2027": {
+      "studentId": "FEN-2026-565871",
+      "classTeacherComment": "He's calm but needs to inprove academically",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Fatai Tijani",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.847649+00:00"
+    },
+    "FEN-2026-565871": {
+      "studentId": "FEN-2026-565871",
+      "classTeacherComment": "He's calm but needs to inprove academically",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Fatai Tijani",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.847649+00:00"
+    },
+    "94_First Term_2026/2027": {
+      "studentId": "94",
+      "classTeacherComment": "Peter is a promising student....keep working hard for better results",
+      "principalComment": "There is room for massive improvement, don't relent.",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.016123+00:00"
+    },
+    "76_First Term_2026/2027": {
+      "studentId": "76",
+      "classTeacherComment": "She's a good girl but needs to work hard",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Monsuru Raji",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.108357+00:00"
+    },
+    "FEN-2026-433525_First Term_2026/2027": {
+      "studentId": "FEN-2026-433525",
+      "classTeacherComment": "She's a good girl but needs to work hard",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Monsuru Raji",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.123688+00:00"
+    },
+    "FEN-2026-433525": {
+      "studentId": "FEN-2026-433525",
+      "classTeacherComment": "She's a good girl but needs to work hard",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Monsuru Raji",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.123688+00:00"
+    },
+    "134_First Term_2026/2027": {
+      "studentId": "134",
+      "classTeacherComment": "A brilliant,reserved and hardworking student who always strives for excellence. Keep up the excellent work.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Ojo Adebimpe",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.473897+00:00"
+    },
+    "FEN-2026-785033_First Term_2026/2027": {
+      "studentId": "FEN-2026-785033",
+      "classTeacherComment": "A brilliant,reserved and hardworking student who always strives for excellence. Keep up the excellent work.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Ojo Adebimpe",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.489027+00:00"
+    },
+    "FEN-2026-785033": {
+      "studentId": "FEN-2026-785033",
+      "classTeacherComment": "A brilliant,reserved and hardworking student who always strives for excellence. Keep up the excellent work.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Ojo Adebimpe",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.489027+00:00"
+    },
+    "189_First Term_2026/2027": {
+      "studentId": "189",
+      "classTeacherComment": "Juwon has shown improvement...keep working working hard",
+      "principalComment": "Keep working hard and stay focused",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Class Teacher",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.595845+00:00"
+    },
+    "FEN-2026-988907_First Term_2026/2027": {
+      "studentId": "FEN-2026-988907",
+      "classTeacherComment": "An exemplary and disciplined scholar whose commitment to academic excellence and moral conduct is highly commendable. You can do better, keep pushing till you get there.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Abosede Alabi",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.500923+00:00"
+    },
+    "FEN-2026-988907": {
+      "studentId": "FEN-2026-988907",
+      "classTeacherComment": "An exemplary and disciplined scholar whose commitment to academic excellence and moral conduct is highly commendable. You can do better, keep pushing till you get there.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Abosede Alabi",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:24.500923+00:00"
+    },
+    "FEN-2026-397569_First Term_2026/2027": {
+      "studentId": "FEN-2026-397569",
+      "classTeacherComment": "A brilliant and reserved student who always strives for excellence. Keep up the good work.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Ojo Adebimpe",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.428912+00:00"
+    },
+    "FEN-2026-397569": {
+      "studentId": "FEN-2026-397569",
+      "classTeacherComment": "A brilliant and reserved student who always strives for excellence. Keep up the good work.",
+      "principalComment": "",
+      "term": "First Term",
+      "session": "2026/2027",
+      "teacherName": "Ojo Adebimpe",
+      "principalName": "School Principal",
+      "updatedAt": "2026-11-09T13:38:25.428912+00:00"
     }
   }
 }

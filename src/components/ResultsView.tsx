@@ -59,7 +59,8 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ onSelectStudent }) => 
     })())
   );
 
-  const canAccessBroadsheet = isExecutive || isClassTeacher;
+  const isTeacherUser = Boolean(user && user.role !== 'student' && user.role !== 'bursar');
+  const canAccessBroadsheet = isExecutive || isClassTeacher || isTeacherUser;
 
   const [viewMode, setViewMode] = useState<'broadsheet' | 'ledger'>('broadsheet');
   const [results, setResults] = useState<any[]>([]);
@@ -82,7 +83,6 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ onSelectStudent }) => 
   const [commentDraftPrincipal, setCommentDraftPrincipal] = useState('');
   const [savingComments, setSavingComments] = useState(false);
 
-  const isTeacherUser = Boolean(user && user.role !== 'student' && user.role !== 'bursar');
   const canEditTeacherComment = Boolean(isTeacherUser || isClassTeacher || isExecutive);
   const canEditPrincipalComment = Boolean(isExecutive);
 

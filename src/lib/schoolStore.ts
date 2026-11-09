@@ -2076,7 +2076,6 @@ export async function fetchStudentComments(
   // Direct Supabase PostgREST fallback for cross-device synchronization
   try {
     const queryIds = new Set<string>([cleanId, String(studentId).trim().toUpperCase()]);
-    // Resolve student record to get both numeric ID and student admission number
     const num = parseInt(cleanId, 10);
     const filter = !isNaN(num) && String(num) === cleanId
       ? `id.eq.${num},student_id.eq.${cleanId}`
@@ -2093,21 +2092,38 @@ export async function fetchStudentComments(
       .in('student_id', Array.from(queryIds))
       .eq('term', term)
       .eq('session', session)
-      .order('updated_at', { ascending: false })
-      .limit(1);
+      .order('updated_at', { ascending: false });
 
     if (Array.isArray(supaRows) && supaRows.length > 0) {
-      const row = supaRows[0];
+      let mergedClassTeacherComment = '';
+      let mergedPrincipalComment = '';
+      let mergedTeacherName = 'Class Teacher';
+      let mergedPrincipalName = 'School Principal';
+      let mergedUpdatedAt = new Date().toISOString();
+
+      for (const row of supaRows) {
+        if (!mergedClassTeacherComment && row.class_teacher_comment) {
+          mergedClassTeacherComment = String(row.class_teacher_comment).trim();
+          if (row.teacher_name) mergedTeacherName = row.teacher_name;
+        }
+        if (!mergedPrincipalComment && row.principal_comment) {
+          mergedPrincipalComment = String(row.principal_comment).trim();
+          if (row.principal_name) mergedPrincipalName = row.principal_name;
+        }
+        if (row.updated_at) mergedUpdatedAt = row.updated_at;
+      }
+
       const supaComments: StudentCommentsData = {
         studentId: cleanId,
-        classTeacherComment: row.class_teacher_comment || '',
-        principalComment: row.principal_comment || '',
-        term: row.term || term,
-        session: row.session || session,
-        teacherName: row.teacher_name || 'Class Teacher',
-        principalName: row.principal_name || 'School Principal',
-        updatedAt: row.updated_at || new Date().toISOString(),
+        classTeacherComment: mergedClassTeacherComment || cached?.classTeacherComment || '',
+        principalComment: mergedPrincipalComment || cached?.principalComment || '',
+        term,
+        session,
+        teacherName: mergedTeacherName,
+        principalName: mergedPrincipalName,
+        updatedAt: mergedUpdatedAt,
       };
+
       try {
         const raw = localStorage.getItem(STUDENT_COMMENTS_CACHE_KEY);
         const all = raw ? JSON.parse(raw) : {};
@@ -2141,6 +2157,22 @@ export async function fetchAllStudentComments(token?: string | null): Promise<{
 }> {
   const resultComments: Record<string, StudentCommentsData> = {};
 
+  // Build mapping table between numeric ID and admission student_id
+  const idToAdm: Record<string, string> = {};
+  const admToId: Record<string, string> = {};
+  try {
+    const localStudents = getLocalStudents();
+    for (const s of localStudents) {
+      if (s.id && s.studentId) {
+        const sid = String(s.id);
+        const adm = String(s.studentId).toUpperCase();
+        idToAdm[sid] = adm;
+        admToId[adm] = sid;
+      }
+    }
+  } catch (_) {}
+
+  // 1. Fetch from Backend Express API
   try {
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -2155,36 +2187,84 @@ export async function fetchAllStudentComments(token?: string | null): Promise<{
     console.warn('Deferred all student comments fetch:', err);
   }
 
-  // Cross-device Supabase PostgREST sync
+  // 2. Direct Supabase PostgREST sync (cross-device source of truth)
   try {
     const { data: supaRows } = await supabase.from('student_comments').select('*');
     if (Array.isArray(supaRows)) {
       for (const row of supaRows) {
         if (row.student_id) {
-          const item: StudentCommentsData = {
-            studentId: row.student_id,
-            classTeacherComment: row.class_teacher_comment || '',
-            principalComment: row.principal_comment || '',
-            term: row.term || 'First Term',
-            session: row.session || '2026/2027',
-            teacherName: row.teacher_name || 'Class Teacher',
-            principalName: row.principal_name || 'School Principal',
-            updatedAt: row.updated_at || new Date().toISOString(),
+          const rawId = String(row.student_id).trim().toUpperCase();
+          const term = row.term || 'First Term';
+          const session = row.session || '2026/2027';
+
+          const mappedAdm = idToAdm[rawId] || (rawId.startsWith('FEN-') || rawId.startsWith('FIS-') ? rawId : undefined);
+          const mappedNum = admToId[rawId] || (!rawId.startsWith('FEN-') && !rawId.startsWith('FIS-') ? rawId : undefined);
+
+          const keys = new Set<string>([rawId]);
+          if (mappedAdm) keys.add(mappedAdm);
+          if (mappedNum) keys.add(mappedNum);
+
+          // Find existing item from any key to merge comments
+          let current: StudentCommentsData | undefined;
+          for (const k of keys) {
+            const compKey = `${k}_${term}_${session}`;
+            if (resultComments[compKey]) {
+              current = resultComments[compKey];
+              break;
+            }
+            if (resultComments[k]) {
+              current = resultComments[k];
+              break;
+            }
+          }
+
+          const classTeacherComment = String(row.class_teacher_comment || '').trim() || current?.classTeacherComment || '';
+          const principalComment = String(row.principal_comment || '').trim() || current?.principalComment || '';
+          const teacherName = row.teacher_name || current?.teacherName || 'Class Teacher';
+          const principalName = row.principal_name || current?.principalName || 'School Principal';
+          const updatedAt = row.updated_at || current?.updatedAt || new Date().toISOString();
+
+          const mergedItem: StudentCommentsData = {
+            studentId: mappedAdm || mappedNum || rawId,
+            classTeacherComment,
+            principalComment,
+            term,
+            session,
+            teacherName,
+            principalName,
+            updatedAt,
           };
-          const k = `${row.student_id}_${item.term}_${item.session}`;
-          resultComments[k] = item;
-          resultComments[row.student_id] = item;
+
+          for (const k of keys) {
+            resultComments[`${k}_${term}_${session}`] = mergedItem;
+            resultComments[k] = mergedItem;
+          }
         }
       }
     }
   } catch (_) {}
 
+  // 3. Update localStorage cache non-destructively
   try {
     const raw = typeof window !== 'undefined' ? localStorage.getItem(STUDENT_COMMENTS_CACHE_KEY) : null;
-    const current = raw ? JSON.parse(raw) : {};
-    const merged = { ...current, ...resultComments };
+    const currentCache = raw ? JSON.parse(raw) : {};
+    const finalCache: Record<string, StudentCommentsData> = { ...currentCache };
+
+    for (const [k, v] of Object.entries(resultComments)) {
+      if (!finalCache[k]) {
+        finalCache[k] = v;
+      } else {
+        finalCache[k] = {
+          ...finalCache[k],
+          ...v,
+          classTeacherComment: v.classTeacherComment || finalCache[k].classTeacherComment || '',
+          principalComment: v.principalComment || finalCache[k].principalComment || '',
+        };
+      }
+    }
+
     if (typeof window !== 'undefined') {
-      localStorage.setItem(STUDENT_COMMENTS_CACHE_KEY, JSON.stringify(merged));
+      localStorage.setItem(STUDENT_COMMENTS_CACHE_KEY, JSON.stringify(finalCache));
     }
   } catch (_) {}
 
@@ -2208,107 +2288,162 @@ export async function saveStudentComments(
   const session = payload.session || '2026/2027';
   const cacheKey = `${cleanId}_${term}_${session}`;
 
-  // Get current
-  let existing: StudentCommentsData = {
-    studentId: cleanId,
-    classTeacherComment: '',
-    principalComment: '',
-    term,
-    session,
-    teacherName: payload.teacherName || 'Class Teacher',
-    principalName: payload.principalName || 'School Principal',
-    updatedAt: new Date().toISOString(),
-  };
+  // 1. Resolve all keys for this student (both numeric ID and admission number)
+  const saveKeys = new Set<string>([cleanId, String(studentId).trim().toUpperCase()]);
+  const num = parseInt(cleanId, 10);
+  const filter = !isNaN(num) && String(num) === cleanId
+    ? `id.eq.${num},student_id.eq.${cleanId}`
+    : `student_id.eq.${cleanId}`;
+  try {
+    const { data: stRow } = await supabase.from('students').select('id, student_id').or(filter).limit(1);
+    if (Array.isArray(stRow) && stRow.length > 0) {
+      if (stRow[0].id) saveKeys.add(String(stRow[0].id));
+      if (stRow[0].student_id) saveKeys.add(String(stRow[0].student_id).toUpperCase());
+    }
+  } catch (_) {}
 
+  // 2. Fetch existing database comments directly from Supabase / Postgres first to avoid any accidental wipeout
+  let dbTeacherComment = '';
+  let dbPrincipalComment = '';
+  let dbTeacherName = '';
+  let dbPrincipalName = '';
+  try {
+    const { data: dbRows } = await supabase
+      .from('student_comments')
+      .select('*')
+      .in('student_id', Array.from(saveKeys))
+      .eq('term', term)
+      .eq('session', session)
+      .order('updated_at', { ascending: false });
+
+    if (Array.isArray(dbRows) && dbRows.length > 0) {
+      for (const r of dbRows) {
+        if (!dbTeacherComment && r.class_teacher_comment) dbTeacherComment = String(r.class_teacher_comment).trim();
+        if (!dbPrincipalComment && r.principal_comment) dbPrincipalComment = String(r.principal_comment).trim();
+        if (!dbTeacherName && r.teacher_name) dbTeacherName = r.teacher_name;
+        if (!dbPrincipalName && r.principal_name) dbPrincipalName = r.principal_name;
+      }
+    }
+  } catch (_) {}
+
+  // 3. Fallback to local storage if DB didn't have comments
+  let localTeacherComment = '';
+  let localPrincipalComment = '';
   try {
     const raw = typeof window !== 'undefined' ? localStorage.getItem(STUDENT_COMMENTS_CACHE_KEY) : null;
     if (raw) {
       const all = JSON.parse(raw);
-      if (all[cacheKey]) existing = { ...existing, ...all[cacheKey] };
-      else if (all[cleanId]) existing = { ...existing, ...all[cleanId] };
+      for (const k of saveKeys) {
+        const comp = `${k}_${term}_${session}`;
+        if (all[comp]?.classTeacherComment && !localTeacherComment) localTeacherComment = all[comp].classTeacherComment;
+        if (all[comp]?.principalComment && !localPrincipalComment) localPrincipalComment = all[comp].principalComment;
+        if (all[k]?.classTeacherComment && !localTeacherComment) localTeacherComment = all[k].classTeacherComment;
+        if (all[k]?.principalComment && !localPrincipalComment) localPrincipalComment = all[k].principalComment;
+      }
     }
   } catch (_) {}
 
-  if (payload.classTeacherComment !== undefined) {
-    existing.classTeacherComment = payload.classTeacherComment.trim();
-  }
-  if (payload.principalComment !== undefined) {
-    existing.principalComment = payload.principalComment.trim();
-  }
-  if (payload.teacherName) existing.teacherName = payload.teacherName;
-  if (payload.principalName) existing.principalName = payload.principalName;
-  existing.updatedAt = new Date().toISOString();
+  // 4. Merge non-destructively:
+  // If payload explicitly provided classTeacherComment, use it; otherwise preserve existing DB / local comment
+  const finalTeacherComment =
+    payload.classTeacherComment !== undefined
+      ? payload.classTeacherComment.trim()
+      : (dbTeacherComment || localTeacherComment || '');
 
-  // Save to localStorage
+  // If payload explicitly provided principalComment, use it; otherwise preserve existing DB / local comment
+  const finalPrincipalComment =
+    payload.principalComment !== undefined
+      ? payload.principalComment.trim()
+      : (dbPrincipalComment || localPrincipalComment || '');
+
+  const finalTeacherName = payload.teacherName || dbTeacherName || 'Class Teacher';
+  const finalPrincipalName = payload.principalName || dbPrincipalName || 'School Principal';
+  const finalUpdatedAt = new Date().toISOString();
+
+  const finalComments: StudentCommentsData = {
+    studentId: cleanId,
+    classTeacherComment: finalTeacherComment,
+    principalComment: finalPrincipalComment,
+    term,
+    session,
+    teacherName: finalTeacherName,
+    principalName: finalPrincipalName,
+    updatedAt: finalUpdatedAt,
+  };
+
+  // 5. Save to localStorage under all keys
   try {
     const raw = typeof window !== 'undefined' ? localStorage.getItem(STUDENT_COMMENTS_CACHE_KEY) : null;
     const all = raw ? JSON.parse(raw) : {};
-    all[cacheKey] = existing;
-    all[cleanId] = existing;
+    for (const k of saveKeys) {
+      all[`${k}_${term}_${session}`] = { ...finalComments, studentId: k };
+      all[k] = { ...finalComments, studentId: k };
+    }
     localStorage.setItem(STUDENT_COMMENTS_CACHE_KEY, JSON.stringify(all));
 
     // Also mirror to legacy remark cache
     const rawLeg = localStorage.getItem(CLASS_TEACHER_REMARKS_CACHE_KEY);
     const allLeg = rawLeg ? JSON.parse(rawLeg) : {};
-    allLeg[cacheKey] = {
-      studentId: cleanId,
-      remark: existing.classTeacherComment,
-      term,
-      session,
-      teacherName: existing.teacherName,
-      updatedAt: existing.updatedAt,
-    };
-    allLeg[cleanId] = allLeg[cacheKey];
+    for (const k of saveKeys) {
+      const legRecord = {
+        studentId: k,
+        remark: finalTeacherComment,
+        term,
+        session,
+        teacherName: finalTeacherName,
+        updatedAt: finalUpdatedAt,
+      };
+      allLeg[`${k}_${term}_${session}`] = legRecord;
+      allLeg[k] = legRecord;
+    }
     localStorage.setItem(CLASS_TEACHER_REMARKS_CACHE_KEY, JSON.stringify(allLeg));
   } catch (_) {}
 
+  // 6. Notify UI across the window and across tabs via BroadcastChannel
   if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('fis:student-comments-updated', { detail: existing }));
-    window.dispatchEvent(new CustomEvent('fis:class-teacher-remark-updated', { detail: existing }));
-    window.dispatchEvent(new CustomEvent('fis:comments-updated', { detail: existing }));
+    window.dispatchEvent(new CustomEvent('fis:student-comments-updated', { detail: finalComments }));
+    window.dispatchEvent(new CustomEvent('fis:class-teacher-remark-updated', { detail: finalComments }));
+    window.dispatchEvent(new CustomEvent('fis:comments-updated', { detail: finalComments }));
+
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        const bc = new BroadcastChannel('fis_student_comments_sync');
+        bc.postMessage({ type: 'comment_updated', data: finalComments });
+        bc.close();
+      }
+    } catch (_) {}
   }
 
-  // Network call to server API
+  // 7. Network call to server API
   try {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
     await fetch(`/api/students/${encodeURIComponent(cleanId)}/comments`, {
       method: 'POST',
       headers,
-      body: JSON.stringify(existing),
+      body: JSON.stringify(finalComments),
     });
   } catch (err) {
     console.warn('Backend student comments deferred:', err);
   }
 
-  // Direct Supabase PostgREST sync to ensure instant visibility on all devices
+  // 8. Direct Supabase PostgREST sync to ensure instant visibility on all devices
   try {
-    const saveKeys = new Set<string>([cleanId, String(studentId).trim().toUpperCase()]);
-    const num = parseInt(cleanId, 10);
-    const filter = !isNaN(num) && String(num) === cleanId
-      ? `id.eq.${num},student_id.eq.${cleanId}`
-      : `student_id.eq.${cleanId}`;
-    const { data: stRow } = await supabase.from('students').select('id, student_id').or(filter).limit(1);
-    if (Array.isArray(stRow) && stRow.length > 0) {
-      if (stRow[0].id) saveKeys.add(String(stRow[0].id));
-      if (stRow[0].student_id) saveKeys.add(String(stRow[0].student_id).toUpperCase());
-    }
-
     const supaPayloads = Array.from(saveKeys).map((k) => ({
       student_id: k,
-      class_teacher_comment: existing.classTeacherComment,
-      principal_comment: existing.principalComment,
+      class_teacher_comment: finalTeacherComment,
+      principal_comment: finalPrincipalComment,
       term,
       session,
-      teacher_name: existing.teacherName || 'Class Teacher',
-      principal_name: existing.principalName || 'School Principal',
-      updated_at: new Date().toISOString(),
+      teacher_name: finalTeacherName,
+      principal_name: finalPrincipalName,
+      updated_at: finalUpdatedAt,
     }));
 
     await supabase.from('student_comments').upsert(supaPayloads, { onConflict: 'student_id,term,session' });
   } catch (_) {}
 
-  return existing;
+  return finalComments;
 }
 
 export async function fetchClassTeacherRemark(

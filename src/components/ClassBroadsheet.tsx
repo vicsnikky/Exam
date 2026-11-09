@@ -456,22 +456,58 @@ export const ClassBroadsheet: React.FC = () => {
     setClassTeacherRemarksMap({ ...tMap });
     setPrincipalRemarksMap({ ...pMap });
 
-    // 3. Asynchronously fetch latest server comments
+    // 3. Asynchronously fetch latest server comments & cross-index for all scholars in this class
     try {
       const serverData = await fetchAllStudentComments(token);
       if (serverData && serverData.comments) {
         Object.entries(serverData.comments).forEach(([key, val]: [string, any]) => {
           if (val && typeof val === 'object') {
-            if (val.classTeacherComment) {
-              tMap[key] = val.classTeacherComment;
-              if (val.studentId) tMap[val.studentId] = val.classTeacherComment;
+            const ct = (val.classTeacherComment || '').trim();
+            const pr = (val.principalComment || '').trim();
+            if (ct) {
+              tMap[key] = ct;
+              if (val.studentId) tMap[val.studentId] = ct;
             }
-            if (val.principalComment) {
-              pMap[key] = val.principalComment;
-              if (val.studentId) pMap[val.studentId] = val.principalComment;
+            if (pr) {
+              pMap[key] = pr;
+              if (val.studentId) pMap[val.studentId] = pr;
             }
           }
         });
+
+        // Cross-index all current scholars in the broadsheet to ensure both numeric and admission ID map correctly
+        if (Array.isArray(broadsheetRows)) {
+          for (const row of broadsheetRows) {
+            if (!row || !row.student) continue;
+            const st = row.student;
+            const numId = String(st.id);
+            const adm = String(st.studentId || '').toUpperCase();
+            const tRem =
+              tMap[`${adm}_${selectedTerm}_${selectedSession}`] ||
+              tMap[adm] ||
+              tMap[`${numId}_${selectedTerm}_${selectedSession}`] ||
+              tMap[numId];
+            const pRem =
+              pMap[`${adm}_${selectedTerm}_${selectedSession}`] ||
+              pMap[adm] ||
+              pMap[`${numId}_${selectedTerm}_${selectedSession}`] ||
+              pMap[numId];
+
+            if (tRem) {
+              tMap[`${adm}_${selectedTerm}_${selectedSession}`] = tRem;
+              tMap[adm] = tRem;
+              tMap[`${numId}_${selectedTerm}_${selectedSession}`] = tRem;
+              tMap[numId] = tRem;
+            }
+            if (pRem) {
+              pMap[`${adm}_${selectedTerm}_${selectedSession}`] = pRem;
+              pMap[adm] = pRem;
+              pMap[`${numId}_${selectedTerm}_${selectedSession}`] = pRem;
+              pMap[numId] = pRem;
+            }
+          }
+        }
+
         setClassTeacherRemarksMap({ ...tMap });
         setPrincipalRemarksMap({ ...pMap });
       }
@@ -479,6 +515,8 @@ export const ClassBroadsheet: React.FC = () => {
   };
 
   useEffect(() => {
+    loadRemarks();
+
     if (typeof window !== 'undefined' && sessionStorage.getItem('fis_auto_open_batch_print') === 'true') {
       sessionStorage.removeItem('fis_auto_open_batch_print');
       loadRemarks();
@@ -494,15 +532,51 @@ export const ClassBroadsheet: React.FC = () => {
     const handleCommentsUpdated = () => {
       loadRemarks();
     };
+    const handleWindowFocus = () => {
+      loadRemarks();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        loadRemarks();
+      }
+    };
+
     window.addEventListener('fis:trigger-batch-print', handleTriggerBatchPrint);
     window.addEventListener('fis:comments-updated', handleCommentsUpdated);
     window.addEventListener('fis:student-comments-updated', handleCommentsUpdated);
+    window.addEventListener('focus', handleWindowFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Cross-tab broadcast channel listener
+    let bc: BroadcastChannel | null = null;
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        bc = new BroadcastChannel('fis_student_comments_sync');
+        bc.onmessage = () => {
+          loadRemarks();
+        };
+      }
+    } catch (_) {}
+
+    // Periodic live background synchronization (every 10 seconds)
+    const pollInterval = setInterval(() => {
+      loadRemarks();
+    }, 10000);
+
     return () => {
       window.removeEventListener('fis:trigger-batch-print', handleTriggerBatchPrint);
       window.removeEventListener('fis:comments-updated', handleCommentsUpdated);
       window.removeEventListener('fis:student-comments-updated', handleCommentsUpdated);
+      window.removeEventListener('focus', handleWindowFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      clearInterval(pollInterval);
+      if (bc) {
+        try {
+          bc.close();
+        } catch (_) {}
+      }
     };
-  }, [token]);
+  }, [token, selectedClass, selectedTerm, selectedSession]);
 
   const handleOpenCommentModal = (student: Student) => {
     setCommentTargetStudent(student);
