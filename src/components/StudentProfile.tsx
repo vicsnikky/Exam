@@ -65,6 +65,7 @@ import {
   isSeniorSecondaryClass,
   calculateSubjectGrade,
   calculateGradePoint5,
+  getGradePointLabel,
   calculateCgpa,
   calculateJuniorAverage,
   isSameClass,
@@ -1622,29 +1623,12 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
       r.totalScore = total;
       r.hasScore = r.caScore !== null || r.examScore !== null || r.totalScore > 0;
 
-      if (isSenior) {
-        const gp = calculateGradePoint5(total, 2);
-        r.grade = gp.grade;
-        r.gradePoint = gp.gradePoint;
-        r.units = 2;
-        r.qualityPoints = gp.qualityPoints;
-        r.remark = gp.remark;
-      } else {
-        r.grade = calculateSubjectGrade(total);
-        r.units = 2;
-        r.gradePoint = 0;
-        r.qualityPoints = 0;
-        r.remark =
-          total >= 70
-            ? 'Distinction'
-            : total >= 60
-            ? 'Very Good'
-            : total >= 50
-            ? 'Credit'
-            : total >= 40
-            ? 'Pass'
-            : 'Needs Improvement';
-      }
+      const gp = calculateGradePoint5(total, 2);
+      r.grade = gp.grade;
+      r.gradePoint = gp.gradePoint;
+      r.units = 2;
+      r.qualityPoints = gp.qualityPoints;
+      r.remark = gp.pointLabel;
       return r;
     })
     .sort((a, b) => {
@@ -2415,15 +2399,11 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                           <th className="py-3 px-3 text-right">Exam (60)</th>
                           <th className="py-3 px-3 text-right">Total (100)</th>
                           <th className="py-3 px-3 text-center">Grade</th>
+                          <th className="py-3 px-3 text-center">Point</th>
                           {isSenior && (
-                            <>
-                              <th className="py-3 px-3 text-center">GP (5.0)</th>
-                              <th className="py-3 px-3 text-right">Quality Pts</th>
-                            </>
+                            <th className="py-3 px-3 text-right">Quality Pts</th>
                           )}
-                          {!isSenior && <th className="py-3 px-3 text-center">Standing</th>}
                           <th className="py-3 px-4">Session / Term</th>
-                          <th className="py-3 px-4">Remarks</th>
                           {canManageScores && (
                             <th className="py-3 px-4 text-center">Actions</th>
                           )}
@@ -2492,26 +2472,16 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                                 </span>
                               )}
                             </td>
+                            <td className="py-3.5 px-3 text-center font-mono font-bold text-amber-400">
+                              {r.isPending ? <span className="text-slate-500 font-normal">—</span> : getGradePointLabel(r.totalScore)}
+                            </td>
                             {isSenior && (
-                              <>
-                                <td className="py-3.5 px-3 text-center font-mono font-bold text-amber-400">
-                                  {r.isPending ? <span className="text-slate-500 font-normal">—</span> : r.gradePoint.toFixed(1)}
-                                </td>
-                                <td className="py-3.5 px-3 text-right font-mono font-semibold text-emerald-300">
-                                  {r.isPending ? <span className="text-slate-500 font-normal">—</span> : r.qualityPoints.toFixed(1)}
-                                </td>
-                              </>
-                            )}
-                            {!isSenior && (
-                              <td className="py-3.5 px-3 text-center text-[11px] text-slate-400 font-medium">
-                                {r.isPending ? <span className="text-slate-500">Pending</span> : r.remark}
+                              <td className="py-3.5 px-3 text-right font-mono font-semibold text-emerald-300">
+                                {r.isPending ? <span className="text-slate-500 font-normal">—</span> : r.qualityPoints.toFixed(1)}
                               </td>
                             )}
                             <td className="py-3.5 px-4 text-xs text-slate-400">
                               {r.session} • {r.term}
-                            </td>
-                            <td className="py-3.5 px-4 text-slate-400 italic max-w-xs truncate">
-                              {r.isPending ? 'Awaiting assessment score' : (r.teacherComment || r.remark || 'Satisfactory')}
                             </td>
                             {canManageScores && (
                               <td className="py-3.5 px-4 text-center">
@@ -2596,7 +2566,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                       <th className="py-3 px-4 text-center">Week</th>
                       <th className="py-3 px-4 text-right">Feasible Score (100)</th>
                       <th className="py-3 px-4 text-center">Grade</th>
-                      <th className="py-3 px-4">Registrar's Remark</th>
+                      <th className="py-3 px-4 text-center">Point</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-700/60 text-slate-300">
@@ -2611,11 +2581,11 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                         </td>
                         <td className="py-3.5 px-4 text-center">
                           <span className="px-2 py-0.5 rounded font-bold bg-emerald-500/20 text-emerald-400 text-[10px]">
-                            {m.grade || 'Good'}
+                            {m.grade || calculateSubjectGrade(Number(m.score) || 0)}
                           </span>
                         </td>
-                        <td className="py-3.5 px-4 text-slate-400 italic">
-                          {m.remark || 'Satisfactory Progress'}
+                        <td className="py-3.5 px-4 text-center font-mono font-bold text-amber-400">
+                          {getGradePointLabel(Number(m.score) || 0)}
                         </td>
                       </tr>
                     ))}
@@ -2889,16 +2859,13 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                         <th className="py-2.5 px-3 print:py-0.5 print:px-1.5 border border-slate-700 print:border-black text-right">Exam (60)</th>
                         <th className="py-2.5 px-3 print:py-0.5 print:px-1.5 border border-slate-700 print:border-black text-right font-black">Total (100)</th>
                         <th className="py-2.5 px-3 print:py-0.5 print:px-1 border border-slate-700 print:border-black text-center">Grade</th>
-                        {isSenior && (
-                          <th className="py-2.5 px-2 print:py-0.5 print:px-1 border border-slate-700 print:border-black text-center w-10">GP (5.0)</th>
-                        )}
-                        <th className="py-2.5 px-3 print:py-0.5 print:px-1.5 border border-slate-700 print:border-black">Subject Teacher Remark</th>
+                        <th className="py-2.5 px-3 print:py-0.5 print:px-1 border border-slate-700 print:border-black text-center">Point</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-700 print:divide-black text-slate-200 print:text-black">
                       {scoredSubjectRows.length === 0 ? (
                         <tr>
-                          <td colSpan={isSenior ? 9 : 8} className="py-8 print:py-2 text-center text-slate-400 print:text-slate-600">
+                          <td colSpan={8} className="py-8 print:py-2 text-center text-slate-400 print:text-slate-600">
                             No subject assessment scores recorded yet for this academic term.
                           </td>
                         </tr>
@@ -2909,7 +2876,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                               {idx + 1}
                             </td>
                             {/* Subject title */}
-                            <td className="py-2.5 px-3 print:py-0.5 print:px-1.5 font-semibold text-white print:text-black border border-slate-800 print:border-black truncate max-w-[170px]">
+                            <td className="py-2.5 px-3 print:py-0.5 print:px-1.5 font-semibold text-white print:text-black border border-slate-800 print:border-black truncate max-w-[200px]">
                               {r.subjectName}
                             </td>
                             {/* Unit column: 2 alone, no 2U */}
@@ -2928,19 +2895,17 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                             <td className="py-2.5 px-3 print:py-0.5 print:px-1 text-center font-bold border border-slate-800 print:border-black">
                               {r.grade}
                             </td>
-                            {isSenior && (
-                              <td className="py-2.5 px-2 print:py-0.5 print:px-1 text-center font-mono font-bold text-amber-400 print:text-black border border-slate-800 print:border-black">
-                                {r.gradePoint.toFixed(1)}
-                              </td>
-                            )}
-                            <td className="py-2.5 px-3 print:py-0.5 print:px-1.5 text-slate-300 print:text-slate-800 italic border border-slate-800 print:border-black text-xs print:text-[7.5px]">
-                              {r.teacherComment || r.remark || 'Satisfactory Progress'}
+                            <td className="py-2.5 px-3 print:py-0.5 print:px-1 text-center font-mono font-bold text-amber-400 print:text-black border border-slate-800 print:border-black">
+                              {getGradePointLabel(r.totalScore)}
                             </td>
                           </tr>
                         ))
                       )}
                     </tbody>
                   </table>
+                  <div className="mt-2 px-3 py-1.5 bg-slate-950/80 print:bg-slate-100 border border-slate-800 print:border-black rounded-lg text-[10px] print:text-[7px] font-bold text-slate-300 print:text-black text-center tracking-tight">
+                    GRADING KEY: A1 = 5 point • B2 = 4 point • B3 = 4 point • C4 = 3 point • C5 = 3 point • C6 = 3 point • D7 = 2 point • E8 = 1 point • F9 = CARRY OVER
+                  </div>
                 </div>
 
                 {/* 5. CLASS TEACHER'S & PRINCIPAL'S COMMENTS (Rendered side-by-side in print for single-page fit) */}
@@ -3081,7 +3046,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                   </div>
                 </div>
 
-                {/* 6. Official Signatures: Registrar and School Principal */}
+                {/* 6. Official Signature: School Principal */}
                 <div className="mt-8 pt-6 print:mt-1.5 print:pt-1 border-t-2 border-slate-700 print:border-black flex flex-col sm:flex-row justify-between items-center text-xs text-slate-400 print:text-slate-800 gap-6 print:gap-2">
                   <div className="flex items-center gap-3 print:gap-1.5">
                     <ShieldCheck className="w-8 h-8 print:w-5 print:h-5 text-emerald-400 print:text-black shrink-0" />
@@ -3095,14 +3060,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                     </div>
                   </div>
 
-                  <div className="flex items-end gap-8 sm:gap-16 print:gap-6 text-center">
-                    <div>
-                      <div className="w-36 print:w-24 border-b border-slate-600 print:border-black mb-1.5 print:mb-0.5" />
-                      <span className="text-[11px] print:text-[7.5px] font-bold uppercase tracking-wider text-slate-300 print:text-black block">
-                        Registrar
-                      </span>
-                    </div>
-
+                  <div className="flex items-end justify-end text-center">
                     <div className="flex flex-col items-center">
                       <img
                         src="https://i.ibb.co/MzHp6Yt/Whats-App-Image-2026-10-02-at-11-29-34-AM.jpg"

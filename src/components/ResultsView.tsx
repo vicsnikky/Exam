@@ -23,7 +23,7 @@ import {
   GraduationCap,
 } from 'lucide-react';
 import { Subject } from '../types/index.ts';
-import { SCHOOL_CLASSES } from '../constants/classes.ts';
+import { SCHOOL_CLASSES, calculateSubjectGrade, getGradePointLabel } from '../constants/classes.ts';
 import { ClassBroadsheet } from './ClassBroadsheet.tsx';
 import { fetchStudentComments, saveStudentComments, fetchClassAssessmentsFromSupabase } from '../lib/schoolStore.ts';
 import { fetchAllSubjectsUnified } from '../lib/subjectStore.ts';
@@ -599,8 +599,8 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ onSelectStudent }) => 
                       <th className="py-3 px-4 text-right">Score</th>
                       <th className="py-3 px-4 text-right">Percentage</th>
                       <th className="py-3 px-4 text-center">Grade</th>
+                      <th className="py-3 px-4 text-center">Point</th>
                       <th className="py-3 px-4">Session / Term</th>
-                      <th className="py-3 px-4">Remarks</th>
                       <th className="py-3 px-4 text-center">Actions</th>
                     </tr>
                   </thead>
@@ -643,20 +643,25 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ onSelectStudent }) => 
                           {r.percentage}%
                         </td>
                         <td className="py-3.5 px-4 text-center">
-                          <span className={`inline-block px-2 py-0.5 rounded font-bold ${
-                            r.grade === 'A' ? 'bg-emerald-500/20 text-emerald-400' :
-                            r.grade === 'B' ? 'bg-blue-500/20 text-blue-400' :
-                            r.grade === 'C' ? 'bg-amber-500/20 text-amber-400' :
-                            'bg-rose-500/20 text-rose-400'
-                          }`}>
-                            {r.grade}
-                          </span>
+                          {(() => {
+                            const waecGrade = calculateSubjectGrade(Number(r.percentage) || 0);
+                            return (
+                              <span className={`inline-block px-2 py-0.5 rounded font-bold ${
+                                waecGrade === 'A1' ? 'bg-emerald-500/20 text-emerald-400' :
+                                waecGrade.startsWith('B') ? 'bg-blue-500/20 text-blue-400' :
+                                waecGrade.startsWith('C') ? 'bg-amber-500/20 text-amber-400' :
+                                'bg-rose-500/20 text-rose-400'
+                              }`}>
+                                {waecGrade}
+                              </span>
+                            );
+                          })()}
+                        </td>
+                        <td className="py-3.5 px-4 text-center font-semibold text-slate-300">
+                          {getGradePointLabel(Number(r.percentage) || 0)}
                         </td>
                         <td className="py-3.5 px-4 text-slate-400">
                           {r.session} • {r.term}
-                        </td>
-                        <td className="py-3.5 px-4 text-slate-400 italic max-w-xs truncate">
-                          {r.teacherComment || '—'}
                         </td>
                         <td className="py-3.5 px-4 text-center">
                           <div className="flex items-center justify-center gap-1.5">

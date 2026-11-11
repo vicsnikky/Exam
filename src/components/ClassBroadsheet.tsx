@@ -40,6 +40,7 @@ import {
   calculateCgpa,
   calculateJuniorAverage,
   calculateGradePoint5,
+  getGradePointLabel,
   getExamStageOrder,
   getStageScopeLabel,
   computeCumulativeCgpaForStudent,
@@ -2305,8 +2306,7 @@ export const ClassBroadsheet: React.FC = () => {
                 <th className="py-2 px-3 print:py-0.5 print:px-1.5 border border-black text-right">Exam (60)</th>
                 <th className="py-2 px-3 print:py-0.5 print:px-1.5 border border-black text-right font-black">Total (100)</th>
                 <th className="py-2 px-2.5 print:py-0.5 print:px-1 border border-black text-center">Grade</th>
-                {isSenior && <th className="py-2 px-2 print:py-0.5 print:px-1 border border-black text-center w-10">GP (5.0)</th>}
-                <th className="py-2 px-3 print:py-0.5 print:px-1.5 border border-black">Subject Teacher Remark</th>
+                <th className="py-2 px-2.5 print:py-0.5 print:px-1 border border-black text-center">Point</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-black text-black">
@@ -2315,27 +2315,26 @@ export const ClassBroadsheet: React.FC = () => {
                 const hasScore = cell && (cell.testScore !== null || cell.examScore !== null || cell.totalScore !== null);
                 const totalVal = cell?.totalScore !== null && cell?.totalScore !== undefined ? cell.totalScore : (hasScore ? ((cell.testScore || 0) + (cell.examScore || 0)) : null);
                 const gradeVal = cell?.grade || (totalVal !== null ? calculateSubjectGrade(totalVal) : '—');
-                const gpVal = totalVal !== null ? calculateGradePoint5(totalVal).gradePoint.toFixed(1) : '—';
-                const subRemark = totalVal !== null
-                  ? (totalVal >= 75 ? 'Excellent Distinction' : totalVal >= 60 ? 'Credit Pass' : totalVal >= 50 ? 'Satisfactory' : 'Needs Improvement')
-                  : 'Pending';
+                const pointVal = totalVal !== null ? getGradePointLabel(totalVal) : '—';
 
                 return (
                   <tr key={`${mode}_st_${row.student.id}_sub_${sub.id}_${sIdx}`} className="print:leading-tight">
                     <td className="py-1.5 px-2.5 print:py-0.5 print:px-1 text-center font-mono border border-black">{sIdx + 1}</td>
-                    <td className="py-1.5 px-3 print:py-0.5 print:px-1.5 font-semibold border border-black truncate max-w-[170px]">{sub.name}</td>
+                    <td className="py-1.5 px-3 print:py-0.5 print:px-1.5 font-semibold border border-black truncate max-w-[200px]">{sub.name}</td>
                     {isSenior && <td className="py-1.5 px-2 print:py-0.5 print:px-1 text-center font-mono font-bold border border-black">2</td>}
                     <td className="py-1.5 px-3 print:py-0.5 print:px-1.5 text-right font-mono border border-black">{cell?.testScore !== null && cell?.testScore !== undefined ? cell.testScore : '—'}</td>
                     <td className="py-1.5 px-3 print:py-0.5 print:px-1.5 text-right font-mono border border-black">{cell?.examScore !== null && cell?.examScore !== undefined ? cell.examScore : '—'}</td>
                     <td className="py-1.5 px-3 print:py-0.5 print:px-1.5 text-right font-mono font-black border border-black bg-slate-100 print:text-[8px]">{totalVal !== null ? totalVal : '—'}</td>
                     <td className="py-1.5 px-2.5 print:py-0.5 print:px-1 text-center font-bold border border-black">{gradeVal}</td>
-                    {isSenior && <td className="py-1.5 px-2 print:py-0.5 print:px-1 text-center font-mono font-bold border border-black">{gpVal}</td>}
-                    <td className="py-1.5 px-3 print:py-0.5 print:px-1.5 italic border border-black text-[11px] print:text-[7.5px]">{subRemark}</td>
+                    <td className="py-1.5 px-2.5 print:py-0.5 print:px-1 text-center font-mono font-bold border border-black">{pointVal}</td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
+          <div className="mt-1.5 px-2.5 py-1 bg-slate-100 border border-black rounded text-[9.5px] print:text-[6.8px] font-bold text-black text-center tracking-tight">
+            GRADING KEY: A1 = 5 point • B2 = 4 point • B3 = 4 point • C4 = 3 point • C5 = 3 point • C6 = 3 point • D7 = 2 point • E8 = 1 point • F9 = CARRY OVER
+          </div>
         </div>
 
         {/* 5. Class Teacher's & Principal's Comments (Side-by-side in print for single-page fit) */}
@@ -2418,11 +2417,7 @@ export const ClassBroadsheet: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-end gap-10 sm:gap-14 print:gap-5 text-center">
-            <div>
-              <div className="w-32 print:w-20 border-b border-black mb-1 print:mb-0.5" />
-              <span className="text-[10px] print:text-[7px] font-bold uppercase tracking-wider text-black block">Registrar</span>
-            </div>
+          <div className="flex items-end justify-end text-center">
             <div className="flex flex-col items-center">
               <img
                 src="https://i.ibb.co/MzHp6Yt/Whats-App-Image-2026-10-02-at-11-29-34-AM.jpg"
@@ -3117,9 +3112,7 @@ export const ClassBroadsheet: React.FC = () => {
 
           <div className="flex items-center gap-2">
             <span className="text-[11px] text-slate-400">
-              {isSenior
-                ? 'Senior Secondary Scale: A1 (70+=5.0), B2/B3 (60+=4.0), C4/C5 (50+=3.0), D7 (45+=2.0), E8 (40+=1.0), F9 (<40=0.0)'
-                : 'Grading Scheme: A1 (75-100) • B2 (70-74) • B3 (65-69) • C4-C6 (50-64) • D7-E8 (40-49) • F9 (0-39)'}
+              Grading Format: A1 = 5 point • B2 = 4 point • B3 = 4 point • C4 = 3 point • C5 = 3 point • C6 = 3 point • D7 = 2 point • E8 = 1 point • F9 = CARRY OVER
             </span>
           </div>
         </div>

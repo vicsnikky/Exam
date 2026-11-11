@@ -134,9 +134,20 @@ export function isSeniorSecondaryClass(className?: string | null): boolean {
 }
 
 // 5.0 Grading scale point for Senior Secondary (2 units per subject)
+// Format:
+// A1 = 5 point
+// B2 = 4 point
+// B3 = 4 point
+// C4 = 3 point
+// C5 = 3 point
+// C6 = 3 point
+// D7 = 2 point
+// E8 = 1 point
+// F9 = CARRY OVER
 export interface GradePoint5Result {
   grade: string;
   gradePoint: number; // 0.0 to 5.0
+  pointLabel: string; // e.g. '5 point', '4 point', '3 point', '2 point', '1 point', 'CARRY OVER'
   units: number; // strictly 2 units per subject
   qualityPoints: number; // units * gradePoint
   remark: string;
@@ -145,49 +156,75 @@ export interface GradePoint5Result {
 export function calculateGradePoint5(totalScore: number, units: number = 2): GradePoint5Result {
   let grade = 'F9';
   let gradePoint = 0.0;
-  let remark = 'Fail';
+  let pointLabel = 'CARRY OVER';
 
-  if (totalScore >= 70) {
+  if (totalScore >= 75) {
     grade = 'A1';
     gradePoint = 5.0;
-    remark = 'Excellent / Distinction';
-  } else if (totalScore >= 65) {
+    pointLabel = '5 point';
+  } else if (totalScore >= 70) {
     grade = 'B2';
     gradePoint = 4.0;
-    remark = 'Very Good';
-  } else if (totalScore >= 60) {
+    pointLabel = '4 point';
+  } else if (totalScore >= 65) {
     grade = 'B3';
     gradePoint = 4.0;
-    remark = 'Good';
-  } else if (totalScore >= 55) {
+    pointLabel = '4 point';
+  } else if (totalScore >= 60) {
     grade = 'C4';
     gradePoint = 3.0;
-    remark = 'Credit';
-  } else if (totalScore >= 50) {
+    pointLabel = '3 point';
+  } else if (totalScore >= 55) {
     grade = 'C5';
     gradePoint = 3.0;
-    remark = 'Credit';
+    pointLabel = '3 point';
+  } else if (totalScore >= 50) {
+    grade = 'C6';
+    gradePoint = 3.0;
+    pointLabel = '3 point';
   } else if (totalScore >= 45) {
     grade = 'D7';
     gradePoint = 2.0;
-    remark = 'Pass';
+    pointLabel = '2 point';
   } else if (totalScore >= 40) {
     grade = 'E8';
     gradePoint = 1.0;
-    remark = 'Fair';
+    pointLabel = '1 point';
   } else {
     grade = 'F9';
     gradePoint = 0.0;
-    remark = 'Fail';
+    pointLabel = 'CARRY OVER';
   }
 
   return {
     grade,
     gradePoint,
+    pointLabel,
     units,
     qualityPoints: units * gradePoint,
-    remark,
+    remark: pointLabel,
   };
+}
+
+export function getGradePointLabel(gradeOrScore: string | number | null | undefined): string {
+  if (gradeOrScore === null || gradeOrScore === undefined || gradeOrScore === '' || gradeOrScore === '—' || gradeOrScore === '-') {
+    return '—';
+  }
+  if (typeof gradeOrScore === 'number') {
+    return calculateGradePoint5(gradeOrScore).pointLabel;
+  }
+  const g = String(gradeOrScore).trim().toUpperCase();
+  if (g === 'A1' || g === 'A') return '5 point';
+  if (g === 'B2' || g === 'B3' || g === 'B') return '4 point';
+  if (g === 'C4' || g === 'C5' || g === 'C6' || g === 'C') return '3 point';
+  if (g === 'D7' || g === 'D') return '2 point';
+  if (g === 'E8' || g === 'E') return '1 point';
+  if (g === 'F9' || g === 'F') return 'CARRY OVER';
+  const num = Number(g);
+  if (!isNaN(num)) {
+    return calculateGradePoint5(num).pointLabel;
+  }
+  return '—';
 }
 
 // Calculate Cumulative Grade Point Average (CGPA) on 5.0 scale for Senior Secondary (SS1 - SS3)

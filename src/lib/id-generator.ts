@@ -42,23 +42,26 @@ export async function generateStudentId(schoolCode = 'FEN', academicYear?: strin
 
 export function calculateGrade(score: number, maxScore = 100): { grade: string; percentage: number; remark: string } {
   const percentage = Math.round(((score / maxScore) * 100) * 10) / 10;
-  if (percentage >= 70) return { grade: 'A', percentage, remark: 'Excellent' };
-  if (percentage >= 60) return { grade: 'B', percentage, remark: 'Very Good' };
-  if (percentage >= 50) return { grade: 'C', percentage, remark: 'Good / Credit' };
-  if (percentage >= 45) return { grade: 'D', percentage, remark: 'Pass' };
-  if (percentage >= 40) return { grade: 'E', percentage, remark: 'Fair' };
-  return { grade: 'F', percentage, remark: 'Fail' };
+  if (percentage >= 75) return { grade: 'A1', percentage, remark: '5 point' };
+  if (percentage >= 70) return { grade: 'B2', percentage, remark: '4 point' };
+  if (percentage >= 65) return { grade: 'B3', percentage, remark: '4 point' };
+  if (percentage >= 60) return { grade: 'C4', percentage, remark: '3 point' };
+  if (percentage >= 55) return { grade: 'C5', percentage, remark: '3 point' };
+  if (percentage >= 50) return { grade: 'C6', percentage, remark: '3 point' };
+  if (percentage >= 45) return { grade: 'D7', percentage, remark: '2 point' };
+  if (percentage >= 40) return { grade: 'E8', percentage, remark: '1 point' };
+  return { grade: 'F9', percentage, remark: 'CARRY OVER' };
 }
 
 export function calculateWaecGrade(score: number, maxScore = 100): { grade: string; percentage: number; remark: string; points: number } {
   const percentage = Math.round(((score / maxScore) * 100) * 10) / 10;
-  if (percentage >= 75) return { grade: 'A1', percentage, remark: 'Excellent / Distinction', points: 1 };
-  if (percentage >= 70) return { grade: 'B2', percentage, remark: 'Very Good', points: 2 };
-  if (percentage >= 65) return { grade: 'B3', percentage, remark: 'Good', points: 3 };
-  if (percentage >= 60) return { grade: 'C4', percentage, remark: 'Credit', points: 4 };
-  if (percentage >= 55) return { grade: 'C5', percentage, remark: 'Credit', points: 5 };
-  if (percentage >= 50) return { grade: 'C6', percentage, remark: 'Credit', points: 6 };
-  if (percentage >= 45) return { grade: 'D7', percentage, remark: 'Pass', points: 7 };
-  if (percentage >= 40) return { grade: 'E8', percentage, remark: 'Pass', points: 8 };
-  return { grade: 'F9', percentage, remark: 'Fail', points: 9 };
+  if (percentage >= 75) return { grade: 'A1', percentage, remark: '5 point', points: 5 };
+  if (percentage >= 70) return { grade: 'B2', percentage, remark: '4 point', points: 4 };
+  if (percentage >= 65) return { grade: 'B3', percentage, remark: '4 point', points: 4 };
+  if (percentage >= 60) return { grade: 'C4', percentage, remark: '3 point', points: 3 };
+  if (percentage >= 55) return { grade: 'C5', percentage, remark: '3 point', points: 3 };
+  if (percentage >= 50) return { grade: 'C6', percentage, remark: '3 point', points: 3 };
+  if (percentage >= 45) return { grade: 'D7', percentage, remark: '2 point', points: 2 };
+  if (percentage >= 40) return { grade: 'E8', percentage, remark: '1 point', points: 1 };
+  return { grade: 'F9', percentage, remark: 'CARRY OVER', points: 0 };
 }

@@ -21,6 +21,7 @@ import {
   Trash2
 } from 'lucide-react';
 import { SS3MockWeeklySummary, SS3MockProgressPoint } from '../types/index.ts';
+import { getGradePointLabel } from '../constants/classes.ts';
 import { supabase } from '../supabaseConfig.ts';
 import { isStudentFeeLocked, getStudentFeeLockDetails } from '../lib/bursarStore.ts';
 import { FeeWithheldNotice } from './FeeWithheldNotice.tsx';
@@ -864,7 +865,7 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
                     Feasible Score (100)
                   </th>
                   <th className="py-3 px-3 text-center">Grade</th>
-                  <th className="py-3 px-3">Registrar's Remark</th>
+                  <th className="py-3 px-3 text-center">Point</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700/60 print:divide-slate-300">
@@ -922,8 +923,8 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
                       </span>
                     </td>
 
-                    <td className="py-3.5 px-3 text-slate-300 print:text-slate-700 italic">
-                      {sub.remark || 'Satisfactory performance'}
+                    <td className="py-3.5 px-3 text-center text-slate-300 print:text-slate-700 font-semibold">
+                      {getGradePointLabel(sub.score)}
                     </td>
                   </tr>
                 ))}
@@ -965,12 +966,6 @@ export const SS3MockStudentDashboard: React.FC<SS3MockStudentDashboardProps> = (
             </div>
 
             <div className="flex items-end gap-10 text-center">
-              <div>
-                <div className="w-32 border-b border-slate-600 print:border-black mb-1.5" />
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300 print:text-black block">
-                  Registrar
-                </span>
-              </div>
               <div className="flex flex-col items-center">
                 <img
                   src="https://i.ibb.co/MzHp6Yt/Whats-App-Image-2026-10-02-at-11-29-34-AM.jpg"
