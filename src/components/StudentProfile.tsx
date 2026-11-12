@@ -2400,9 +2400,6 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                           <th className="py-3 px-3 text-right">Total (100)</th>
                           <th className="py-3 px-3 text-center">Grade</th>
                           <th className="py-3 px-3 text-center">Point</th>
-                          {isSenior && (
-                            <th className="py-3 px-3 text-right">Quality Pts</th>
-                          )}
                           <th className="py-3 px-4">Session / Term</th>
                           {canManageScores && (
                             <th className="py-3 px-4 text-center">Actions</th>
@@ -2475,11 +2472,6 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                             <td className="py-3.5 px-3 text-center font-mono font-bold text-amber-400">
                               {r.isPending ? <span className="text-slate-500 font-normal">—</span> : getGradePointLabel(r.totalScore)}
                             </td>
-                            {isSenior && (
-                              <td className="py-3.5 px-3 text-right font-mono font-semibold text-emerald-300">
-                                {r.isPending ? <span className="text-slate-500 font-normal">—</span> : r.qualityPoints.toFixed(1)}
-                              </td>
-                            )}
                             <td className="py-3.5 px-4 text-xs text-slate-400">
                               {r.session} • {r.term}
                             </td>
