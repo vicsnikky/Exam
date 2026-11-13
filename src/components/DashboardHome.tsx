@@ -270,38 +270,42 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3.5">
-        <div
-          onClick={() => onNavigate('students')}
-          className="bg-slate-800/80 border border-slate-700 p-4 rounded-2xl cursor-pointer hover:border-indigo-500/50 transition group"
-        >
-          <div className="flex items-center justify-between text-slate-400 text-xs">
-            <span className="font-medium">Total Students</span>
-            <div className="p-2 rounded-xl bg-indigo-600/20 text-indigo-400 group-hover:scale-110 transition">
-              <Users className="w-4 h-4" />
+      <div className={`grid gap-3.5 ${isExecutive ? 'grid-cols-2 lg:grid-cols-5' : 'grid-cols-1 sm:grid-cols-3'}`}>
+        {isExecutive && (
+          <>
+            <div
+              onClick={() => onNavigate('students')}
+              className="bg-slate-800/80 border border-slate-700 p-4 rounded-2xl cursor-pointer hover:border-indigo-500/50 transition group"
+            >
+              <div className="flex items-center justify-between text-slate-400 text-xs">
+                <span className="font-medium">Total Students</span>
+                <div className="p-2 rounded-xl bg-indigo-600/20 text-indigo-400 group-hover:scale-110 transition">
+                  <Users className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="text-2xl font-bold text-white mt-2 font-mono">
+                {stats.totalStudents}
+              </div>
+              <span className="text-[11px] text-slate-400 mt-0.5 block">Enrolled Scholars</span>
             </div>
-          </div>
-          <div className="text-2xl font-bold text-white mt-2 font-mono">
-            {stats.totalStudents}
-          </div>
-          <span className="text-[11px] text-slate-400 mt-0.5 block">Enrolled Scholars</span>
-        </div>
 
-        <div
-          onClick={() => onNavigate(user?.role === 'super_admin' || user?.role === 'director' || user?.role === 'principal' || user?.role === 'admin' ? 'super-admin' : 'dashboard')}
-          className="bg-slate-800/80 border border-slate-700 p-4 rounded-2xl cursor-pointer hover:border-emerald-500/50 transition group"
-        >
-          <div className="flex items-center justify-between text-slate-400 text-xs">
-            <span className="font-medium">Total Staff</span>
-            <div className="p-2 rounded-xl bg-emerald-600/20 text-emerald-400 group-hover:scale-110 transition">
-              <GraduationCap className="w-4 h-4" />
+            <div
+              onClick={() => onNavigate('super-admin')}
+              className="bg-slate-800/80 border border-slate-700 p-4 rounded-2xl cursor-pointer hover:border-emerald-500/50 transition group"
+            >
+              <div className="flex items-center justify-between text-slate-400 text-xs">
+                <span className="font-medium">Total Staff</span>
+                <div className="p-2 rounded-xl bg-emerald-600/20 text-emerald-400 group-hover:scale-110 transition">
+                  <GraduationCap className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="text-2xl font-bold text-emerald-300 mt-2 font-mono">
+                {stats.totalTeachers}
+              </div>
+              <span className="text-[11px] text-slate-400 mt-0.5 block">Faculty & Executives</span>
             </div>
-          </div>
-          <div className="text-2xl font-bold text-emerald-300 mt-2 font-mono">
-            {stats.totalTeachers}
-          </div>
-          <span className="text-[11px] text-slate-400 mt-0.5 block">Faculty & Executives</span>
-        </div>
+          </>
+        )}
 
         <div
           onClick={() => onNavigate('quizzes')}
@@ -337,7 +341,7 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
 
         <div
           onClick={() => onNavigate(canAccessBroadsheet ? 'results' : 'add-score')}
-          className="bg-slate-800/80 border border-slate-700 p-4 rounded-2xl cursor-pointer hover:border-teal-500/50 transition group col-span-2 lg:col-span-1"
+          className={`bg-slate-800/80 border border-slate-700 p-4 rounded-2xl cursor-pointer hover:border-teal-500/50 transition group ${isExecutive ? 'col-span-2 lg:col-span-1' : ''}`}
         >
           <div className="flex items-center justify-between text-slate-400 text-xs">
             <span className="font-medium">Assessments</span>

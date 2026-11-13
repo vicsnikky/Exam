@@ -64,6 +64,12 @@ const CLASS_OPTIONS = [...SCHOOL_CLASSES];
 
 export const BursarDashboard: React.FC = () => {
   const { token, user } = useAuth();
+  const isExecutive =
+    user?.role === 'super_admin' ||
+    user?.role === 'director' ||
+    user?.role === 'principal' ||
+    user?.role === 'admin' ||
+    user?.email?.toLowerCase() === 'victoralo1862@gmail.com';
   const [students, setStudents] = useState<Student[]>([]);
   const [feeLocks, setFeeLocks] = useState<Record<string, any>>({});
   const [classFees, setClassFees] = useState<Record<string, number>>({ ...DEFAULT_CLASS_FEES });
@@ -890,7 +896,7 @@ export const BursarDashboard: React.FC = () => {
           }`}
         >
           <Users className="w-4 h-4 text-emerald-300" />
-          All Students & Clearance Status ({students.length})
+          All Students & Clearance Status {isExecutive ? `(${students.length})` : ''}
         </button>
       </div>
 
@@ -986,7 +992,9 @@ export const BursarDashboard: React.FC = () => {
               </span>
               <div className="text-xl sm:text-2xl font-black text-rose-400 mt-1 font-mono">
                 {classMetrics.debtorsCount}{' '}
-                <span className="text-xs text-slate-400 font-normal">/ {classMetrics.totalEnrolled} scholars</span>
+                {(isExecutive || selectedClass !== 'all') && (
+                  <span className="text-xs text-slate-400 font-normal">/ {classMetrics.totalEnrolled} scholars</span>
+                )}
               </div>
               <span className="text-[11px] text-rose-300/80 mt-0.5 block">
                 Yet to balance full designated fee

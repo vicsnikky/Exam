@@ -275,7 +275,11 @@ export const StudentSearch: React.FC<StudentSearchProps> = ({
       {/* Results List */}
       <div className="bg-slate-800/80 border border-slate-700 rounded-2xl overflow-hidden shadow-xl">
         <div className="p-4 border-b border-slate-700 flex items-center justify-between text-xs text-slate-400">
-          <span>Found <strong>{totalCount}</strong> student record(s)</span>
+          <span>
+            {isSuperAdmin || selectedClass !== 'all' || query.trim() !== ''
+              ? <>Found <strong>{totalCount}</strong> student record(s)</>
+              : 'Enrolled Student Directory'}
+          </span>
           <span>Each candidate maintains a unique permanent ID</span>
         </div>
 
