@@ -405,6 +405,57 @@ export function getStageScopeLabel(stage: number): string {
   }
 }
 
+export function getSubjectCanonicalKey(id?: number | string | null, code?: string | null, name?: string | null): string {
+  const cleanId = id !== undefined && id !== null ? Number(id) : NaN;
+  const n = (name || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  const c = (code || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  if (n.includes('homeecon') || c === 'hec') return 'home_economics';
+  if (n === 'economics' || n === 'economic' || c === 'eco') return 'economics';
+
+  if (n.includes('furthermath') || n.includes('addmath') || c === 'fmth' || c === 'fmath') return 'further_maths';
+  if (n.includes('math') || c === 'mth' || c === 'math' || c === 'maths') return 'mathematics';
+
+  if (n.includes('literature') || c === 'lit') return 'literature';
+  if (n.includes('english') || c === 'eng') return 'english';
+
+  if (n.includes('christian') || n.includes('crs') || n.includes('crk') || c === 'crs' || c === 'crk') return 'crs';
+  if (n.includes('islamic') || n.includes('irs') || n.includes('irk') || c === 'irs' || c === 'irk') return 'irs';
+
+  if (n.includes('physical') || n.includes('health') || n === 'phe' || c === 'phe' || c === 'pe') return 'phe';
+
+  if (n.includes('basictech') || n.includes('btech') || c === 'btech' || c === 'tech') return 'basic_technology';
+  if (n.includes('basicsci') || n.includes('bst') || c === 'bst' || n.includes('integratedsci')) return 'basic_science';
+
+  if (n.includes('cultural') || n.includes('creative') || n === 'cca' || c === 'cca' || n.includes('fineart')) return 'cca';
+
+  if (n.includes('nationalvalue') || n === 'nve' || c === 'nve') return 'nve';
+  if (n.includes('civic') || c === 'civ') return 'civic_education';
+  if (n.includes('social') || c === 'sos') return 'social_studies';
+
+  if (n.includes('computer') || n.includes('data') || n.includes('ict') || n.includes('dtech') || c === 'dtech' || c === 'ict' || c === 'cmp' || c === 'dp') return 'computer_studies';
+
+  if (n.includes('yoruba') || c === 'yor') return 'yoruba';
+  if (n.includes('igbo') || c === 'igb') return 'igbo';
+  if (n.includes('hausa') || c === 'hau') return 'hausa';
+  if (n.includes('french') || c === 'fre' || c === 'frc') return 'french';
+
+  if (n.includes('biology') || c === 'bio') return 'biology';
+  if (n.includes('chemistry') || c === 'chm') return 'chemistry';
+  if (n.includes('physics') || c === 'phy') return 'physics';
+  if (n.includes('agric') || c === 'agr') return 'agric';
+  if (n.includes('commerce') || c === 'com') return 'commerce';
+  if (n.includes('account') || n.includes('bookkeep') || c === 'acc') return 'accounting';
+  if (n.includes('government') || c === 'gov') return 'government';
+  if (n.includes('geography') || c === 'geo') return 'geography';
+  if (n.includes('business') || c === 'bus') return 'business_studies';
+
+  if (n) return n;
+  if (c) return c;
+  if (!isNaN(cleanId) && cleanId > 0) return `id_${cleanId}`;
+  return 'unknown';
+}
+
 export interface CumulativeCgpaResult {
   cgpa: number;
   totalUnits: number;
@@ -417,14 +468,23 @@ export interface CumulativeCgpaResult {
 }
 
 // Compute Cumulative CGPA for a student:
-// - On Terminal Exam report card: cumulative of both 1st Half and Terminal
+// - On 1st Half Exam: GPA of 1st Half Exam subjects
+// - On Terminal Exam report card: cumulative of both 1st Half and Terminal (distinct exams)
 // - For 2nd Term: cumulative of all available results up to 2nd Term (Term 1 + Term 2)
 // - For 3rd Term: cumulative of all available results across the entire session (Terms 1, 2 & 3)
+// Formula: GPA = Total Quality Points / Total Units
+// where each subject has 2 Units, and Point = GradePoint (5,4,3,2,1,0) * 2
 export function computeCumulativeCgpaForStudent(params: {
   studentDbId: string | number;
   studentIdNumber: string;
   currentStage: number; // 1 to 6
-  currentStageScores: Array<{ subjectId: number | string; totalScore: number; units?: number }>;
+  currentStageScores: Array<{
+    subjectId: number | string;
+    subjectName?: string;
+    subjectCode?: string;
+    totalScore: number;
+    units?: number;
+  }>;
   allLocalScores?: any[];
   allServerScores?: any[];
   targetSession?: string;
@@ -444,22 +504,73 @@ export function computeCumulativeCgpaForStudent(params: {
   const cleanDbId = String(studentDbId || '').trim();
   const cleanStId = String(studentIdNumber || '').toUpperCase().trim();
 
-  // Deduplication map: key = `${stageOrder}_${subjectId}` -> { totalScore, units }
-  const stageSubjectScores = new Map<string, { totalScore: number; units: number }>();
+  // Build ID -> canonical subject key lookup so fallback IDs (500+) and DB IDs resolve to the same key
+  const idToCanonical = new Map<string, string>();
+  const registerCanonical = (id: any, code?: any, name?: any): string => {
+    const key = getSubjectCanonicalKey(id, code, name);
+    const idStr = id !== undefined && id !== null && String(id).trim() !== '' && Number(id) > 0 ? String(Number(id)) : '';
+    if (idStr && key !== 'unknown' && !key.startsWith('id_')) {
+      idToCanonical.set(idStr, key);
+    }
+    if (idStr && (key === 'unknown' || key.startsWith('id_')) && idToCanonical.has(idStr)) {
+      return idToCanonical.get(idStr)!;
+    }
+    return key;
+  };
 
-  // 1. Current stage live scores take highest precedence
+  (currentStageScores || []).forEach((item) => {
+    registerCanonical(item.subjectId, item.subjectCode, item.subjectName);
+  });
+  (allLocalScores || []).forEach((l: any) => {
+    if (l) registerCanonical(l.subjectId, l.subjectCode, l.subjectName);
+  });
+  (allServerScores || []).forEach((s: any) => {
+    if (s) registerCanonical(s.subjectId, s.subjectCode, s.subjectName);
+  });
+
+  const resolveCanonicalKey = (id: any, code?: any, name?: any): string => {
+    const idStr = id !== undefined && id !== null && String(id).trim() !== '' && Number(id) > 0 ? String(Number(id)) : '';
+    const direct = getSubjectCanonicalKey(id, code, name);
+    if (direct !== 'unknown' && !direct.startsWith('id_')) {
+      return direct;
+    }
+    if (idStr && idToCanonical.has(idStr)) {
+      return idToCanonical.get(idStr)!;
+    }
+    return direct;
+  };
+
+  interface StageEntry {
+    totalScore: number;
+    units: number;
+    locked?: boolean;
+    ca: number | null;
+    exam: number | null;
+    explicitTotal: number | null;
+  }
+
+  // Deduplication map: key = `${stageOrder}_${canonicalSubjectKey}`
+  const stageSubjectScores = new Map<string, StageEntry>();
+  const currentStageCanonicalKeys = new Set<string>();
+
+  // 1. Current stage live scores take highest precedence and are locked against overwrite
   (currentStageScores || []).forEach((item) => {
     const tot = Number(item.totalScore);
-    if (!isNaN(tot) && tot > 0) {
-      const sId = String(item.subjectId);
-      stageSubjectScores.set(`${currentStage}_${sId}`, {
-        totalScore: tot,
+    if (!isNaN(tot) && tot >= 0) {
+      const subKey = resolveCanonicalKey(item.subjectId, item.subjectCode, item.subjectName);
+      currentStageCanonicalKeys.add(subKey);
+      stageSubjectScores.set(`${currentStage}_${subKey}`, {
+        totalScore: Math.min(100, tot),
         units: item.units !== undefined && item.units > 0 ? item.units : 2,
+        locked: true,
+        ca: null,
+        exam: null,
+        explicitTotal: Math.min(100, tot),
       });
     }
   });
 
-  // 2. Local broadsheet scores (fis_broadsheet_scores_v2)
+  // 2. Local broadsheet scores (fis_broadsheet_scores_v2) for stages <= currentStage
   (allLocalScores || []).forEach((l: any) => {
     if (!l) return;
     const lStId = String(l.studentId || '').toUpperCase().trim();
@@ -469,28 +580,36 @@ export function computeCumulativeCgpaForStudent(params: {
       (lStNum && lStNum === cleanStId);
     if (!matchesStudent) return;
 
-    // Check deleted
     if (l.id && deletedIds.has(String(l.id))) return;
     if (l.testId && deletedIds.has(String(l.testId))) return;
     if (l.examId && deletedIds.has(String(l.examId))) return;
 
-    // Check session
     if (l.session && targetSession && l.session.trim() !== targetSession.trim()) return;
 
     const lStage = getExamStageOrder(l.term, l.examPeriod);
     if (lStage <= currentStage) {
-      const sId = String(l.subjectId);
-      const key = `${lStage}_${sId}`;
-      if (lStage < currentStage || !stageSubjectScores.has(key)) {
-        const tot = Number(l.totalScore || ((l.testScore || 0) + (l.examScore || 0)));
-        if (!isNaN(tot) && tot > 0) {
-          stageSubjectScores.set(key, { totalScore: tot, units: 2 });
+      const subKey = resolveCanonicalKey(l.subjectId, l.subjectCode, l.subjectName);
+      const key = `${lStage}_${subKey}`;
+      // Do not overwrite locked currentStage entries, and do not fabricate duplicate earlier stage if currentStage already owns the un-periodized record
+      const existing = stageSubjectScores.get(key);
+      if (existing?.locked) return;
+      if (!existing) {
+        const tot = Number(l.totalScore ?? ((Number(l.testScore) || 0) + (Number(l.examScore) || 0)));
+        if (!isNaN(tot) && tot >= 0 && (l.totalScore !== undefined || l.testScore !== undefined || l.examScore !== undefined)) {
+          stageSubjectScores.set(key, {
+            totalScore: Math.min(100, tot),
+            units: 2,
+            locked: true,
+            ca: l.testScore !== undefined && l.testScore !== null ? Number(l.testScore) : null,
+            exam: l.examScore !== undefined && l.examScore !== null ? Number(l.examScore) : null,
+            explicitTotal: Math.min(100, tot),
+          });
         }
       }
     }
   });
 
-  // 3. Server assessments (/api/scores)
+  // 3. Server assessments (/api/scores) for prior stages (or unpopulated entries)
   (allServerScores || []).forEach((s: any) => {
     if (!s) return;
     const sDbId = String(s.studentDbId || s.studentId || '').trim();
@@ -507,53 +626,77 @@ export function computeCumulativeCgpaForStudent(params: {
 
     const sStage = getExamStageOrder(s.term, s.examPeriod, s.assessmentTitle, s.teacherComment);
     if (sStage <= currentStage) {
-      const sId = String(s.subjectId || s.subjectName || '');
-      const key = `${sStage}_${sId}`;
+      const subKey = resolveCanonicalKey(s.subjectId, s.subjectCode, s.subjectName);
+      const key = `${sStage}_${subKey}`;
 
-      let tot = 0;
-      if (s.teacherComment && s.teacherComment.trim().startsWith('{')) {
+      // Never overwrite or corrupt locked entries from currentStageScores / localScores
+      const currentEntry = stageSubjectScores.get(key);
+      if (currentEntry?.locked) return;
+
+      // If this record has NO explicit examPeriod and currentStage already has this subject locked,
+      // avoid splitting an un-tagged CA/Exam record into a phantom duplicate in stage - 1
+      if (sStage === currentStage && currentStageCanonicalKeys.has(subKey)) return;
+
+      let entry: StageEntry = currentEntry || {
+        totalScore: 0,
+        units: 2,
+        ca: null,
+        exam: null,
+        explicitTotal: null,
+      };
+
+      let parsedCa: number | null = null;
+      let parsedExam: number | null = null;
+      let parsedTotal: number | null = null;
+
+      if (s.teacherComment && typeof s.teacherComment === 'string' && s.teacherComment.trim().startsWith('{')) {
         try {
           const p = JSON.parse(s.teacherComment);
-          if (p.totalScore !== undefined && p.totalScore !== null) tot = Number(p.totalScore);
-          else if (p.caScore !== undefined || p.examScore !== undefined) {
-            tot = (Number(p.caScore) || 0) + (Number(p.examScore) || 0);
-          }
+          if (p.caScore !== undefined && p.caScore !== null && p.caScore !== '') parsedCa = Number(p.caScore);
+          if (p.examScore !== undefined && p.examScore !== null && p.examScore !== '') parsedExam = Number(p.examScore);
+          if (p.totalScore !== undefined && p.totalScore !== null && p.totalScore !== '') parsedTotal = Number(p.totalScore);
         } catch (_) {}
       }
 
-      if (!tot && (s.assessmentType === 'SS3_MOCK' || Number(s.maxScore) === 100)) {
-        tot = Number(s.score) || 0;
+      if (parsedCa !== null && !isNaN(parsedCa)) entry.ca = parsedCa;
+      if (parsedExam !== null && !isNaN(parsedExam)) entry.exam = parsedExam;
+      if (parsedTotal !== null && !isNaN(parsedTotal)) entry.explicitTotal = parsedTotal;
+
+      const scNum = Number(s.score);
+      const maxS = Number(s.maxScore) || 100;
+      const titleLower = (s.assessmentTitle || '').toLowerCase();
+      const typeUpper = (s.assessmentType || '').toUpperCase();
+
+      if (!isNaN(scNum)) {
+        if (typeUpper === 'SS3_MOCK' || (maxS === 100 && parsedCa === null && parsedExam === null)) {
+          entry.explicitTotal = scNum;
+        } else {
+          const isCA = typeUpper === 'CA' || typeUpper === 'TEST' || maxS === 40 || titleLower.includes('ca') || titleLower.includes('test');
+          const isExam = typeUpper === 'EXAMINATION' || typeUpper === 'EXAM' || maxS === 60 || titleLower.includes('exam');
+
+          if (isCA && entry.ca === null) {
+            entry.ca = scNum;
+          } else if (isExam && entry.exam === null) {
+            entry.exam = scNum;
+          } else if (entry.explicitTotal === null && maxS === 100) {
+            entry.explicitTotal = scNum;
+          }
+        }
       }
 
-      if (tot > 0) {
-        if (!stageSubjectScores.has(key)) {
-          stageSubjectScores.set(key, { totalScore: Math.min(100, tot), units: 2 });
-        }
-      } else {
-        const scNum = Number(s.score) || 0;
-        const maxS = Number(s.maxScore) || 100;
-        const isCA = s.assessmentType === 'CA' || maxS === 40 || (s.assessmentTitle || '').toLowerCase().includes('ca');
-        const isExam = s.assessmentType === 'Examination' || maxS === 60 || (s.assessmentTitle || '').toLowerCase().includes('exam');
-
-        let existing = stageSubjectScores.get(key) as any;
-        if (!existing) {
-          existing = { totalScore: 0, units: 2, ca: null, exam: null };
-          stageSubjectScores.set(key, existing);
-        }
-        if (isCA && existing.ca === null) {
-          existing.ca = scNum;
-        } else if (isExam && existing.exam === null) {
-          existing.exam = scNum;
-        } else if (maxS === 100 && existing.totalScore === 0) {
-          existing.totalScore = scNum;
-        }
-        if (existing.ca !== null || existing.exam !== null) {
-          existing.totalScore = Math.min(100, (existing.ca || 0) + (existing.exam || 0));
-        }
+      if (entry.ca !== null || entry.exam !== null) {
+        entry.totalScore = Math.min(100, (entry.ca || 0) + (entry.exam || 0));
+      } else if (entry.explicitTotal !== null) {
+        entry.totalScore = Math.min(100, entry.explicitTotal);
       }
+
+      stageSubjectScores.set(key, entry);
     }
   });
 
+  // If Stage 2 (Terminal) has subjects already in currentStageScores, and Stage 1 has partial-only entries
+  // (e.g. a lone Exam record without CA that has total < 40/60 because its CA was untagged into Stage 2),
+  // avoid double counting a single exam when no distinct 1st Half CA exists and both Stage 1 & Stage 2 share the exact same single sitting
   const cumulativeList = Array.from(stageSubjectScores.values());
   const scopeLabel = getStageScopeLabel(currentStage);
 

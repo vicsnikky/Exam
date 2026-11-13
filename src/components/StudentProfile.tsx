@@ -1483,14 +1483,49 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
   const effectiveTermFilter = profileTab === 'printable-slip' ? selectedPrintTerm : ledgerTermFilter;
 
-  const groupedSubjectMap = new Map<string, GroupedSubjectRow>();
+  const getAssessmentPeriod = (a: AssessmentRecord): 'first-half' | 'terminal' | 'untagged' => {
+    const rawPeriod = ((a as any).examPeriod || '').toLowerCase();
+    if (rawPeriod === 'first-half' || rawPeriod.includes('first half') || rawPeriod.includes('1st')) return 'first-half';
+    if (rawPeriod === 'terminal') return 'terminal';
+    if (a.teacherComment && a.teacherComment.trim().startsWith('{')) {
+      try {
+        const p = JSON.parse(a.teacherComment);
+        if (p.examPeriod === 'first-half') return 'first-half';
+        if (p.examPeriod === 'terminal') return 'terminal';
+      } catch (_) {}
+    }
+    const titleLower = (a.assessmentTitle || '').toLowerCase();
+    if (titleLower.includes('first half') || titleLower.includes('first-half') || titleLower.includes('1st half') || titleLower.includes('6th') || titleLower.includes('mid')) {
+      return 'first-half';
+    }
+    if (titleLower.includes('terminal')) {
+      return 'terminal';
+    }
+    return 'untagged';
+  };
 
-  assessments.forEach((a) => {
+  const termFilteredAssessments = assessments.filter((a) => {
     if (effectiveTermFilter && effectiveTermFilter !== 'all') {
       if (a.term && normalizeProfileTerm(a.term) !== normalizeProfileTerm(effectiveTermFilter)) {
-        return;
+        return false;
       }
     }
+    return true;
+  });
+
+  const targetPeriod = selectedExamType === 'midterm' ? 'first-half' : 'terminal';
+  const hasAnyForTargetPeriod = termFilteredAssessments.some((a) => getAssessmentPeriod(a) === targetPeriod);
+  const periodFilteredAssessments =
+    profileTab === 'printable-slip' && hasAnyForTargetPeriod
+      ? termFilteredAssessments.filter((a) => {
+          const p = getAssessmentPeriod(a);
+          return p === targetPeriod || p === 'untagged';
+        })
+      : termFilteredAssessments;
+
+  const groupedSubjectMap = new Map<string, GroupedSubjectRow>();
+
+  periodFilteredAssessments.forEach((a) => {
     const cleanSub = (a.subjectName || '').trim().toLowerCase();
     const normTerm = normalizeProfileTerm(a.term);
     const subKey = `${a.subjectId || cleanSub}_${normTerm}_${a.session || student.session || '2026/2027'}`;
@@ -1667,17 +1702,25 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     }
   } catch (_) {}
 
+  const hasDistinctFirstHalf = assessments.some((a) => getExamStageOrder(a.term, (a as any).examPeriod, a.assessmentTitle, a.teacherComment || undefined) === 1);
+  const hasDistinctFirstTerminal = assessments.some((a) => getExamStageOrder(a.term, (a as any).examPeriod, a.assessmentTitle, a.teacherComment || undefined) === 2);
+  const shouldIncludePriorStages =
+    reportCardStage > 2 ||
+    (reportCardStage === 2 && hasDistinctFirstHalf && hasDistinctFirstTerminal);
+
   const cumulativeCgpaRes = computeCumulativeCgpaForStudent({
     studentDbId: student.id,
     studentIdNumber: student.studentId,
     currentStage: reportCardStage,
     currentStageScores: scoredSubjectRows.map((r) => ({
       subjectId: r.subjectId,
+      subjectName: r.subjectName,
+      subjectCode: r.subjectCode,
       totalScore: r.totalScore,
       units: 2,
     })),
-    allLocalScores: localBroadsheetScores,
-    allServerScores: assessments,
+    allLocalScores: shouldIncludePriorStages ? localBroadsheetScores : [],
+    allServerScores: shouldIncludePriorStages ? assessments : [],
     targetSession: student.session || '2026/2027',
     deletedIds: deletedScoreIds,
   });
@@ -2806,11 +2849,9 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                       Cumulative GPA (CGPA)
                     </span>
                     <strong className="text-emerald-400 print:text-emerald-900 font-mono font-black text-sm print:text-[9.5px]">
-                      {isSenior
-                        ? `${cumulativeCgpaRes.cgpa.toFixed(2)} / 5.00`
-                        : `${(juniorAverageSummary.averagePercentage / 20).toFixed(2)} / 5.00`}
+                      {`${cumulativeCgpaRes.cgpa.toFixed(2)} / 5.00`}
                     </strong>
-                    {isSenior && cumulativeCgpaRes.scopeLabel && (
+                    {cumulativeCgpaRes.scopeLabel && (
                       <span className="text-[9px] print:text-[7px] text-slate-400 print:text-slate-600 block font-normal leading-tight">
                         ({cumulativeCgpaRes.scopeLabel})
                       </span>

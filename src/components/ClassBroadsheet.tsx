@@ -873,7 +873,7 @@ export const ClassBroadsheet: React.FC = () => {
         const cellMap: Record<number, SubjectScoreCell> = {};
         let totalSum = 0;
         let countedSubjects = 0;
-        const currentStageScoresList: Array<{ subjectId: number | string; totalScore: number; units: number }> = [];
+        const currentStageScoresList: Array<{ subjectId: number | string; subjectName?: string; subjectCode?: string; totalScore: number; units: number }> = [];
 
         // Fast student score subset from pre-indexed Map (combine all keys to guarantee complete score capture)
         const candidateScores = Array.from(new Set([
@@ -1071,7 +1071,13 @@ export const ClassBroadsheet: React.FC = () => {
           if (cellTotal !== null) {
             totalSum += cellTotal;
             countedSubjects++;
-            currentStageScoresList.push({ subjectId: sub.id, totalScore: cellTotal, units: 2 });
+            currentStageScoresList.push({
+              subjectId: sub.id,
+              subjectName: sub.name,
+              subjectCode: sub.code,
+              totalScore: cellTotal,
+              units: 2,
+            });
           }
 
           const gradeStr = cellTotal !== null ? calculateSubjectGrade(cellTotal) : '-';
@@ -1091,36 +1097,25 @@ export const ClassBroadsheet: React.FC = () => {
 
         const avg = countedSubjects > 0 ? Math.round((totalSum / countedSubjects) * 10) / 10 : 0;
 
-        let cgpa: number | undefined;
-        let standing = 'No Scores Recorded';
-        let gradeBadge = 'N/A';
-        let totalUnits = 0;
-        let totalQualityPoints = 0;
-        let cgpaScopeLabel: string | undefined;
+        const cumulativeCgpaRes = computeCumulativeCgpaForStudent({
+          studentDbId: cleanDbId,
+          studentIdNumber: cleanStId,
+          currentStage,
+          currentStageScores: currentStageScoresList,
+          allLocalScores: localScores,
+          allServerScores: allSessionServerScores.length > 0 ? allSessionServerScores : serverScores,
+          targetSession: selectedSession,
+          deletedIds,
+        });
 
-        if (isSenior) {
-          // Calculate cumulative CGPA for this scholar according to exam stage:
-          // - Terminal Exam: includes both 1st Half and Terminal exam results
-          // - 2nd Term: cumulative of all available results up to 2nd Term (Terms 1 & 2)
-          // - 3rd Term: cumulative of all available results across the entire session
-          const cumulativeCgpaRes = computeCumulativeCgpaForStudent({
-            studentDbId: cleanDbId,
-            studentIdNumber: cleanStId,
-            currentStage,
-            currentStageScores: currentStageScoresList,
-            allLocalScores: localScores,
-            allServerScores: allSessionServerScores.length > 0 ? allSessionServerScores : serverScores,
-            targetSession: selectedSession,
-            deletedIds,
-          });
+        const cgpa: number | undefined = cumulativeCgpaRes.cgpa;
+        let standing = cumulativeCgpaRes.standing;
+        const gradeBadge = cumulativeCgpaRes.gradeBadge;
+        const totalUnits = cumulativeCgpaRes.totalUnits;
+        const totalQualityPoints = cumulativeCgpaRes.totalQualityPoints;
+        const cgpaScopeLabel: string | undefined = cumulativeCgpaRes.scopeLabel;
 
-          cgpa = cumulativeCgpaRes.cgpa;
-          standing = cumulativeCgpaRes.standing;
-          gradeBadge = cumulativeCgpaRes.gradeBadge;
-          totalUnits = cumulativeCgpaRes.totalUnits;
-          totalQualityPoints = cumulativeCgpaRes.totalQualityPoints;
-          cgpaScopeLabel = cumulativeCgpaRes.scopeLabel;
-        } else {
+        if (!isSenior) {
           const juniorSummary = calculateJuniorAverage(currentStageScoresList);
           standing = juniorSummary.standing;
         }
@@ -1434,49 +1429,47 @@ export const ClassBroadsheet: React.FC = () => {
           // Recompute sum, average and CGPA for this student
           let sum = 0;
           let count = 0;
-          const currentStageScoresList: Array<{ subjectId: number | string; totalScore: number; units: number }> = [];
+          const currentStageScoresList: Array<{ subjectId: number | string; subjectName?: string; subjectCode?: string; totalScore: number; units: number }> = [];
 
           Object.values(updatedCells).forEach((c) => {
             if (c.totalScore !== null && c.totalScore !== undefined) {
               sum += c.totalScore;
               count++;
-              currentStageScoresList.push({ subjectId: c.subjectId, totalScore: c.totalScore, units: 2 });
+              currentStageScoresList.push({
+                subjectId: c.subjectId,
+                subjectName: c.subjectName,
+                totalScore: c.totalScore,
+                units: 2,
+              });
             }
           });
 
           const newAvg = count > 0 ? Math.round((sum / count) * 10) / 10 : 0;
 
-          let cgpa: number | undefined;
-          let standing = 'No Scores Recorded';
-          let gradeBadge = 'N/A';
-          let totalUnits = 0;
-          let totalQualityPoints = 0;
-          let cgpaScopeLabel: string | undefined;
+          const currentStage = getExamStageOrder(selectedTerm, effectiveExamPeriod);
+          let localCache: any[] = [];
+          try {
+            const raw = localStorage.getItem('fis_broadsheet_scores_v2');
+            if (raw) localCache = JSON.parse(raw);
+          } catch (_) {}
 
-          if (isSenior) {
-            const currentStage = getExamStageOrder(selectedTerm, effectiveExamPeriod);
-            let localCache: any[] = [];
-            try {
-              const raw = localStorage.getItem('fis_broadsheet_scores_v2');
-              if (raw) localCache = JSON.parse(raw);
-            } catch (_) {}
+          const cumulativeCgpaRes = computeCumulativeCgpaForStudent({
+            studentDbId: activeCell.student.id,
+            studentIdNumber: activeCell.student.studentId,
+            currentStage,
+            currentStageScores: currentStageScoresList,
+            allLocalScores: localCache,
+            targetSession: selectedSession,
+          });
 
-            const cumulativeCgpaRes = computeCumulativeCgpaForStudent({
-              studentDbId: activeCell.student.id,
-              studentIdNumber: activeCell.student.studentId,
-              currentStage,
-              currentStageScores: currentStageScoresList,
-              allLocalScores: localCache,
-              targetSession: selectedSession,
-            });
+          const cgpa: number | undefined = cumulativeCgpaRes.cgpa;
+          let standing = cumulativeCgpaRes.standing;
+          const gradeBadge = cumulativeCgpaRes.gradeBadge;
+          const totalUnits = cumulativeCgpaRes.totalUnits;
+          const totalQualityPoints = cumulativeCgpaRes.totalQualityPoints;
+          const cgpaScopeLabel: string | undefined = cumulativeCgpaRes.scopeLabel;
 
-            cgpa = cumulativeCgpaRes.cgpa;
-            standing = cumulativeCgpaRes.standing;
-            gradeBadge = cumulativeCgpaRes.gradeBadge;
-            totalUnits = cumulativeCgpaRes.totalUnits;
-            totalQualityPoints = cumulativeCgpaRes.totalQualityPoints;
-            cgpaScopeLabel = cumulativeCgpaRes.scopeLabel;
-          } else {
+          if (!isSenior) {
             const juniorSummary = calculateJuniorAverage(currentStageScoresList);
             standing = juniorSummary.standing;
           }
@@ -1624,49 +1617,47 @@ export const ClassBroadsheet: React.FC = () => {
 
           let sum = 0;
           let count = 0;
-          const currentStageScoresList: Array<{ subjectId: number | string; totalScore: number; units: number }> = [];
+          const currentStageScoresList: Array<{ subjectId: number | string; subjectName?: string; subjectCode?: string; totalScore: number; units: number }> = [];
 
           Object.values(updatedCells).forEach((c) => {
             if (c.totalScore !== null && c.totalScore !== undefined) {
               sum += c.totalScore;
               count++;
-              currentStageScoresList.push({ subjectId: c.subjectId, totalScore: c.totalScore, units: 2 });
+              currentStageScoresList.push({
+                subjectId: c.subjectId,
+                subjectName: c.subjectName,
+                totalScore: c.totalScore,
+                units: 2,
+              });
             }
           });
 
           const newAvg = count > 0 ? Math.round((sum / count) * 10) / 10 : 0;
 
-          let cgpa: number | undefined;
-          let standing = 'No Scores Recorded';
-          let gradeBadge = 'N/A';
-          let totalUnits = 0;
-          let totalQualityPoints = 0;
-          let cgpaScopeLabel: string | undefined;
+          const currentStage = getExamStageOrder(selectedTerm, effectiveExamPeriod);
+          let localCache: any[] = [];
+          try {
+            const raw = localStorage.getItem('fis_broadsheet_scores_v2');
+            if (raw) localCache = JSON.parse(raw);
+          } catch (_) {}
 
-          if (isSenior) {
-            const currentStage = getExamStageOrder(selectedTerm, effectiveExamPeriod);
-            let localCache: any[] = [];
-            try {
-              const raw = localStorage.getItem('fis_broadsheet_scores_v2');
-              if (raw) localCache = JSON.parse(raw);
-            } catch (_) {}
+          const cumulativeCgpaRes = computeCumulativeCgpaForStudent({
+            studentDbId: activeCell.student.id,
+            studentIdNumber: activeCell.student.studentId,
+            currentStage,
+            currentStageScores: currentStageScoresList,
+            allLocalScores: localCache,
+            targetSession: selectedSession,
+          });
 
-            const cumulativeCgpaRes = computeCumulativeCgpaForStudent({
-              studentDbId: activeCell.student.id,
-              studentIdNumber: activeCell.student.studentId,
-              currentStage,
-              currentStageScores: currentStageScoresList,
-              allLocalScores: localCache,
-              targetSession: selectedSession,
-            });
+          const cgpa: number | undefined = cumulativeCgpaRes.cgpa;
+          let standing = cumulativeCgpaRes.standing;
+          const gradeBadge = cumulativeCgpaRes.gradeBadge;
+          const totalUnits = cumulativeCgpaRes.totalUnits;
+          const totalQualityPoints = cumulativeCgpaRes.totalQualityPoints;
+          const cgpaScopeLabel: string | undefined = cumulativeCgpaRes.scopeLabel;
 
-            cgpa = cumulativeCgpaRes.cgpa;
-            standing = cumulativeCgpaRes.standing;
-            gradeBadge = cumulativeCgpaRes.gradeBadge;
-            totalUnits = cumulativeCgpaRes.totalUnits;
-            totalQualityPoints = cumulativeCgpaRes.totalQualityPoints;
-            cgpaScopeLabel = cumulativeCgpaRes.scopeLabel;
-          } else {
+          if (!isSenior) {
             const juniorSummary = calculateJuniorAverage(currentStageScoresList);
             standing = juniorSummary.standing;
           }
@@ -2272,9 +2263,9 @@ export const ClassBroadsheet: React.FC = () => {
           <div>
             <span className="text-slate-600 block text-[9px] print:text-[7.5px] uppercase font-semibold">Cumulative GPA (CGPA)</span>
             <strong className="text-emerald-900 font-mono font-black text-xs print:text-[9px]">
-              {isSenior ? `${(row.cgpa || 0).toFixed(2)} / 5.00` : `${(row.averageScore / 20).toFixed(2)} / 5.00`}
+              {`${(row.cgpa || 0).toFixed(2)} / 5.00`}
             </strong>
-            {isSenior && row.cgpaScopeLabel && (
+            {row.cgpaScopeLabel && (
               <span className="text-[8.5px] print:text-[6.5px] text-slate-500 block font-normal leading-tight">
                 ({row.cgpaScopeLabel})
               </span>
@@ -2659,7 +2650,7 @@ export const ClassBroadsheet: React.FC = () => {
           {isSenior ? (
             <span>
               <strong className="text-amber-300">Senior Secondary Standard ({selectedClass}):</strong> Each evaluated subject carries{' '}
-              <strong>2 Credit Units</strong>. Evaluated on the <strong>5.0 CGPA scale</strong> (70+=5.0, 60+=4.0, 50+=3.0, 45+=2.0, 40+=1.0, &lt;40=0.0). Quality Points = 2 × GP. Broadsheet records CA (40) + Exam (60) = 100.
+              <strong>2 Credit Units</strong>. Evaluated on the <strong>5.0 CGPA scale</strong> (A1 75+=5.0 [10], B2/B3 65-74=4.0 [8], C4-C6 50-64=3.0 [6], D7 45-49=2.0 [4], E8 40-44=1.0 [2], F9 &lt;40=0.0 [CARRY OVER]). GPA = Total Points ÷ Total Units. Broadsheet records CA (40) + Exam (60) = 100.
             </span>
           ) : isSecondary ? (
             <span>
